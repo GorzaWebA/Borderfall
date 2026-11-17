@@ -745,3 +745,31 @@ select optgroup { color: var(--muted); font-style: normal; }
 }
 .row2 > * { min-width: 0; }
 .row2 select { width: 100%; }
+
+/* ---------- Peace button, flash overlay, diplomacy ---------- */
+.clock-btns { display: flex; gap: 4px; }
+.clock-btns .icon-btn { flex: 1; }
+#btn-peace { color: #9fe0c9; border-color: rgba(95, 179, 154, 0.5); }
+#flash { position: fixed; inset: 0; pointer-events: none; z-index: 45; opacity: 0; }
+#flash.warn { opacity: 1; box-shadow: inset 0 0 70px 10px rgba(224, 83, 61, 0.55); animation: warnPulse 0.9s ease-in-out infinite; }
+#flash.boom { animation: boom 1.1s ease-out; }
+@keyframes warnPulse { 50% { box-shadow: inset 0 0 40px 2px rgba(224, 83, 61, 0.25); } }
+@keyframes boom {
+  0% { opacity: 1; background: radial-gradient(circle at center, rgba(255, 245, 225, 0.85), rgba(224, 83, 61, 0.55) 60%, rgba(120, 20, 10, 0.75)); }
+  100% { opacity: 0; background: radial-gradient(circle at center, rgba(255, 245, 225, 0), rgba(224, 83, 61, 0) 60%, rgba(120, 20, 10, 0)); }
+}
+@media (prefers-reduced-motion: reduce) { #flash.warn, #flash.boom { animation: none; } }
+.dock-sliders .slider + .slider { margin-top: 2px; }
+.dipl-progress { padding: 10px 12px; border-radius: var(--radius-ctl); border: 1px solid var(--line-strong); margin: 0 0 12px; color: #d6d8cf; }
+.dipl-progress b { color: var(--green); }
+.dipl-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.dipl-table th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.dipl-table td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.dipl-table td.num { font-family: var(--font-num); font-size: 15px; text-align: right; }
+.dipl-table .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
+.dipl-table button { padding: 4px 10px; font-size: 13px; font-family: var(--font-ui); font-weight: 600; }
+.st-peace { color: var(--green); font-weight: 600; }
+.st-ally { color: #9fe0c9; font-weight: 600; }
+.st-war { color: #f29b8a; font-weight: 600; }
+.st-neutral { color: var(--muted); }
+.dipl-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }

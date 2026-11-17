@@ -205,12 +205,20 @@ class Renderer {
     ctx.fillRect(0, 0, this.cw, this.ch);
     if (!this.map) return;
     this.flush();
-    const [ox, oy] = this.origin();
+    let [ox, oy] = this.origin();
+    // Screen shake after a missile hits us; it eases out over its duration.
+    const now = performance.now();
+    if (this.shake && now < this.shake.until) {
+      const k = (this.shake.until - now) / this.shake.dur;
+      ox += (Math.random() * 2 - 1) * this.shake.mag * k;
+      oy += (Math.random() * 2 - 1) * this.shake.mag * k;
+    }
     const z = this.cam.zoom;
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.off, ox, oy, this.map.W * z, this.map.H * z);
     const g = this.game;
     if (!g) return;
+    this.drawFronts(ox, oy, z, now);
     this.drawBuildings(ox, oy, z);
     this.drawCapitals(ox, oy, z);
     this.drawShips(ox, oy, z, alpha);
@@ -237,17 +245,106 @@ class Renderer {
     }
   }
 
+  startShake(mag, dur) {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    this.shake = { mag, dur, until: performance.now() + dur };
+  }
+
+  // Attacks involving me: pulse the contested border and show the troops committed there.
+  drawFronts(ox, oy, z, now) {
+    const ctx = this.ctx, g = this.game, me = this.myId, W = this.map.W;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+    const px = Math.max(2, z);
+    for (const a of g.attacks) {
+      if (a.dead || !a.target || (a.attacker !== me && a.target !== me)) continue;
+      let tiles = a.fs;
+      if (!tiles && a.frontier) {
+        tiles = [];
+        const step = Math.max(1, Math.ceil(a.frontier.length / 120));
+        for (let k = 0; k < a.frontier.length; k += step) tiles.push(a.frontier[k]);
+      }
+      if (!tiles || !tiles.length) continue;
+      const incoming = a.target === me;
+      const rgb = incoming ? '255,72,52' : '255,214,90';
+      const sz = Math.max(3, z * 1.6);
+      let cx = 0, cy = 0;
+      for (const t of tiles) { const x = t % W; cx += x; cy += (t - x) / W; }
+      cx /= tiles.length; cy /= tiles.length;
+      // Anchor the badge on the actual front: the sampled tile nearest the front's centre.
+      let ax = cx, ay = cy, bd = 1e18;
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(10,18,26,0.85)';
+      ctx.fillStyle = `rgba(${rgb},${0.55 + 0.45 * pulse})`;
+      for (const t of tiles) {
+        const x = t % W, y = (t - x) / W;
+        const d = (x - cx) ** 2 + (y - cy) ** 2;
+        if (d < bd) { bd = d; ax = x; ay = y; }
+        const sx = ox + (x + 0.5) * z - sz / 2, sy = oy + (y + 0.5) * z - sz / 2;
+        if (sx > -sz && sy > -sz && sx < this.cw && sy < this.ch) { ctx.fillRect(sx, sy, sz, sz); ctx.strokeRect(sx, sy, sz, sz); }
+      }
+      const bx = ox + (ax + 0.5) * z, by = oy + (ay + 0.5) * z - 20;
+      if (!this.visible(bx, by, 60)) continue;
+      const label = fmt(a.troops);
+      ctx.font = '700 14px "Barlow Condensed", sans-serif';
+      const w = ctx.measureText(label).width + 30, h = 22;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(bx - w / 2, by - h / 2, w, h, 6) : ctx.rect(bx - w / 2, by - h / 2, w, h);
+      ctx.fillStyle = 'rgba(11,26,37,0.9)';
+      ctx.fill();
+      ctx.strokeStyle = `rgb(${rgb})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // crossed swords
+      const sx = bx - w / 2 + 11, sy = by;
+      ctx.beginPath();
+      ctx.moveTo(sx - 5, sy - 5); ctx.lineTo(sx + 5, sy + 5);
+      ctx.moveTo(sx + 5, sy - 5); ctx.lineTo(sx - 5, sy + 5);
+      ctx.moveTo(sx - 5, sy + 2); ctx.lineTo(sx - 2, sy + 5);
+      ctx.moveTo(sx + 5, sy + 2); ctx.lineTo(sx + 2, sy + 5);
+      ctx.strokeStyle = `rgb(${rgb})`;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.fillStyle = '#f4efe2';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, sx + 10, by + 1);
+    }
+  }
+
   drawBuildings(ox, oy, z) {
     const ctx = this.ctx, g = this.game;
     const low = this.quality === 'low';
-    if (low && z < 1.6) return;
-    const size = clamp(z * 2.4, 5, 26);
+    if (low && z < 0.9) return;
+    const base = clamp(z * 3.6, 11, 38);
     for (const b of g.buildings) {
       if (!b.alive) continue;
+      const lvl = b.level || 1;
+      const size = (low ? Math.min(base, 16) : base) * (1 + 0.08 * (lvl - 1));
       const sx = ox + (b.x + 0.5) * z, sy = oy + (b.y + 0.5) * z;
       if (!this.visible(sx, sy, size)) continue;
       const c = g.players[b.owner].color;
-      drawBuildingIcon(ctx, b.type, sx, sy, low ? Math.min(size, 8.5) : size, c, b.cooldown > 0 && (b.type === 'silo' || b.type === 'aa'));
+      if (!low) {
+        ctx.beginPath();
+        ctx.arc(sx + 1.5, sy + 2.5, size * 0.62, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(5,12,18,0.45)';
+        ctx.fill();
+      }
+      drawBuildingIcon(ctx, b.type, sx, sy, size, c, b.cooldown > 0 && (b.type === 'silo' || b.type === 'aa'));
+      if (lvl > 1) {
+        const r = Math.max(6, size * 0.24), bx = sx + size * 0.45, by = sy - size * 0.45;
+        ctx.beginPath();
+        ctx.arc(bx, by, r, 0, Math.PI * 2);
+        ctx.fillStyle = '#f1d58a';
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(11,26,37,0.9)';
+        ctx.stroke();
+        ctx.fillStyle = '#1b1607';
+        ctx.font = `700 ${Math.round(r * 1.5)}px "Barlow Condensed", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(lvl), bx, by + 0.5);
+      }
     }
   }
 
@@ -457,7 +554,7 @@ class Renderer {
         ctx.setLineDash([]);
       }
       ctx.globalAlpha = 0.85;
-      drawBuildingIcon(ctx, mode.type, sx, sy, clamp(z * 2.4, 12, 28), err ? [150, 60, 50] : me.color, false);
+      drawBuildingIcon(ctx, mode.type, sx, sy, clamp(z * 3.6, 14, 38), err ? [150, 60, 50] : me.color, false);
       ctx.globalAlpha = 1;
     } else if (mode.kind === 'missile') {
       const [rIn, rOut] = g.missileRadii(g.players[this.myId]);

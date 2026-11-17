@@ -2,10 +2,10 @@
 // Computer-controlled nations.
 
 const PERSONALITIES = [
-  { key: 'warlord', label: 'Warlord', aggression: 1.35, expandAt: 0.32, expandRatio: 0.45, attackAt: 0.5, attackRatio: 0.45, build: 0.8, fortBias: 0.6, siloBias: 1.4, loyalty: 0.6, focus: 0.35, techs: { mil: 3, eco: 1, sci: 1, gov: 1 } },
-  { key: 'merchant', label: 'Merchant', aggression: 0.75, expandAt: 0.38, expandRatio: 0.4, attackAt: 0.72, attackRatio: 0.35, build: 1.4, fortBias: 1.0, siloBias: 0.7, loyalty: 1.2, focus: 0.7, techs: { mil: 1, eco: 3, sci: 2, gov: 1.5 } },
-  { key: 'guardian', label: 'Guardian', aggression: 0.85, expandAt: 0.42, expandRatio: 0.38, attackAt: 0.75, attackRatio: 0.32, build: 1.1, fortBias: 1.8, siloBias: 0.8, loyalty: 1.4, focus: 0.5, techs: { mil: 2, eco: 1, sci: 1, gov: 2.5 } },
-  { key: 'opportunist', label: 'Opportunist', aggression: 1.1, expandAt: 0.34, expandRatio: 0.5, attackAt: 0.6, attackRatio: 0.4, build: 1.0, fortBias: 0.8, siloBias: 1.0, loyalty: 0.8, focus: 0.5, techs: { mil: 1.5, eco: 1.5, sci: 1.5, gov: 1.5 } },
+  { key: 'warlord', label: 'Warlord', aggression: 1.35, expandAt: 0.32, expandRatio: 0.45, attackAt: 0.5, attackRatio: 0.45, build: 0.8, fortBias: 0.6, siloBias: 1.4, loyalty: 0.6, focus: 0.35, science: 0.12, techs: { mil: 3, eco: 1, sci: 1, gov: 1 } },
+  { key: 'merchant', label: 'Merchant', aggression: 0.75, expandAt: 0.38, expandRatio: 0.4, attackAt: 0.72, attackRatio: 0.35, build: 1.4, fortBias: 1.0, siloBias: 0.7, loyalty: 1.2, focus: 0.7, science: 0.3, techs: { mil: 1, eco: 3, sci: 2, gov: 1.5 } },
+  { key: 'guardian', label: 'Guardian', aggression: 0.85, expandAt: 0.42, expandRatio: 0.38, attackAt: 0.75, attackRatio: 0.32, build: 1.1, fortBias: 1.8, siloBias: 0.8, loyalty: 1.4, focus: 0.5, science: 0.2, techs: { mil: 2, eco: 1, sci: 1, gov: 2.5 } },
+  { key: 'opportunist', label: 'Opportunist', aggression: 1.1, expandAt: 0.34, expandRatio: 0.5, attackAt: 0.6, attackRatio: 0.4, build: 1.0, fortBias: 0.8, siloBias: 1.0, loyalty: 0.8, focus: 0.5, science: 0.2, techs: { mil: 1.5, eco: 1.5, sci: 1.5, gov: 1.5 } },
 ];
 
 const DIFFICULTY = {
@@ -29,6 +29,7 @@ class AIController {
     this.savingSince = 0;
     this.enemy = 0;
     p.focus = pers.focus;
+    p.science = pers.science;
   }
 
   update() {
@@ -87,7 +88,7 @@ class AIController {
     for (const [o, border] of nb) {
       if (o === 0) continue;
       const q = g.players[o];
-      if (!q.alive || g.isAllied(p.id, o)) continue;
+      if (!q.alive || g.isFriendly(p.id, o)) continue;
       if (q.human && g.time < D.graceVsHuman) continue;
       const rel = g.getRel(p.id, o);
       if (!boxed && rel > 20 && P.key !== 'warlord') continue;
@@ -118,7 +119,7 @@ class AIController {
       const i = rng.int(g.N);
       if (g.isWater(i)) continue;
       const o = g.owner[i];
-      if (o === p.id || g.isAllied(p.id, o)) continue;
+      if (o === p.id || g.isFriendly(p.id, o)) continue;
       if (o === 0 && g.fallout[i]) continue;
       if (o) {
         const q = g.players[o];
@@ -208,9 +209,22 @@ class AIController {
     }
     if (!this.saving) return;
     if (p.gold < g.buildCost(p, this.saving)) return;
-    const t = this.findSpot(this.saving);
-    if (t >= 0) g.build(p.id, this.saving, t);
+    const type = this.saving;
+    let t = g.rng() < 0.35 ? this.stackSpot(type) : -1;
+    if (t < 0) t = this.findSpot(type);
+    if (t < 0) t = this.stackSpot(type);
+    if (t >= 0) g.build(p.id, type, t);
     this.saving = null;
+  }
+
+  // An existing building of this type that can still be stacked, lowest level first.
+  stackSpot(type) {
+    let best = null;
+    for (const b of this.p.blds) {
+      if (b.type !== type || b.level >= MAX_LEVEL) continue;
+      if (!best || b.level < best.level) best = b;
+    }
+    return best ? best.tile : -1;
   }
 
   findSpot(type) {
@@ -244,7 +258,7 @@ class AIController {
         const x = x0 + dx, y = y0 + dy;
         if (x < 0 || y < 0 || x >= W || y >= H) continue;
         const o = g.owner[y * W + x];
-        if (o && o !== p.id && !g.isAllied(p.id, o)) n++;
+        if (o && o !== p.id && !g.isFriendly(p.id, o)) n++;
       }
     }
     return n;
@@ -280,7 +294,7 @@ class AIController {
     if (p.gold < g.missileCost(p) + 300 * MONEY || !g.readySilo(p)) return;
     let target = null, bestS = 0;
     for (const q of g.players) {
-      if (!q || !q.alive || q.id === p.id || g.isAllied(p.id, q.id)) continue;
+      if (!q || !q.alive || q.id === p.id || g.isFriendly(p.id, q.id)) continue;
       if (q.human && g.time < D.graceVsHuman * 2) continue;
       let s = 0;
       const share = g.landShare(q);
@@ -309,13 +323,27 @@ class AIController {
         return;
       }
     }
+    for (const [o, since] of p.peace) {
+      const q = g.players[o];
+      if (!q || q.tribe) continue;
+      if (this.pers.aggression > 1 && g.tick - since > 150 * TPS && p.troops > q.troops * 2.5 && g.neighbors[p.id].has(o) && rng() < 0.12) {
+        g.breakPeace(p.id, o);
+        return;
+      }
+    }
+    // Losing a war against a stronger player? Offer them peace.
+    for (const a of g.attacks) {
+      if (a.dead || a.target !== p.id) continue;
+      const q = g.players[a.attacker];
+      if (q.human && q.troops > p.troops * 1.3 && rng() < 0.35) { g.requestPeace(p.id, q.id); return; }
+    }
     if (p.allies.size >= 3) return;
     const leader = this.findLeader();
     const cands = [];
     for (const [o] of g.neighbors[p.id]) {
       if (!o || g.isAllied(p.id, o)) continue;
       const q = g.players[o];
-      if (!q.alive || o === this.enemy || (leader && leader.id === o)) continue;
+      if (!q.alive || q.tribe || o === this.enemy || (leader && leader.id === o)) continue;
       let r = g.getRel(p.id, o);
       // Band together against a runaway leader.
       if (leader && leader.id !== p.id && g.neighbors[o].has(leader.id)) r += 20;
@@ -335,6 +363,21 @@ class AIController {
     return best;
   }
 
+  // Peace: easier than an alliance. Weaker or war-weary nations accept; runaway leaders and
+  // traitors get turned down; aggressive nations with a big edge keep fighting.
+  considerPeace(from) {
+    const g = this.g, p = this.p, P = this.pers;
+    const q = g.players[from];
+    let want = g.getRel(p.id, from) + 25;
+    if (q.troops > p.troops * 1.5) want += 25;
+    if (p.troops > q.troops * 2 && P.aggression > 1) want -= 35;
+    if (g.attacks.some((a) => !a.dead && a.attacker === from && a.target === p.id)) want += 10;
+    if (g.politics && p.stability < 40) want += 15;
+    if (g.landShare(q) > 0.4) want -= 25;
+    if (q.traitorUntil > g.tick) want -= 30;
+    return want > 25;
+  }
+
   considerAlliance(from) {
     const g = this.g, p = this.p, P = this.pers;
     const q = g.players[from];
@@ -347,5 +390,44 @@ class AIController {
     if (p.allies.size >= 3) need += 25;
     if (q.traitorUntil > g.tick) need += 30;
     return g.getRel(p.id, from) >= need;
+  }
+}
+
+// Tribes: small local clans. They settle nearby wilds, defend themselves and raid weaker
+// tribes now and then, but never build, research, or join alliances.
+class TribeAI {
+  constructor(game, p) {
+    this.g = game;
+    this.p = p;
+    this.next = 10 + game.rng.int(30);
+    p.focus = 0.5;
+  }
+  update() {
+    if (--this.next > 0) return;
+    this.next = 25 + this.g.rng.int(15);
+    this.think();
+  }
+  pickResearch() { return null; }
+  considerAlliance() { return false; }
+  considerPeace(from) { return this.g.players[from].troops > this.p.troops * 0.8 || this.g.getRel(this.p.id, from) > -20; }
+  think() {
+    const g = this.g, p = this.p, rng = g.rng;
+    if (!p.alive || !p.spawned || !g.started) return;
+    const ratio = p.troops / g.troopCap(p);
+    const nb = g.neighbors[p.id];
+    for (const a of g.attacks) {
+      if (a.dead || a.target !== p.id) continue;
+      if (p.troops > a.troops * 1.2 && ratio > 0.3) { g.launchAttack(p.id, a.attacker, Math.min(p.troops * 0.4, a.troops * 1.4)); return; }
+    }
+    if ((nb.get(0) || 0) > 0 && p.tiles < 350 && ratio > 0.55 && !g.attacks.some((a) => !a.dead && a.attacker === p.id)) {
+      g.launchAttack(p.id, 0, p.troops * 0.25);
+      return;
+    }
+    if (g.time > 60 && ratio > 0.8 && rng() < 0.15) {
+      for (const [o] of nb) {
+        const q = g.players[o];
+        if (o && q && q.alive && q.tribe && !g.isFriendly(p.id, o) && q.troops < p.troops * 0.6) { g.launchAttack(p.id, o, p.troops * 0.3); return; }
+      }
+    }
   }
 }

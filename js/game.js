@@ -4,8 +4,15 @@
 
 const TPS = 10;                 // simulation ticks per second
 const ATTACK_SPEED = 0.22;      // share of a front that tries to advance each tick
-const NEUTRAL_COST = 4;         // troops per plains tile of unclaimed land
-const NEUTRAL_SPEED = 1.5;      // settling empty land is quicker than fighting for it
+const NEUTRAL_COST = 3;         // troops per plains tile of unclaimed land
+const NEUTRAL_SPEED = 0.75;     // settling is steady, so troops last instead of vanishing in a burst
+const MAX_LEVEL = 5;            // buildings stack up to this level
+const RP_PRICE = 3000;          // dollars of research budget per research point
+const TRIBE_NAMES = ['Ash Clan', 'Bramble Folk', 'Cinder Kin', 'Dune Riders', 'Elk Clan', 'Fen Dwellers', 'Grey Wolves',
+  'Hearth Clan', 'Iron Hills', 'Juniper Folk', 'Kestrel Clan', 'Lake People', 'Moss Clan', 'Night Herders', 'Oak Clan',
+  'Pine Folk', 'Quarry Clan', 'River Clan', 'Salt Clan', 'Thorn Clan', 'Umber Folk', 'Vale Clan', 'Willow Folk', 'Yew Clan',
+  'Amber Clan', 'Boar Clan', 'Crow Clan', 'Deer Clan', 'Eagle Clan', 'Fox Clan', 'Hawk Clan', 'Lynx Clan', 'Otter Clan',
+  'Ram Clan', 'Stag Clan', 'Swan Clan', 'Wren Clan', 'Bear Clan', 'Heron Clan', 'Viper Clan'];
 const MONEY = 2000;             // dollars per old gold unit: a city costs about $2 million
 const START_TROOPS = 2500;
 const START_GOLD = 600 * MONEY;
@@ -96,6 +103,10 @@ class Player {
     this.rebelOf = 0;
     this.unrestWarnedAt = -1e9;
     this.peer = null;              // multiplayer peer id for remote humans
+    this.peace = new Map();        // nation id -> tick the treaty was signed
+    this.tribe = false;
+    this.science = 0.2;            // share of income spent on research
+    this.researchSpend = 0;
   }
 }
 
@@ -193,6 +204,16 @@ class Game {
       p.ai = new AIController(this, p, PERSONALITIES[rng.int(PERSONALITIES.length)], diff);
       this.players.push(p);
     }
+    const tribeNames = rng.shuffle(TRIBE_NAMES.slice());
+    for (let k = 0; k < (opts.numTribes || 0); k++) {
+      const hue = rng() * 360;
+      const p = new Player(this.players.length, tribeNames[k % tribeNames.length], hslToRgb(hue, 0.22 + rng() * 0.1, 0.45 + rng() * 0.1), false);
+      p.tribe = true;
+      p.diffMult = 0.75;
+      p.science = 0;
+      p.ai = new TribeAI(this, p);
+      this.players.push(p);
+    }
     this.spareNames = names.slice(opts.numAI);
     this.spareColors = colors.slice(opts.numAI);
     this.P = this.players.length + REBEL_SLOTS;
@@ -211,7 +232,8 @@ class Game {
 
   spawnAIs() {
     const rng = this.rng, W = this.W, T = this.map.terrain;
-    const ais = this.players.filter((p) => p && !p.human);
+    // Nations first so they get the roomiest spots; tribes fill the gaps.
+    const ais = this.players.filter((p) => p && !p.human).sort((a, b) => a.tribe - b.tribe);
     let minDist = Math.sqrt(this.map.landCount / (ais.length + 1)) * 0.75;
     const placed = [];
     for (const p of ais) {
@@ -231,7 +253,7 @@ class Game {
         }
         if (!ok) continue;
         this.claimSpawn(p, i);
-        placed.push([x, y]);
+        if (!p.tribe) placed.push([x, y]);
         done = true;
       }
       if (!done) { p.alive = false; }
@@ -245,7 +267,7 @@ class Game {
 
   claimSpawn(p, i) {
     const W = this.W, H = this.H, x0 = i % W, y0 = (i - x0) / W;
-    const r = SPAWN_RADIUS;
+    const r = p.tribe ? 3 : SPAWN_RADIUS;
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         if (dx * dx + dy * dy > r * r + 1) continue;
@@ -258,9 +280,9 @@ class Game {
         }
       }
     }
-    p.troops = START_TROOPS;
-    p.gold = START_GOLD + (p.tutorialBonus ? 1500 * MONEY : 0);
-    p.pop = START_POP;
+    p.troops = p.tribe ? 900 : START_TROOPS;
+    p.gold = p.tribe ? 0 : START_GOLD + (p.tutorialBonus ? 1500 * MONEY : 0);
+    p.pop = p.tribe ? 12000 : START_POP;
     p.spawned = true;
     p.capital = i;
     p.label = { x: x0 + 0.5, y: y0 + 0.5, size: 3, tile: i };
@@ -300,6 +322,9 @@ class Game {
   // ---------- helpers ----------
   isWater(i) { return this.map.terrain[i] <= T_SEA; }
   isAllied(a, b) { return a > 0 && b > 0 && a !== b && this.players[a].allies.has(b); }
+  atPeace(a, b) { return a > 0 && b > 0 && a !== b && this.players[a].peace.has(b); }
+  // Allies and peace partners never attack each other.
+  isFriendly(a, b) { return this.isAllied(a, b) || this.atPeace(a, b); }
   isTarget(i, t) {
     return this.owner[i] === t && (t !== 0 || (this.map.terrain[i] > T_SEA && this.fallout[i] === 0));
   }
@@ -432,13 +457,13 @@ class Game {
     if (bi >= 0) {
       const b = this.buildings[bi];
       if (po) {
-        po.counts[b.type]--;
+        po.counts[b.type] -= b.level || 1;
         const k = po.blds.indexOf(b);
         if (k >= 0) po.blds.splice(k, 1);
       }
       if (pn) {
         b.owner = newOwner;
-        pn.counts[b.type]++;
+        pn.counts[b.type] += b.level || 1;
         pn.blds.push(b);
         b.cooldown = Math.max(b.cooldown, 5 * TPS);
       } else {
@@ -461,13 +486,15 @@ class Game {
       else if (a.target === p.id) { this.players[a.attacker].troops += a.troops; a.troops = 0; a.dead = true; }
     }
     for (const s of this.ships) if (s.owner === p.id) s.dead = true;
-    for (const q of this.players) if (q) q.allies.delete(p.id);
+    for (const q of this.players) if (q) { q.allies.delete(p.id); q.peace.delete(p.id); }
     p.allies.clear();
+    p.peace.clear();
     if (by) { by.gold += p.gold; by.kills++; }
     p.gold = 0;
     p.troops = 0;
     p.pop = 0;
     if (p.human) this.log(`Your nation has fallen${by ? ' to ' + by.name : ''}.`, 'bad', p.id);
+    if (p.tribe) { if (by && by.human) this.log(`You absorbed the ${p.name}.`, 'good', by.id); return; }
     if (by && by.human) this.log(`You conquered ${p.name}! Their treasury is yours.`, 'good', by.id);
     this.log(`${p.name} was destroyed${by ? ' by ' + by.name : ''}.`, 'info', 0, [p.id, by ? by.id : 0]);
   }
@@ -499,7 +526,7 @@ class Game {
   launchAttack(aId, tId, amount, opts = {}) {
     const A = this.players[aId];
     if (!A || !A.alive || aId === tId) return false;
-    if (tId && (!this.players[tId].alive || this.isAllied(aId, tId))) return false;
+    if (tId && (!this.players[tId].alive || this.isFriendly(aId, tId))) return false;
     const fromPool = opts.fromPool !== false;
     amount = Math.floor(fromPool ? Math.min(amount, A.troops) : amount);
     if (amount < 1) return false;
@@ -560,7 +587,7 @@ class Game {
     for (const b of D.blds) {
       if (b.type !== 'fort') continue;
       const dx = b.x - x, dy = b.y - y;
-      if (dx * dx + dy * dy <= R2) return 2 + D.mods.fort;
+      if (dx * dx + dy * dy <= R2) return 2 + D.mods.fort + 0.3 * ((b.level || 1) - 1);
     }
     return 1;
   }
@@ -570,7 +597,7 @@ class Game {
     if (!D) return NEUTRAL_COST * T_COST[tt];
     const traitor = D.traitorUntil > this.tick ? 0.8 : 1;
     // Long-held, well-governed heartland resists harder than freshly taken land.
-    const core = this.politics && this.control[t] >= 90 ? 1.45 : 1;
+    const core = this.politics && this.control[t] >= 90 ? 1.6 : 1;
     return (density * 1.1 + 5) * T_DEF[tt] * this.fortMult(t, D) * traitor * core * (1 + D.mods.def) * (1 - A.mods.atk) * this.mode.defense;
   }
 
@@ -592,7 +619,7 @@ class Game {
     if (!A.alive) { atk.dead = true; return; }
     const aId = atk.attacker, tId = atk.target;
     const D = tId ? this.players[tId] : null;
-    if (D && (!D.alive || this.isAllied(aId, tId))) { A.troops += atk.troops; atk.dead = true; return; }
+    if (D && (!D.alive || this.isFriendly(aId, tId))) { A.troops += atk.troops; atk.dead = true; return; }
     const F = atk.frontier;
     if (F.length === 0 && !atk.seeded && atk.refreshAt <= this.tick) {
       this.buildFrontier(atk);
@@ -704,6 +731,7 @@ class Game {
     const o = this.owner[tile];
     if (o === pid) return { msg: 'Your land. Right-click it to build.' };
     if (this.isAllied(pid, o)) return { msg: `${this.players[o].name} is your ally. Right-click to reinforce them.` };
+    if (this.atPeace(pid, o)) return { msg: `You are at peace with ${this.players[o].name}. Right-click their land to declare war.` };
     if (o === 0 && this.fallout[tile]) return { msg: 'That land is scorched and can\'t be taken yet.', bad: true };
     const amount = Math.floor(me.troops * clamp(ratio, 0.01, 1));
     if (amount < 1) return { msg: 'You have no troops to send.', bad: true };
@@ -728,7 +756,9 @@ class Game {
       case 'attack': return this.attackTile(pid, a.tile, a.ratio);
       case 'build': {
         const err = this.build(pid, a.type, a.tile);
-        return r(err, BUILDINGS[a.type] ? `${BUILDINGS[a.type].name} built.` : '');
+        if (err || !BUILDINGS[a.type]) return r(err);
+        const lb = this.lastBuild;
+        return r('', lb && lb.upgraded ? `${BUILDINGS[a.type].name} upgraded to level ${lb.level}.` : `${BUILDINGS[a.type].name} built.`);
       }
       case 'missile': return r(this.launchMissile(pid, a.tile), 'Missile away.');
       case 'retreat': return this.retreat(a.id, pid) ? r('', 'Troops pulled back. 20% were lost in the retreat.') : r('That offensive has already ended.');
@@ -744,6 +774,17 @@ class Game {
       case 'martial': return r(this.setMartial(pid, !!a.on));
       case 'celebrate': return r(this.celebrate(pid));
       case 'focus': p.focus = clamp(Number(a.v) || 0, 0, 1); return r('');
+      case 'science': p.science = clamp(Number(a.v) || 0, 0, 0.8); return r('');
+      case 'peace': return r(this.requestPeace(pid, a.to));
+      case 'peaceAll': {
+        let n = 0;
+        for (const q of this.players) {
+          if (!q || !q.alive || q.id === pid || q.tribe || this.isFriendly(pid, q.id)) continue;
+          if (!this.requestPeace(pid, q.id, true)) n++;
+        }
+        return r(n ? '' : 'You are already at peace with every nation.', n ? `Peace offered to ${n} ${n === 1 ? 'nation' : 'nations'}.` : '');
+      }
+      case 'war': return r(this.breakPeace(pid, a.to));
       default: return r('Unknown command.');
     }
   }
@@ -821,6 +862,7 @@ class Game {
     const tOwner = this.owner[tile];
     if (tOwner === aId) return 'That is already your land.';
     if (this.isAllied(aId, tOwner)) return `${this.players[tOwner].name} is your ally.`;
+    if (this.atPeace(aId, tOwner)) return `You are at peace with ${this.players[tOwner].name}. Declare war first.`;
     if (tOwner === 0 && this.fallout[tile]) return 'That land is still scorched.';
     if (A.coastal === 0) return 'You need a coastline to launch a fleet.';
     if (this.fleetsOf(aId) >= this.fleetCap(A)) return `All ${this.fleetCap(A)} fleets are at sea. Build harbors for more.`;
@@ -858,7 +900,7 @@ class Game {
     if (!A.alive) return;
     const L = s.landing;
     const o = this.owner[L];
-    if (o === s.owner || this.isAllied(s.owner, o) || (o === 0 && this.fallout[L])) { A.troops += s.troops; return; }
+    if (o === s.owner || this.isFriendly(s.owner, o) || (o === 0 && this.fallout[L])) { A.troops += s.troops; return; }
     const D = o ? this.players[o] : null;
     const density = D ? D.troops / Math.max(1, D.tiles) : 0;
     const cost = this.tileCost(L, A, D, density);
@@ -880,10 +922,34 @@ class Game {
 
   // ---------- buildings ----------
   // Returns '' when the building can go here, otherwise the reason it can't.
+  // Clicking on or right next to your own building of the same type stacks it instead.
+  stackTarget(p, type, t) {
+    if (t < 0 || t >= this.N) return null;
+    const W = this.W, H = this.H, x0 = t % W, y0 = (t - x0) / W;
+    let best = null, bd = 1e9;
+    for (let y = Math.max(0, y0 - 2); y <= Math.min(H - 1, y0 + 2); y++) {
+      for (let x = Math.max(0, x0 - 2); x <= Math.min(W - 1, x0 + 2); x++) {
+        const bi = this.bldAt[y * W + x];
+        if (bi < 0) continue;
+        const b = this.buildings[bi];
+        if (!b.alive || b.owner !== p.id || b.type !== type) continue;
+        const d = Math.abs(x - x0) + Math.abs(y - y0);
+        if (d < bd) { bd = d; best = b; }
+      }
+    }
+    return best;
+  }
+
   canBuild(p, type, t, ignoreGold) {
     const def = BUILDINGS[type];
     if (!def || !this.buildingAvailable(type)) return 'Unknown building.';
     if (def.tech && !p.techs.has(def.tech)) return `Research ${TECH_BY_ID[def.tech].name} first.`;
+    const stack = this.stackTarget(p, type, t);
+    if (stack) {
+      if (stack.level >= MAX_LEVEL) return `This ${def.name.toLowerCase()} is already at level ${MAX_LEVEL}.`;
+      if (!ignoreGold && p.gold < this.buildCost(p, type)) return `Needs ${fmtMoney(this.buildCost(p, type))}.`;
+      return '';
+    }
     if (t < 0 || t >= this.N || this.owner[t] !== p.id) return 'Build on your own land.';
     if (def.coastal && !this.map.coast[t]) return 'Harbors must touch the sea.';
     const W = this.W, H = this.H, x0 = t % W, y0 = (t - x0) / W, r = BUILD_SPACING;
@@ -892,7 +958,7 @@ class Game {
         if (this.bldAt[y * W + x] >= 0) return 'Too close to another building.';
       }
     }
-    if (!ignoreGold && p.gold < this.buildCost(p, type)) return `Needs ${fmt(this.buildCost(p, type))} gold.`;
+    if (!ignoreGold && p.gold < this.buildCost(p, type)) return `Needs ${fmtMoney(this.buildCost(p, type))}.`;
     return '';
   }
 
@@ -901,8 +967,18 @@ class Game {
     const err = this.canBuild(p, type, t);
     if (err) return err;
     p.gold -= this.buildCost(p, type);
+    const stack = this.stackTarget(p, type, t);
+    if (stack) {
+      stack.level++;
+      p.counts[type]++;
+      this.lastBuild = { upgraded: true, level: stack.level };
+      if (this.net) this.net.bld.add(stack.id);
+      if (this.politics && (type === 'city' || type === 'courthouse')) this.computeAdmin();
+      return '';
+    }
+    this.lastBuild = { upgraded: false, level: 1 };
     const x = t % this.W, y = (t - x) / this.W;
-    const b = { id: this.buildings.length, type, tile: t, x, y, owner: pid, cooldown: 0, alive: true, builtAt: this.tick };
+    const b = { id: this.buildings.length, type, tile: t, x, y, owner: pid, cooldown: 0, alive: true, builtAt: this.tick, level: 1 };
     this.buildings.push(b);
     this.bldAt[t] = b.id;
     p.counts[type]++;
@@ -922,9 +998,11 @@ class Game {
     const cost = this.missileCost(A);
     if (A.gold < cost) return `A missile costs ${fmt(cost)} gold.`;
     if (t < 0 || t >= this.N) return 'Out of range.';
+    const tgt = this.owner[t];
+    if (tgt && this.isFriendly(aId, tgt)) return `You can't strike ${this.players[tgt].name}: ${this.isAllied(aId, tgt) ? 'they are your ally' : 'you are at peace'}.`;
     A.gold -= cost;
     A.missilesLaunched++;
-    silo.cooldown = SILO_RELOAD;
+    silo.cooldown = Math.round(SILO_RELOAD / (silo.level || 1));
     const W = this.W, tx = t % W, ty = (t - tx) / W;
     const dist = Math.hypot(tx - silo.x, ty - silo.y);
     const dur = Math.round(25 + dist / 3.5);
@@ -946,7 +1024,7 @@ class Game {
       if (!b.alive || b.type !== 'aa' || b.cooldown > 0 || b.owner === aId || this.isAllied(b.owner, aId)) continue;
       const dx = b.x - tx, dy = b.y - ty, rr = BUILDINGS.aa.radius;
       if (dx * dx + dy * dy <= rr * rr) {
-        b.cooldown = AA_RELOAD;
+        b.cooldown = Math.round(AA_RELOAD / (b.level || 1));
         m.interceptAt = Math.floor(dur * 0.82);
         m.interceptedBy = b.owner;
         break;
@@ -1018,8 +1096,9 @@ class Game {
       const sx = pi % W, sy = (pi - sx) / W;
       if ((sx - m.tx) ** 2 + (sy - m.ty) ** 2 <= R * R) { s.dead = true; this.casualties(this.players[s.owner], s.troops); }
     }
-    this.effects.push({ type: 'blast', x: m.tx + 0.5, y: m.ty + 0.5, r: R, at: this.time });
-    if (this.net) this.net.fx.push({ type: 'blast', x: m.tx + 0.5, y: m.ty + 0.5, r: R });
+    const hit = [...hits.keys()];
+    this.effects.push({ type: 'blast', x: m.tx + 0.5, y: m.ty + 0.5, r: R, at: this.time, hit, by: m.owner });
+    if (this.net) this.net.fx.push({ type: 'blast', x: m.tx + 0.5, y: m.ty + 0.5, r: R, hit, by: m.owner });
   }
 
   // ---------- diplomacy ----------
@@ -1032,17 +1111,64 @@ class Game {
     if (cd > this.tick) return `Wait ${Math.ceil((cd - this.tick) / TPS)}s before asking ${B.name} again.`;
     this.reqCooldown.set(key, this.tick + 30 * TPS);
     if (B.human) {
-      if (this.requests.some((r) => r.from === from && r.to === to)) return '';
-      this.requests.push({ id: this.idSeq++, from, to, expires: this.tick + 20 * TPS });
+      if (this.requests.some((r) => r.from === from && r.to === to && r.kind !== 'peace')) return '';
+      this.requests.push({ id: this.idSeq++, from, to, kind: 'ally', expires: this.tick + 20 * TPS });
       if (A.human) this.log(`Alliance offer sent to ${B.name}.`, 'info', from);
       return '';
     }
-    const ok = B.ai.considerAlliance(from);
+    const ok = !B.tribe && B.ai.considerAlliance(from);
     if (ok) {
       this.formAlliance(from, to);
     } else if (A.human) {
       this.log(`${B.name} declined your alliance (relation ${Math.round(this.getRel(to, from))}).`, 'info', from);
     }
+    return '';
+  }
+
+  requestPeace(from, to, quiet) {
+    const A = this.players[from], B = this.players[to];
+    if (!A || !B || !A.alive || !B.alive || from === to) return 'Not possible.';
+    if (this.atPeace(from, to)) return `Already at peace with ${B.name}.`;
+    if (this.isAllied(from, to)) return `${B.name} is already your ally.`;
+    const key = 'p' + (from * 1000 + to);
+    const cd = this.reqCooldown.get(key) || 0;
+    if (cd > this.tick) return `Wait ${Math.ceil((cd - this.tick) / TPS)}s before offering ${B.name} peace again.`;
+    this.reqCooldown.set(key, this.tick + 25 * TPS);
+    if (B.human) {
+      if (!this.requests.some((r) => r.from === from && r.to === to && r.kind === 'peace')) {
+        this.requests.push({ id: this.idSeq++, from, to, kind: 'peace', expires: this.tick + 20 * TPS });
+      }
+      if (A.human && !quiet) this.log(`Peace offer sent to ${B.name}.`, 'info', from);
+      return '';
+    }
+    if (B.ai.considerPeace(from)) this.makePeace(from, to);
+    else if (A.human) this.log(`${B.name} refused peace${this.getRel(to, from) < -30 ? '. They still hold a grudge' : ''}.`, 'info', from);
+    return '';
+  }
+
+  makePeace(a, b) {
+    const A = this.players[a], B = this.players[b];
+    A.peace.set(b, this.tick); B.peace.set(a, this.tick);
+    this.addRel(a, b, 10); this.addRel(b, a, 10);
+    for (const x of this.attacks) {
+      if (x.dead) continue;
+      if ((x.attacker === a && x.target === b) || (x.attacker === b && x.target === a)) {
+        this.players[x.attacker].troops += x.troops; x.troops = 0; x.dead = true;
+      }
+    }
+    if (A.human) this.log(`Peace signed with ${B.name}.`, 'good', a);
+    if (B.human) this.log(`Peace signed with ${A.name}.`, 'good', b);
+  }
+
+  breakPeace(a, b) {
+    const A = this.players[a], B = this.players[b];
+    if (!B || !this.atPeace(a, b)) return 'You are not at peace with them.';
+    A.peace.delete(b); B.peace.delete(a);
+    for (const q of this.players) if (q && q.id !== a) this.addRel(q.id, a, -8);
+    this.addRel(b, a, -35);
+    if (this.politics) A.shock += 4;
+    if (A.human) this.log(`You declared war on ${B.name}. Other nations take note.`, 'bad', a);
+    if (B.human) this.log(`${A.name} broke the peace and declared war on you!`, 'bad', b);
     return '';
   }
 
@@ -1053,11 +1179,12 @@ class Game {
     this.requests.splice(k, 1);
     const A = this.players[r.from];
     if (!A.alive || !this.players[pid].alive) return;
-    if (accept) this.formAlliance(r.from, pid);
+    const peace = r.kind === 'peace';
+    if (accept) { if (peace) this.makePeace(r.from, pid); else this.formAlliance(r.from, pid); }
     else {
       this.addRel(r.from, pid, -8);
       this.log(`You turned down ${A.name}.`, 'info', pid);
-      if (A.human) this.log(`${this.players[pid].name} declined your alliance.`, 'info', A.id);
+      if (A.human) this.log(`${this.players[pid].name} declined your ${peace ? 'peace offer' : 'alliance'}.`, 'info', A.id);
     }
   }
 
@@ -1150,17 +1277,17 @@ class Game {
   // Spread administrative reach outward from the capital, cities and courthouses.
   computeAdmin() {
     const W = this.W, own = this.owner, S = this.adminSlack;
-    const OFF = 64, MIN = -40, MAX = 40;
+    const OFF = 64, MIN = -40, MAX = 60;
     S.fill(-128);
     const B = this._buckets;
     for (let k = 0; k <= OFF + MAX; k++) { if (B[k]) B[k].length = 0; else B[k] = []; }
-    const seed = (t, r) => { if (r > S[t]) { S[t] = r; B[r + OFF].push(t); } };
+    const seed = (t, r) => { r = Math.min(r, MAX); if (r > S[t]) { S[t] = r; B[r + OFF].push(t); } };
     for (const p of this.players) {
       if (!p || !p.alive) continue;
       if (p.capital >= 0 && own[p.capital] === p.id) seed(p.capital, ADMIN_RADIUS.capital);
       for (const b of p.blds) {
-        if (b.type === 'city') seed(b.tile, ADMIN_RADIUS.city);
-        else if (b.type === 'courthouse') seed(b.tile, ADMIN_RADIUS.courthouse);
+        if (b.type === 'city') seed(b.tile, ADMIN_RADIUS.city + 3 * ((b.level || 1) - 1));
+        else if (b.type === 'courthouse') seed(b.tile, ADMIN_RADIUS.courthouse + 3 * ((b.level || 1) - 1));
       }
     }
     for (let s = MAX; s > MIN; s--) {
@@ -1222,7 +1349,8 @@ class Game {
     const ctrl = (1 - p.avgControl / 100) * 28;
     const war = Math.min(25, (p.weariness / Math.max(5000, p.pop)) * 200 * Math.max(0.2, 1 + p.mods.weariness));
     const burden = Math.abs(p.focus - 0.5) * 20;
-    const size = Math.min(36, this.landShare(p) * 56);
+    const share = this.landShare(p);
+    const size = Math.min(45, share * 56 + Math.max(0, share - 0.45) * 80);
     const f = [['Base', 62]];
     if (p.mods.stability) f.push(['Technology', p.mods.stability]);
     if (p.martial) f.push(['Martial law', 15]);
@@ -1311,6 +1439,56 @@ class Game {
     return true;
   }
 
+  // ---------- encirclement ----------
+  // Any patch of land touched only by one other nation (no sea, no third party) is annexed by it,
+  // unless it belongs to an ally or peace partner. Large cut-off pockets of a nation hold out.
+  annexEnclaves() {
+    const W = this.W, H = this.H, N = this.N, own = this.owner, T = this.map.terrain, fo = this.fallout;
+    const st = this.nextStamp(), S = this.bfsStamp, Q = this.bfsQueue;
+    for (let s = 0; s < N; s++) {
+      if (S[s] === st || T[s] <= T_SEA) continue;
+      const X = own[s];
+      let qh = 0, qt = 0, enc = -1, open = false, bad = false;
+      Q[qt++] = s; S[s] = st;
+      while (qh < qt) {
+        const i = Q[qh++];
+        if (fo[i]) bad = true;
+        const x = i % W, y = (i - x) / W;
+        for (let k = 0; k < 4; k++) {
+          let n;
+          if (k === 0) { if (x === 0) { open = true; continue; } n = i - 1; }
+          else if (k === 1) { if (x === W - 1) { open = true; continue; } n = i + 1; }
+          else if (k === 2) { if (y === 0) { open = true; continue; } n = i - W; }
+          else { if (y === H - 1) { open = true; continue; } n = i + W; }
+          if (T[n] <= T_SEA) { open = true; continue; }
+          const o = own[n];
+          if (o === X) { if (S[n] !== st) { S[n] = st; Q[qt++] = n; } continue; }
+          if (enc === -1) enc = o; else if (enc !== o) open = true;
+        }
+      }
+      if (open || bad || enc <= 0) continue;
+      const P = this.players[enc];
+      if (!P.alive || (X && this.isFriendly(X, enc))) continue;
+      if (X) {
+        const D = this.players[X];
+        let hasCap = false;
+        for (let k = 0; k < qt; k++) if (Q[k] === D.capital) { hasCap = true; break; }
+        if (qt > Math.max(60, D.tiles * 0.1) || (hasCap && qt > 60)) continue;
+      }
+      this.annexRegion(P, X ? this.players[X] : null, Array.from(Q.subarray(0, qt)));
+    }
+  }
+
+  annexRegion(P, D, region) {
+    const density = D ? D.troops / Math.max(1, D.tiles) : 0;
+    for (const t of region) this.takeTile(t, P, D, density);
+    const n = region.length;
+    // Fronts pinch off tiny pockets all the time; only announce real encirclements.
+    if (P.human && n >= (D ? 25 : 60)) this.log(`You annexed ${fmt(n)} encircled tiles${D ? ' from ' + D.name : ''}.`, 'good', P.id);
+    if (D && D.human && n >= 25) this.log(`${P.name} annexed ${fmt(n)} of your tiles that were cut off.`, 'bad', D.id);
+    if (D && !D.tribe && !P.tribe && n >= 25) this.addRel(D.id, P.id, -6);
+  }
+
   // ---------- periodic ----------
   economy() {
     const dt = 1 / TPS, M = this.mode;
@@ -1346,10 +1524,15 @@ class Game {
       const harborIncome = p.counts.harbor * (6 + 1.5 * Math.max(0, others)) * (1 + p.mods.trade);
       const inc = MONEY * (5 + workers * 0.00025 + p.counts.city * 10 + harborIncome + p.counts.factory * 25) *
         (0.4 + 1.2 * p.focus) * (1 + p.mods.gold) * sf * (p.martial ? 0.75 : 1) * p.diffMult;
-      p.gold += inc * dt;
-      p.income = inc;
-      // Research.
-      const rp = (2 + Math.sqrt(p.pop) * 0.02 + p.counts.university * 4) * (1 + p.mods.research) * sf * M.research * p.diffMult;
+      // Research is funded from income; nothing is spent while there's nothing to research.
+      const spend = p.research ? inc * p.science : 0;
+      p.gold += (inc - spend) * dt;
+      p.income = inc - spend;
+      p.grossIncome = inc;
+      p.researchSpend = spend;
+      // Research: a base from people and universities, plus whatever the budget buys.
+      const rp = ((1 + Math.sqrt(p.pop) * 0.008 + p.counts.university * 4) * p.diffMult + spend / RP_PRICE) *
+        (1 + p.mods.research) * sf * M.research;
       p.rpRate = rp;
       if (p.research) {
         const t = TECH_BY_ID[p.research];
@@ -1446,7 +1629,7 @@ class Game {
       this.updateControl();
       for (let k = 1; k < NP; k++) {
         const p = this.players[k];
-        if (!p.alive || !p.spawned) continue;
+        if (!p.alive || !p.spawned || p.tribe) continue;
         p.adminCap = this.adminCapOf(p);
         p.weariness *= 0.985;
         this.updateStability(p);
@@ -1590,11 +1773,14 @@ class Game {
     }
     const humans = this.humans();
     if (!humans.some((h) => h.alive)) { end(top ? top.id : 0, 'fallen'); return; }
-    if (!this.multiplayer) {
-      const h = humans[0];
+    // Peace victory: the largest nation, at peace or allied with every other surviving nation.
+    let topNation = null;
+    for (const p of this.players) if (p && p.alive && !p.tribe && (!topNation || p.tiles > topNation.tiles)) topNation = p;
+    for (const h of humans) {
+      if (!h.alive || h !== topNation || this.time < 120) continue;
       let rivals = 0;
-      for (const p of this.players) if (p && p.alive && !p.human && !h.allies.has(p.id)) rivals++;
-      if (rivals === 0) { end(h.id, 'rivals'); return; }
+      for (const p of this.players) if (p && p.alive && !p.tribe && p !== h && !this.isFriendly(h.id, p.id)) rivals++;
+      if (rivals === 0) { end(h.id, 'peace'); return; }
     }
     if (this.mode.endYear && this.year >= this.mode.endYear) end(top.id, 'year');
   }
@@ -1615,6 +1801,7 @@ class Game {
     this.economy();
     if (this.tick % TPS === 0) this.perSecond();
     if (this.tick % (TPS * 2) === 5) this.computeLabels();
+    if (this.tick % (TPS * 3) === 15) this.annexEnclaves();
     for (let k = 2; k < this.players.length; k++) {
       const p = this.players[k];
       if (p.alive && p.ai) p.ai.update();

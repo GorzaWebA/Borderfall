@@ -78,6 +78,10 @@
         </div>
         <p id="map-desc" class="field-note" hidden></p>
         <label class="field">
+          <span>Tribes <output id="opt-tribes-out">12</output></span>
+          <input type="range" id="opt-tribes" min="0" max="40" value="12">
+        </label>
+        <label class="field">
           <span>Rival nations <output id="opt-ai-out">14</output></span>
           <input type="range" id="opt-ai" min="3" max="60" value="14">
         </label>
@@ -188,7 +192,10 @@
           <button type="button" data-speed="2">2×</button>
           <button type="button" data-speed="4">4×</button>
         </div>
-        <button type="button" id="btn-menu" class="icon-btn" title="Menu">Menu</button>
+        <div class="clock-btns">
+          <button type="button" id="btn-peace" class="icon-btn" title="Diplomacy: offer peace, declare war, track a peaceful victory (P)">Peace</button>
+          <button type="button" id="btn-menu" class="icon-btn" title="Menu">Menu</button>
+        </div>
       </div>
     </header>
 
@@ -205,12 +212,16 @@
     <footer id="dock" class="panel">
       <div class="dock-sliders">
         <label class="slider">
-          <span class="slider-head">Attack with <output id="ratio-out">30%</output> <em id="ratio-troops"></em></span>
-          <input type="range" id="ratio" min="1" max="100" value="30">
+          <span class="slider-head">Attack with <output id="ratio-out">10%</output> <em id="ratio-troops"></em></span>
+          <input type="range" id="ratio" min="1" max="100" value="10">
         </label>
         <label class="slider" title="Army focus grows troops faster. Economy focus earns more gold.">
           <span class="slider-head"><span>Army</span><output id="focus-out">Balanced</output><span>Economy</span></span>
           <input type="range" id="focus" min="0" max="100" value="50">
+        </label>
+        <label class="slider" title="Share of your income spent on research each moment. More money means faster technology but less to build with.">
+          <span class="slider-head">Research budget <output id="sci-out">20%</output> <em id="sci-cost"></em></span>
+          <input type="range" id="science" min="0" max="80" value="20">
         </label>
       </div>
       <div class="builds" id="builds"></div>
@@ -221,6 +232,7 @@
   </div>
 
   <aside id="tutorial" class="panel" hidden aria-live="polite"></aside>
+  <div id="flash" aria-hidden="true"></div>
   <div id="tooltip" hidden></div>
   <div id="ctx" class="panel" hidden></div>
 
@@ -235,7 +247,7 @@
     <div class="help">
       <section>
         <h3>Goal</h3>
-        <p>Control 70% of the world's land, or leave only allies standing. If nobody manages that before time runs out (2000 in Realistic, 1700 in Blitz), the largest nation wins. If you lose every tile, your nation falls.</p>
+        <p>Control 70% of the world's land, or win in peace: be the largest nation while every other surviving nation is at peace or allied with you. If nobody manages that before time runs out (2000 in Realistic, 1700 in Blitz), the largest nation wins. If you lose every tile, your nation falls.</p>
       </section>
       <section>
         <h3>Modes</h3>
@@ -273,8 +285,16 @@
         <ul class="bl"></ul>
       </section>
       <section>
+        <h3>Borders, tribes and encirclement</h3>
+        <p>Pulsing marks on the map show every front where you're attacking (gold) or being attacked (red), with the troops fighting there. Small tribes hold scattered patches of land at the start; they never build or research and are easy to absorb. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally or a nation you're at peace with. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
+      </section>
+      <section>
+        <h3>Peace</h3>
+        <p>Click Peace in the top bar (or right-click a nation) to offer peace. Nations at peace can't attack each other until one declares war, which other nations remember. Weaker or war-weary nations accept more readily; a nation that's losing to you may ask for peace itself.</p>
+      </section>
+      <section>
         <h3>Money</h3>
-        <p>Your treasury fills from your workers' taxes, cities, harbors and factories. A city costs about $2 million, and each extra building of a kind costs more. The Army–Economy slider trades troop recruiting for income.</p>
+        <p>Your treasury fills from your workers' taxes, cities, harbors and factories. A city costs about $2 million, and each extra building of a kind costs more. Build on top of one of your own buildings of the same type to stack it, up to level 5; each level adds the building's full effect again. The Army–Economy slider trades troop recruiting for income, and the Research budget slider sets how much of your income goes to research.</p>
       </section>
       <section>
         <h3>Multiplayer</h3>
@@ -292,6 +312,7 @@
           <dt>Drag, wheel, pinch</dt><dd>Move and zoom the map</dd>
           <dt>1 – 9</dt><dd>Choose a building to place</dd>
           <dt>T</dt><dd>Open the technology tree</dd>
+          <dt>P</dt><dd>Open diplomacy and peace</dd>
           <dt>G</dt><dd>Open government (Realistic)</dd>
           <dt>M</dt><dd>Aim a missile</dd>
           <dt>Q / E</dt><dd>Lower or raise the attack share</dd>

@@ -11,7 +11,7 @@ const MODES = {
     politics: true,       // stability, control, administration, revolts
     popGrowth: 0.02,
     research: 1,
-    attackSpeed: 0.3,     // pre-industrial fronts crawl; railroads and engines speed them up
+    attackSpeed: 0.27,    // pre-industrial fronts crawl; railroads and engines speed them up
     defense: 1.7,
     attrition: 0.018,     // share of an offensive lost to supply each second
     absorb: 0.22,         // share of a conquered region's people who join the conqueror
@@ -26,10 +26,10 @@ const MODES = {
     politics: false,
     popGrowth: 0.036,
     research: 1.7,
-    attackSpeed: 0.4,
-    defense: 1.4,
+    attackSpeed: 0.36,
+    defense: 1.45,
     attrition: 0.012,
-    absorb: 0.35,
+    absorb: 0.3,
     endYear: 1700,
     minutes: 15,
     desc: 'About 15 minutes. Research anything once you know what it builds on. No stability or revolts, faster growth. Ends in 1700 if nobody has won.',
