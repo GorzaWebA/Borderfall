@@ -42,6 +42,7 @@
             <span>Map</span>
             <select id="opt-type">
               <optgroup label="Random worlds">
+                <option value="random">Random (new each game)</option>
                 <option value="continents">Continents</option>
                 <option value="pangaea">Pangaea</option>
                 <option value="archipelago">Archipelago</option>
@@ -71,13 +72,14 @@
               <option value="small">Small</option>
               <option value="medium" selected>Medium</option>
               <option value="large">Large</option>
+              <option value="huge">Huge</option>
             </select>
           </label>
         </div>
         <p id="map-desc" class="field-note" hidden></p>
         <label class="field">
           <span>Rival nations <output id="opt-ai-out">14</output></span>
-          <input type="range" id="opt-ai" min="3" max="40" value="14">
+          <input type="range" id="opt-ai" min="3" max="60" value="14">
         </label>
         <div class="field">
           <span id="diff-label">Difficulty</span>
@@ -94,9 +96,45 @@
             <button type="button" id="btn-reroll" class="ghost">New world</button>
           </div>
         </div>
+        <div class="field">
+          <span id="gfx-label">Graphics</span>
+          <div class="segmented two" role="radiogroup" aria-labelledby="gfx-label">
+            <label><input type="radio" name="gfx" value="high" checked><span>High</span></label>
+            <label><input type="radio" name="gfx" value="low"><span>Low (faster)</span></label>
+          </div>
+        </div>
+
+        <section id="lobby" class="lobby" hidden aria-live="polite">
+          <div class="lobby-head">
+            <div><span class="lobby-k">Lobby code</span><b id="lobby-code">-----</b></div>
+            <button type="button" class="ghost" id="mp-copy">Copy invite link</button>
+          </div>
+          <ul id="lobby-players"></ul>
+          <p id="lobby-status" class="field-note"></p>
+          <button type="button" class="text-btn" id="mp-leave">Leave lobby</button>
+        </section>
+
         <button type="submit" class="primary" id="btn-start">Choose your homeland</button>
       </form>
-      <button type="button" class="text-btn" id="btn-help">How to play</button>
+
+      <section id="mp-entry" class="mp">
+        <h2>Multiplayer</h2>
+        <p class="field-note">Play live against friends or strangers, plus computer nations. Your name, color and the settings above are used.</p>
+        <div class="mp-row">
+          <button type="button" class="ghost" id="mp-quick">Quick match</button>
+          <button type="button" class="ghost" id="mp-create">Create lobby</button>
+        </div>
+        <div class="seed-row">
+          <input id="mp-code" maxlength="5" placeholder="Lobby code" aria-label="Lobby code" autocapitalize="characters" spellcheck="false">
+          <button type="button" class="ghost" id="mp-join">Join</button>
+        </div>
+        <p id="mp-status" class="field-note" role="status"></p>
+      </section>
+
+      <div class="menu-links">
+        <button type="button" class="text-btn" id="btn-tutorial">Play the tutorial</button>
+        <button type="button" class="text-btn" id="btn-help">How to play</button>
+      </div>
     </div>
   </section>
 
@@ -114,8 +152,8 @@
         <span class="v" id="v-troops">0</span>
         <span class="sub"><span id="v-cap">/ 0</span> <span id="v-growth" class="rate">+0/s</span></span>
       </div>
-      <div class="stat" title="Gold pays for buildings and missiles.">
-        <span class="k">Gold</span>
+      <div class="stat" title="Money in your treasury. It pays for buildings, missiles and celebrations.">
+        <span class="k">Treasury</span>
         <span class="v" id="v-gold">0</span>
         <span class="sub"><span id="v-income" class="rate">+0/s</span></span>
       </div>
@@ -182,6 +220,7 @@
     <div id="toasts"></div>
   </div>
 
+  <aside id="tutorial" class="panel" hidden aria-live="polite"></aside>
   <div id="tooltip" hidden></div>
   <div id="ctx" class="panel" hidden></div>
 
@@ -208,7 +247,7 @@
       </section>
       <section>
         <h3>Taking land</h3>
-        <p>Click land next to your border to attack it with the share of troops set on the <b>Attack with</b> slider. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead.</p>
+        <p>Click land to send the share of troops set on the <b>Attack with</b> slider. Settling empty land is quick, and your border grows toward the spot you click. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead.</p>
         <p>Troops at home defend you. Troops sent out don't, so don't empty your barracks while a neighbor is watching. Troops regrow fastest when you're well under your cap.</p>
       </section>
       <section>
@@ -232,6 +271,14 @@
       <section>
         <h3>Buildings</h3>
         <ul class="bl"></ul>
+      </section>
+      <section>
+        <h3>Money</h3>
+        <p>Your treasury fills from your workers' taxes, cities, harbors and factories. A city costs about $2 million, and each extra building of a kind costs more. The Army–Economy slider trades troop recruiting for income.</p>
+      </section>
+      <section>
+        <h3>Multiplayer</h3>
+        <p>Create a lobby and share its 5-letter code or invite link, join a friend's code, or use Quick match to join an open public game. Up to 8 people play together, with computer nations filling the rest. The host's browser runs the match, so the game ends if the host leaves; if anyone else drops out, the computer takes over their nation.</p>
       </section>
       <section>
         <h3>Diplomacy</h3>
@@ -263,6 +310,8 @@
   <script src="js/ai.js"></script>
   <script src="js/game.js"></script>
   <script src="js/render.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/tutorial.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>
 </body>

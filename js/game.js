@@ -4,17 +4,19 @@
 
 const TPS = 10;                 // simulation ticks per second
 const ATTACK_SPEED = 0.22;      // share of a front that tries to advance each tick
-const NEUTRAL_COST = 5;         // troops per plains tile of unclaimed land
-const START_TROOPS = 1500;
-const START_GOLD = 300;
-const START_POP = 20000;
+const NEUTRAL_COST = 4;         // troops per plains tile of unclaimed land
+const NEUTRAL_SPEED = 1.5;      // settling empty land is quicker than fighting for it
+const MONEY = 2000;             // dollars per old gold unit: a city costs about $2 million
+const START_TROOPS = 2500;
+const START_GOLD = 600 * MONEY;
+const START_POP = 30000;
 const POP_PER_VALUE = 250;      // people a fully controlled plains tile can feed
 const CITY_POP = 20000;
 const CAPITAL_POP = 10000;
-const SPAWN_RADIUS = 4;
+const SPAWN_RADIUS = 5;
 const WIN_SHARE = 0.7;
 const SHIP_SPEED = 1.5;         // tiles per tick
-const MISSILE_BASE_COST = 4000;
+const MISSILE_BASE_COST = 4000 * MONEY;
 const MISSILE_R_IN = 6;
 const MISSILE_R_OUT = 12;
 const FALLOUT_SECONDS = 35;
@@ -24,15 +26,15 @@ const ADMIN_RADIUS = { capital: 30, city: 18, courthouse: 34 };
 const REVOLT_BELOW = 30;
 
 const BUILDINGS = {
-  city: { name: 'City', base: 1000, step: 650, key: '1', desc: 'Houses 20K people, earns +10 gold/s and extends your administration.' },
-  barracks: { name: 'Barracks', base: 900, step: 500, key: '2', tech: 'drill', desc: 'Recruiting +25%. 0.5% more of your people can serve.' },
-  fort: { name: 'Fortress', base: 700, step: 350, key: '3', radius: 9, desc: 'Land within 9 tiles costs attackers double and falls half as fast.' },
-  harbor: { name: 'Harbor', base: 900, step: 450, key: '4', coastal: true, desc: 'Coast only. Earns trade gold from every harbor in the world. +2 fleets.' },
-  university: { name: 'University', base: 1100, step: 600, key: '5', tech: 'printing', desc: '+4 research per second.' },
-  courthouse: { name: 'Courthouse', base: 1200, step: 700, key: '6', tech: 'bureaucracy', politics: true, desc: 'Administers 350 more tiles and brings land within 34 tiles under full control.' },
-  factory: { name: 'Factory', base: 2500, step: 1200, key: '7', tech: 'steam', desc: '+25 gold/s. Recruiting +15%.' },
-  aa: { name: 'Air Defense', base: 2500, step: 1250, key: '8', tech: 'radar', radius: 22, desc: 'Shoots down one enemy missile aimed within 22 tiles every 12s.' },
-  silo: { name: 'Missile Silo', base: 5000, step: 2500, key: '9', tech: 'rocketry', desc: 'Launches missiles that wipe out troops and scorch land. 20s reload.' },
+  city: { name: 'City', base: 1000 * MONEY, step: 650 * MONEY, key: '1', desc: 'Houses 20K people, earns $20K/s and extends your administration.' },
+  barracks: { name: 'Barracks', base: 900 * MONEY, step: 500 * MONEY, key: '2', tech: 'drill', desc: 'Recruiting +25%. 0.5% more of your people can serve.' },
+  fort: { name: 'Fortress', base: 700 * MONEY, step: 350 * MONEY, key: '3', radius: 9, desc: 'Land within 9 tiles costs attackers double and falls half as fast.' },
+  harbor: { name: 'Harbor', base: 900 * MONEY, step: 450 * MONEY, key: '4', coastal: true, desc: 'Coast only. Earns trade gold from every harbor in the world. +2 fleets.' },
+  university: { name: 'University', base: 1100 * MONEY, step: 600 * MONEY, key: '5', tech: 'printing', desc: '+4 research per second.' },
+  courthouse: { name: 'Courthouse', base: 1200 * MONEY, step: 700 * MONEY, key: '6', tech: 'bureaucracy', politics: true, desc: 'Administers 350 more tiles and brings land within 34 tiles under full control.' },
+  factory: { name: 'Factory', base: 2500 * MONEY, step: 1200 * MONEY, key: '7', tech: 'steam', desc: 'Earns $50K/s. Recruiting +15%.' },
+  aa: { name: 'Air Defense', base: 2500 * MONEY, step: 1250 * MONEY, key: '8', tech: 'radar', radius: 22, desc: 'Shoots down one enemy missile aimed within 22 tiles every 12s.' },
+  silo: { name: 'Missile Silo', base: 5000 * MONEY, step: 2500 * MONEY, key: '9', tech: 'rocketry', desc: 'Launches missiles that wipe out troops and scorch land. 20s reload.' },
 };
 const BUILD_ORDER = ['city', 'barracks', 'fort', 'harbor', 'university', 'courthouse', 'factory', 'aa', 'silo'];
 const SILO_RELOAD = 20 * TPS;
@@ -92,6 +94,8 @@ class Player {
     this.weariness = 0;
     this.celebrateReadyAt = 0;
     this.rebelOf = 0;
+    this.unrestWarnedAt = -1e9;
+    this.peer = null;              // multiplayer peer id for remote humans
   }
 }
 
@@ -143,6 +147,13 @@ class Game {
     this.spareColors = [];
     this.unrestWarnedAt = -1e9;
     this.adminScale = Math.max(0.6, map.landCount / 60000);
+    this.multiplayer = !!settings.multiplayer;
+    this.net = null;               // host-side change log for multiplayer
+  }
+
+  // Host-side change log; the multiplayer host drains it into network packets.
+  enableNetLog() {
+    this.net = { own: [], ctl: [], fo: [], bld: new Set(), ships: [], missiles: [], fx: [] };
   }
 
   get time() { return this.tick / TPS; }
@@ -153,9 +164,16 @@ class Game {
   // ---------- setup ----------
   setupPlayers(opts) {
     const rng = this.rng;
-    const human = new Player(1, opts.playerName || 'You', opts.playerColor, true);
-    this.players.push(human);
-    const names = rng.shuffle(NATION_NAMES.slice());
+    // opts.humans: [{name, color, peer}] for multiplayer; otherwise a single local human.
+    const humans = opts.humans || [{ name: opts.playerName || 'You', color: opts.playerColor }];
+    for (const h of humans) {
+      const p = new Player(this.players.length, h.name, h.color, true);
+      p.peer = h.peer || null;
+      this.players.push(p);
+    }
+    const human = this.players[1];
+    const used = new Set(humans.map((h) => h.name));
+    const names = rng.shuffle(NATION_NAMES.filter((n) => !used.has(n)));
     const colors = [];
     const hueStart = rng() * 360;
     const need = opts.numAI + REBEL_SLOTS;
@@ -164,13 +182,13 @@ class Game {
       const s = 0.45 + (i % 3) * 0.15;
       const l = 0.42 + ((i >> 1) % 3) * 0.08;
       const c = hslToRgb(h, s, l);
-      if (colorDistance(c, human.color) < 40) continue;
+      if (humans.some((h) => colorDistance(c, h.color) < 40)) continue;
       colors.push(c);
     }
     const diff = DIFFICULTY[opts.difficulty] || DIFFICULTY.normal;
     this.diff = diff;
     for (let k = 0; k < opts.numAI; k++) {
-      const p = new Player(k + 2, names[k % names.length], colors[k % colors.length], false);
+      const p = new Player(this.players.length, names[k % names.length], colors[k % colors.length], false);
       p.diffMult = diff.econ;
       p.ai = new AIController(this, p, PERSONALITIES[rng.int(PERSONALITIES.length)], diff);
       this.players.push(p);
@@ -241,25 +259,42 @@ class Game {
       }
     }
     p.troops = START_TROOPS;
-    p.gold = START_GOLD;
+    p.gold = START_GOLD + (p.tutorialBonus ? 1500 * MONEY : 0);
     p.pop = START_POP;
     p.spawned = true;
     p.capital = i;
     p.label = { x: x0 + 0.5, y: y0 + 0.5, size: 3, tile: i };
   }
 
-  spawnHuman(i) {
-    if (!this.canSpawnAt(i)) return false;
-    this.claimSpawn(this.human, i);
+  spawnHuman(i) { return this.spawnPlayer(1, i); }
+
+  spawnPlayer(pid, i) {
+    const p = this.players[pid];
+    if (!p || p.spawned || !this.canSpawnAt(i)) return false;
+    this.claimSpawn(p, i);
+    this.log(`The year is ${START_YEAR}. Your nation is founded. Click empty land to expand toward it.`, 'good', pid);
+    if (this.mode.endYear) {
+      this.log(`The game ends in ${this.mode.endYear}, about ${this.mode.minutes} minutes from now. Hold 70% of the land before then, or be the largest nation when it ends.`, 'info', pid);
+    }
+    if (!this.multiplayer) this.begin();
+    else { this.scanNeighbors(); this.computeLabels(); }
+    return true;
+  }
+
+  // Place any human who hasn't picked a spot yet, then start the clock.
+  begin() {
+    for (const p of this.players) {
+      if (!p || !p.human || p.spawned) continue;
+      for (let k = 0; k < 20000; k++) {
+        const i = this.rng.int(this.N);
+        const t = this.map.terrain[i];
+        if (this.canSpawnAt(i) && t !== T_MOUNTAIN && (k > 8000 || (t !== T_TUNDRA && t !== T_DESERT))) { this.spawnPlayer(p.id, i); break; }
+      }
+    }
     this.started = true;
     this.scanNeighbors();
     this.computeLabels();
     if (this.politics) this.computeAdmin();
-    this.log(`The year is ${START_YEAR}. Your nation is founded. Expand into the wilds to grow.`, 'good');
-    if (this.mode.endYear) {
-      this.log(`The game ends in ${this.mode.endYear}, about ${this.mode.minutes} minutes from now. Hold 70% of the land before then, or be the largest nation when it ends.`, 'info');
-    }
-    return true;
   }
 
   // ---------- helpers ----------
@@ -286,10 +321,12 @@ class Game {
     if (i >= W) this.markDirty(i - W);
     if (i + W < this.N) this.markDirty(i + W);
   }
-  log(text, kind = 'info') {
-    this.events.push({ id: ++this.eventSeq, text, kind, time: this.time });
-    if (this.events.length > 80) this.events.shift();
+  // to: 0 for everyone or a player id; skip: player ids who get their own version.
+  log(text, kind = 'info', to = 0, skip = null) {
+    this.events.push({ id: ++this.eventSeq, text, kind, time: this.time, to, skip });
+    if (this.events.length > 200) this.events.shift();
   }
+  humans() { return this.players.filter((p) => p && p.human); }
   controlFactor(c) { return 0.3 + 0.007 * c; }
   setControl(t, c) {
     const o = this.owner[t];
@@ -298,7 +335,7 @@ class Game {
       const v = T_VALUE[this.map.terrain[t]];
       this.players[o].effValue += v * (this.controlFactor(c) - this.controlFactor(old));
     }
-    if ((old < 50) !== (c < 50)) this.markDirty(t);
+    if ((old < 50) !== (c < 50)) { this.markDirty(t); if (this.net) this.net.ctl.push(t, c); }
     this.control[t] = c;
   }
   stabFactor(p) { return this.politics ? 0.6 + 0.8 * p.stability / 100 : 1; }
@@ -316,7 +353,7 @@ class Game {
   landShare(p) { return p.tiles / this.map.landCount; }
   fleetCap(p) { return 3 + p.counts.harbor * 2 + p.mods.fleetCap; }
   fleetsOf(pid) { let n = 0; for (const s of this.ships) if (!s.dead && s.owner === pid) n++; return n; }
-  missileCost(p) { return Math.min(MISSILE_BASE_COST + p.missilesLaunched * 400, 9000); }
+  missileCost(p) { return Math.min(MISSILE_BASE_COST + p.missilesLaunched * 400 * MONEY, 9000 * MONEY); }
   missileRadii(p) { const m = 1 + p.mods.missile; return [Math.round(MISSILE_R_IN * m), Math.round(MISSILE_R_OUT * m)]; }
   readySilo(p) {
     for (const b of p.blds) if (b.type === 'silo' && b.cooldown <= 0) return b;
@@ -361,7 +398,7 @@ class Game {
     delete p.progress[t.id];
     if (t.fx) for (const k in t.fx) p.mods[k] += t.fx[k];
     p.research = null;
-    if (p.human) this.log(`Researched ${t.name}. ${t.desc}`, 'good');
+    if (p.human) this.log(`Researched ${t.name}. ${t.desc}`, 'good', p.id);
   }
   autoPickResearch(p) {
     const av = this.availableTechs(p);
@@ -410,6 +447,7 @@ class Game {
       }
     }
     this.markDirtyAround(t);
+    if (this.net) { this.net.own.push(t, newOwner); if (bi >= 0) this.net.bld.add(bi); }
     if (po && po.tiles <= 0 && po.alive) this.eliminate(po, newOwner);
   }
 
@@ -429,9 +467,9 @@ class Game {
     p.gold = 0;
     p.troops = 0;
     p.pop = 0;
-    if (p.human) this.log(`Your nation has fallen${by ? ' to ' + by.name : ''}.`, 'bad');
-    else if (by && by.human) this.log(`You conquered ${p.name}! Their treasury is yours.`, 'good');
-    else this.log(`${p.name} was destroyed${by ? ' by ' + by.name : ''}.`, 'info');
+    if (p.human) this.log(`Your nation has fallen${by ? ' to ' + by.name : ''}.`, 'bad', p.id);
+    if (by && by.human) this.log(`You conquered ${p.name}! Their treasury is yours.`, 'good', by.id);
+    this.log(`${p.name} was destroyed${by ? ' by ' + by.name : ''}.`, 'info', 0, [p.id, by ? by.id : 0]);
   }
 
   // ---------- land attacks ----------
@@ -473,12 +511,14 @@ class Game {
         if (existing.frontier.length === 0) return false;
         if (fromPool) A.troops -= amount;
         existing.troops += amount;
+        if (opts.focus) existing.focus = opts.focus;
         return true;
       }
     }
     const atk = {
       id: this.idSeq++, attacker: aId, target: tId, troops: amount, frontier: [], inF: new Set(),
       seeded: opts.seed !== undefined, dead: false, taken: 0, refreshAt: 0, startedAt: this.tick,
+      focus: opts.focus || null,
     };
     if (atk.seeded) {
       const s = opts.seed, W = this.W, x = s % W;
@@ -505,7 +545,7 @@ class Game {
         if (atk.troops < 1) break;
       }
       this.addRel(tId, aId, -8);
-      if (D.human && atk.troops >= 1) this.log(`${A.name} is attacking you with ${fmt(atk.troops)} troops!`, 'bad');
+      if (D.human && atk.troops >= 1) this.log(`${A.name} is attacking you with ${fmt(atk.troops)} troops!`, 'bad', D.id);
       if (atk.troops < 1) return true;
     }
     this.attacks.push(atk);
@@ -567,13 +607,25 @@ class Game {
     }
 
     const own = this.owner, ter = this.map.terrain, W = this.W, H = this.H, rng = this.rng;
-    let tries = Math.ceil(F.length * ATTACK_SPEED * this.mode.attackSpeed * (1 + A.mods.speed)) + 1;
+    const pace = D ? this.mode.attackSpeed * (1 + A.mods.speed) : NEUTRAL_SPEED;
+    let tries = Math.ceil(F.length * ATTACK_SPEED * pace) + 1;
+    const focus = atk.focus;
     const density = D ? D.troops / Math.max(1, D.tiles) : 0;
     const deferred = this._deferred;
     deferred.length = 0;
     let exhausted = false;
     while (tries-- > 0 && F.length > 0) {
-      const k = (rng() * F.length) | 0;
+      let k = (rng() * F.length) | 0;
+      if (focus) {
+        // Lean toward the spot the player clicked: keep the closest of a few picks.
+        let bd = 1e18;
+        for (let s = 0; s < 3; s++) {
+          const c = s ? (rng() * F.length) | 0 : k;
+          const ct = F[c], cx = ct % W - focus[0], cy = (ct - (ct % W)) / W - focus[1];
+          const d = cx * cx + cy * cy;
+          if (d < bd) { bd = d; k = c; }
+        }
+      }
       const t = F[k];
       F[k] = F[F.length - 1];
       F.pop();
@@ -619,6 +671,81 @@ class Game {
     atk.troops = 0;
     atk.dead = true;
     return true;
+  }
+
+  // ---------- player commands ----------
+  // Is the clicked region connected over land to pid's border?
+  landReachable(pid, tile) {
+    const W = this.W, H = this.H, own = this.owner;
+    const t = own[tile];
+    const st = this.nextStamp(), S = this.bfsStamp, Q = this.bfsQueue;
+    let qh = 0, qt = 0;
+    Q[qt++] = tile; S[tile] = st;
+    while (qh < qt) {
+      if (qh > 150000) return true;
+      const i = Q[qh++];
+      const x = i % W, y = (i - x) / W;
+      const nb = [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1];
+      for (const n of nb) {
+        if (n < 0) continue;
+        if (own[n] === pid) return true;
+        if (S[n] === st || !this.isTarget(n, t)) continue;
+        S[n] = st; Q[qt++] = n;
+      }
+    }
+    return false;
+  }
+
+  // Click on a tile with a share of troops: march over land, or sail if there's no land route.
+  attackTile(pid, tile, ratio) {
+    const me = this.players[pid];
+    if (!me || !me.alive) return { msg: 'Your nation has fallen.', bad: true };
+    if (tile < 0 || tile >= this.N || this.isWater(tile)) return { msg: '' };
+    const o = this.owner[tile];
+    if (o === pid) return { msg: 'Your land. Right-click it to build.' };
+    if (this.isAllied(pid, o)) return { msg: `${this.players[o].name} is your ally. Right-click to reinforce them.` };
+    if (o === 0 && this.fallout[tile]) return { msg: 'That land is scorched and can\'t be taken yet.', bad: true };
+    const amount = Math.floor(me.troops * clamp(ratio, 0.01, 1));
+    if (amount < 1) return { msg: 'You have no troops to send.', bad: true };
+    const who = o ? this.players[o].name : 'unclaimed land';
+    const x = tile % this.W, focus = [x, (tile - x) / this.W];
+    if (this.landReachable(pid, tile) && this.launchAttack(pid, o, amount, { focus })) {
+      return { msg: o ? `Attacking ${who} with ${fmt(amount)} troops.` : `Settling toward that spot with ${fmt(amount)} troops.` };
+    }
+    const err = this.launchNaval(pid, tile, amount);
+    return err ? { msg: err, bad: true } : { msg: `Fleet sailing to ${who} with ${fmt(amount)} troops.` };
+  }
+
+  // Every player action enters here, from the local UI, a tutorial, or a remote client.
+  command(pid, name, a = {}) {
+    const p = this.players[pid];
+    if (!p) return { msg: 'Unknown player.', bad: true };
+    const r = (err, ok) => (err ? { msg: err, bad: true } : { msg: ok || '' });
+    switch (name) {
+      case 'spawn':
+        if (this.started && !this.multiplayer) return r('Already started.');
+        return this.spawnPlayer(pid, a.tile) ? r('', '') : r('Pick a spot on unclaimed land.');
+      case 'attack': return this.attackTile(pid, a.tile, a.ratio);
+      case 'build': {
+        const err = this.build(pid, a.type, a.tile);
+        return r(err, BUILDINGS[a.type] ? `${BUILDINGS[a.type].name} built.` : '');
+      }
+      case 'missile': return r(this.launchMissile(pid, a.tile), 'Missile away.');
+      case 'retreat': return this.retreat(a.id, pid) ? r('', 'Troops pulled back. 20% were lost in the retreat.') : r('That offensive has already ended.');
+      case 'ally': return r(this.requestAlliance(pid, a.to));
+      case 'unally': this.breakAlliance(pid, a.to); return r('');
+      case 'troops': return r(this.sendTroops(pid, a.to, Math.floor(p.troops * (a.ratio || 0.25))));
+      case 'gold': return r(this.sendGold(pid, a.to, Math.floor(p.gold * (a.ratio || 0.25))));
+      case 'respond': this.respondRequest(a.id, !!a.accept, pid); return r('');
+      case 'research': {
+        const err = this.setResearch(pid, a.id);
+        return r(err, TECH_BY_ID[a.id] ? `Researching ${TECH_BY_ID[a.id].name}.` : '');
+      }
+      case 'martial': return r(this.setMartial(pid, !!a.on));
+      case 'celebrate': return r(this.celebrate(pid));
+      case 'focus': p.focus = clamp(Number(a.v) || 0, 0, 1); return r('');
+      default: return r('Unknown command.');
+    }
   }
 
   // ---------- naval ----------
@@ -709,10 +836,11 @@ class Game {
       speed: SHIP_SPEED * (1 + A.mods.fleetSpeed),
     };
     this.ships.push(ship);
+    if (this.net) this.net.ships.push(ship);
     if (tOwner) {
       const D = this.players[tOwner];
       this.addRel(tOwner, aId, -10);
-      if (D.human) this.log(`${A.name} sent a fleet with ${fmt(amount)} troops toward your coast!`, 'bad');
+      if (D.human) this.log(`${A.name} sent a fleet with ${fmt(amount)} troops toward your coast!`, 'bad', D.id);
     }
     return '';
   }
@@ -735,7 +863,7 @@ class Game {
     const density = D ? D.troops / Math.max(1, D.tiles) : 0;
     const cost = this.tileCost(L, A, D, density);
     if (s.troops < cost) {
-      if (A.human) this.log(`Your fleet was repelled at the shore of ${D ? D.name : 'the wilds'}.`, 'bad');
+      if (A.human) this.log(`Your fleet was repelled at the shore of ${D ? D.name : 'the wilds'}.`, 'bad', A.id);
       this.casualties(A, s.troops);
       if (D) { const k = Math.min(D.troops, s.troops * 0.5); D.troops -= k; this.casualties(D, k); }
       return;
@@ -743,7 +871,7 @@ class Game {
     const troops = s.troops - cost;
     if (D) this.casualties(A, cost);
     this.takeTile(L, A, D, density);
-    if (D && D.human) this.log(`${A.name} landed on your shore!`, 'bad');
+    if (D && D.human) this.log(`${A.name} landed on your shore!`, 'bad', D.id);
     if (troops >= 1) {
       const ok = this.launchAttack(s.owner, o, troops, { seed: L, fromPool: false });
       if (!ok) A.troops += troops;
@@ -779,6 +907,7 @@ class Game {
     this.bldAt[t] = b.id;
     p.counts[type]++;
     p.blds.push(b);
+    if (this.net) this.net.bld.add(b.id);
     if (this.politics && (type === 'city' || type === 'courthouse')) this.computeAdmin();
     return '';
   }
@@ -826,9 +955,10 @@ class Game {
     for (const q of this.players) if (q && q.id !== aId) this.addRel(q.id, aId, -6);
     for (const v of victims) {
       this.addRel(v, aId, -40);
-      if (this.players[v].human) this.log(`${A.name} launched a missile at you!`, 'bad');
+      if (this.players[v].human) this.log(`${A.name} launched a missile at you!`, 'bad', v);
     }
     this.missiles.push(m);
+    if (this.net) this.net.missiles.push(m);
     return '';
   }
 
@@ -840,9 +970,10 @@ class Game {
         m.dead = true;
         const f = m.t / m.dur;
         this.effects.push({ type: 'intercept', x: lerp(m.sx, m.tx, f), y: lerp(m.sy, m.ty, f), arc: f, m, at: this.time });
+        if (this.net) this.net.fx.push({ type: 'intercept', mid: m.id, arc: f });
         const by = this.players[m.interceptedBy];
-        if (by && by.human) this.log(`Your air defense shot down a missile from ${this.players[m.owner].name}.`, 'good');
-        else if (this.players[m.owner].human) this.log(`Your missile was shot down by ${by ? by.name : 'air defense'}.`, 'bad');
+        if (by && by.human) this.log(`Your air defense shot down a missile from ${this.players[m.owner].name}.`, 'good', by.id);
+        if (this.players[m.owner].human) this.log(`Your missile was shot down by ${by ? by.name : 'air defense'}.`, 'bad', m.owner);
         continue;
       }
       if (m.t >= m.dur) { m.dead = true; this.detonate(m); }
@@ -872,13 +1003,14 @@ class Game {
       const lost = P.troops * Math.min(0.75, (f * 2.2 + 0.08) * m.power);
       P.troops -= lost;
       this.casualties(P, lost + Math.max(0, P.pop - P.troops) * Math.min(0.5, f * 0.6 * m.power));
-      if (P.human && o !== m.owner) this.log(`A missile from ${this.players[m.owner].name} struck your land.`, 'bad');
+      if (P.human && o !== m.owner) this.log(`A missile from ${this.players[m.owner].name} struck your land.`, 'bad', o);
     }
     for (const i of inner) {
       if (this.owner[i]) this.setOwner(i, 0);
       if (!this.fallout[i]) this.falloutList.push(i);
       this.fallout[i] = FALLOUT_SECONDS;
       this.markDirty(i);
+      if (this.net) this.net.fo.push(i, 1);
     }
     for (const s of this.ships) {
       if (s.dead) continue;
@@ -887,6 +1019,7 @@ class Game {
       if ((sx - m.tx) ** 2 + (sy - m.ty) ** 2 <= R * R) { s.dead = true; this.casualties(this.players[s.owner], s.troops); }
     }
     this.effects.push({ type: 'blast', x: m.tx + 0.5, y: m.ty + 0.5, r: R, at: this.time });
+    if (this.net) this.net.fx.push({ type: 'blast', x: m.tx + 0.5, y: m.ty + 0.5, r: R });
   }
 
   // ---------- diplomacy ----------
@@ -899,28 +1032,33 @@ class Game {
     if (cd > this.tick) return `Wait ${Math.ceil((cd - this.tick) / TPS)}s before asking ${B.name} again.`;
     this.reqCooldown.set(key, this.tick + 30 * TPS);
     if (B.human) {
-      if (this.requests.some((r) => r.from === from)) return '';
-      this.requests.push({ id: this.idSeq++, from, expires: this.tick + 20 * TPS });
+      if (this.requests.some((r) => r.from === from && r.to === to)) return '';
+      this.requests.push({ id: this.idSeq++, from, to, expires: this.tick + 20 * TPS });
+      if (A.human) this.log(`Alliance offer sent to ${B.name}.`, 'info', from);
       return '';
     }
     const ok = B.ai.considerAlliance(from);
     if (ok) {
       this.formAlliance(from, to);
     } else if (A.human) {
-      this.log(`${B.name} declined your alliance (relation ${Math.round(this.getRel(to, from))}).`, 'info');
+      this.log(`${B.name} declined your alliance (relation ${Math.round(this.getRel(to, from))}).`, 'info', from);
     }
     return '';
   }
 
-  respondRequest(reqId, accept) {
-    const k = this.requests.findIndex((r) => r.id === reqId);
+  respondRequest(reqId, accept, pid = 1) {
+    const k = this.requests.findIndex((r) => r.id === reqId && r.to === pid);
     if (k < 0) return;
     const r = this.requests[k];
     this.requests.splice(k, 1);
     const A = this.players[r.from];
-    if (!A.alive) return;
-    if (accept) this.formAlliance(r.from, 1);
-    else { this.addRel(r.from, 1, -8); this.log(`You turned down ${A.name}.`, 'info'); }
+    if (!A.alive || !this.players[pid].alive) return;
+    if (accept) this.formAlliance(r.from, pid);
+    else {
+      this.addRel(r.from, pid, -8);
+      this.log(`You turned down ${A.name}.`, 'info', pid);
+      if (A.human) this.log(`${this.players[pid].name} declined your alliance.`, 'info', A.id);
+    }
   }
 
   formAlliance(a, b) {
@@ -933,8 +1071,9 @@ class Game {
         this.players[x.attacker].troops += x.troops; x.troops = 0; x.dead = true;
       }
     }
-    if (A.human || B.human) this.log(`You are now allied with ${A.human ? B.name : A.name}.`, 'good');
-    else if (this.concernsHuman(a, b)) this.log(`${A.name} and ${B.name} formed an alliance.`, 'info');
+    if (A.human) this.log(`You are now allied with ${B.name}.`, 'good', a);
+    if (B.human) this.log(`You are now allied with ${A.name}.`, 'good', b);
+    if (this.concernsHuman(a, b)) this.log(`${A.name} and ${B.name} formed an alliance.`, 'info', 0, [a, b]);
   }
 
   breakAlliance(a, b) {
@@ -945,15 +1084,18 @@ class Game {
     for (const q of this.players) if (q && q.id !== a) this.addRel(q.id, a, -18);
     this.addRel(b, a, -50);
     if (this.politics) A.shock += 8;
-    if (A.human) this.log(`You broke your alliance with ${B.name}. Others will trust you less, and your land is easier to take for 45s.`, 'bad');
-    else if (B.human) this.log(`${A.name} betrayed your alliance!`, 'bad');
-    else if (this.concernsHuman(a, b)) this.log(`${A.name} broke its alliance with ${B.name}.`, 'info');
+    if (A.human) this.log(`You broke your alliance with ${B.name}. Others will trust you less, and your land is easier to take for 45s.`, 'bad', a);
+    if (B.human) this.log(`${A.name} betrayed your alliance!`, 'bad', b);
+    if (this.concernsHuman(a, b)) this.log(`${A.name} broke its alliance with ${B.name}.`, 'info', 0, [a, b]);
   }
 
   // Worth telling the player about: a neighbor of theirs, or a bloc that dominates the map.
   concernsHuman(a, b) {
-    const nb = this.neighbors[1];
-    if (nb && (nb.has(a) || nb.has(b))) return true;
+    for (const h of this.players) {
+      if (!h || !h.human || !h.alive) continue;
+      const nb = this.neighbors[h.id];
+      if (nb && (nb.has(a) || nb.has(b))) return true;
+    }
     return (this.players[a].tiles + this.players[b].tiles) > this.map.landCount * 0.3;
   }
 
@@ -965,8 +1107,8 @@ class Game {
     A.troops -= amount; B.troops += amount;
     A.pop = Math.max(0, A.pop - amount); B.pop += amount;
     this.addRel(to, from, Math.min(25, 5 + amount / Math.max(500, B.troops) * 20));
-    if (A.human) this.log(`Sent ${fmt(amount)} troops to ${B.name}.`, 'good');
-    else if (B.human) this.log(`${A.name} sent you ${fmt(amount)} troops.`, 'good');
+    if (A.human) this.log(`Sent ${fmt(amount)} troops to ${B.name}.`, 'good', from);
+    if (B.human) this.log(`${A.name} sent you ${fmt(amount)} troops.`, 'good', to);
     return '';
   }
 
@@ -976,9 +1118,10 @@ class Game {
     amount = Math.floor(Math.min(amount, A.gold));
     if (amount < 1) return 'No gold to send.';
     A.gold -= amount; B.gold += amount;
-    const gain = clamp((amount / Math.max(400, B.gold * 0.5)) * 25, 1, 35);
+    const gain = clamp((amount / Math.max(400 * MONEY, B.gold * 0.5)) * 25, 1, 35);
     this.addRel(to, from, gain);
-    if (A.human) this.log(`Sent ${fmt(amount)} gold to ${B.name}. Relation +${Math.round(gain)}.`, 'good');
+    if (A.human) this.log(`Sent ${fmtMoney(amount)} to ${B.name}.${B.human ? '' : ` Relation +${Math.round(gain)}.`}`, 'good', from);
+    if (B.human) this.log(`${A.name} sent you ${fmtMoney(amount)}.`, 'good', to);
     return '';
   }
 
@@ -987,10 +1130,10 @@ class Game {
     const p = this.players[pid];
     if (!this.politics) return 'There are no politics in Blitz.';
     p.martial = !!on;
-    if (p.human) this.log(on ? 'Martial law declared. Order improves, but trade and growth suffer.' : 'Martial law lifted.', 'info');
+    if (p.human) this.log(on ? 'Martial law declared. Order improves, but trade and growth suffer.' : 'Martial law lifted.', 'info', pid);
     return '';
   }
-  celebrateCost(p) { return Math.round(Math.max(400, p.income * 25)); }
+  celebrateCost(p) { return Math.round(Math.max(400 * MONEY, p.income * 25)); }
   celebrate(pid) {
     const p = this.players[pid];
     if (!this.politics) return 'There are no politics in Blitz.';
@@ -1000,7 +1143,7 @@ class Game {
     p.gold -= cost;
     p.boost = Math.min(30, p.boost + 15);
     p.celebrateReadyAt = this.tick + 60 * TPS;
-    if (p.human) this.log('Festivals across the land. Stability rises for a while.', 'good');
+    if (p.human) this.log('Festivals across the land. Stability rises for a while.', 'good', pid);
     return '';
   }
 
@@ -1055,11 +1198,11 @@ class Game {
       let c = C[t];
       if (c < target) {
         const nc = Math.min(target, c + 1);
-        if (c < 50 && nc >= 50) this.markDirty(t);
+        if (c < 50 && nc >= 50) { this.markDirty(t); if (this.net) this.net.ctl.push(t, nc); }
         c = nc;
       } else if (c > target) {
         const nc = Math.max(target, c - 1);
-        if (c >= 50 && nc < 50) this.markDirty(t);
+        if (c >= 50 && nc < 50) { this.markDirty(t); if (this.net) this.net.ctl.push(t, nc); }
         c = nc;
       }
       C[t] = c;
@@ -1158,11 +1301,11 @@ class Game {
       this.rel[id * this.P + p.id] = -90;
       this.rel[p.id * this.P + id] = -90;
       r.label = { x: sx + 0.5, y: sy + 0.5, size: 3, tile: seed };
-      if (p.human) this.log(`Revolt! ${r.name} has broken away from your nation.`, 'bad');
-      else if (this.concernsHuman(p.id, p.id)) this.log(`${r.name} broke away from ${p.name} in a revolt.`, 'info');
+      if (p.human) this.log(`Revolt! ${r.name} has broken away from your nation.`, 'bad', p.id);
+      if (this.concernsHuman(p.id, p.id)) this.log(`${r.name} broke away from ${p.name} in a revolt.`, 'info', 0, [p.id]);
     } else {
       for (const t of region) this.setOwner(t, 0);
-      if (p.human) this.log('Revolt! A region of your nation fell into anarchy.', 'bad');
+      if (p.human) this.log('Revolt! A region of your nation fell into anarchy.', 'bad', p.id);
     }
     this.computeAdmin();
     return true;
@@ -1201,7 +1344,7 @@ class Game {
       const workers = Math.max(0, p.pop - p.troops - p.field);
       const others = Math.min(12, this.totalHarbors - p.counts.harbor);
       const harborIncome = p.counts.harbor * (6 + 1.5 * Math.max(0, others)) * (1 + p.mods.trade);
-      const inc = (5 + workers * 0.00025 + p.counts.city * 10 + harborIncome + p.counts.factory * 25) *
+      const inc = MONEY * (5 + workers * 0.00025 + p.counts.city * 10 + harborIncome + p.counts.factory * 25) *
         (0.4 + 1.2 * p.focus) * (1 + p.mods.gold) * sf * (p.martial ? 0.75 : 1) * p.diffMult;
       p.gold += inc * dt;
       p.income = inc;
@@ -1246,6 +1389,7 @@ class Game {
       if (--this.fallout[i] <= 0) {
         this.fallout[i] = 0;
         this.markDirty(i);
+        if (this.net) this.net.fo.push(i, 0);
         this.falloutList[k] = this.falloutList[this.falloutList.length - 1];
         this.falloutList.pop();
       }
@@ -1267,7 +1411,7 @@ class Game {
           p.research = pick;
           if (p.human && !p.autoResearch) {
             p.autoResearch = true;
-            this.log(`Now researching ${TECH_BY_ID[pick].name}. Open Technology to choose another.`, 'info');
+            this.log(`Now researching ${TECH_BY_ID[pick].name}. Open Technology to choose another.`, 'info', p.id);
           }
         }
       }
@@ -1287,11 +1431,14 @@ class Game {
       this.lastEra = era;
       this.log(`The year is ${this.year}. A new era begins: ${ERAS[era].name}.`, 'good');
     }
-    if (this.mode.timeGate && this.human.alive) {
+    if (this.mode.timeGate) {
       const fresh = TECHS.filter((t) => t.year <= this.year && t.year > START_YEAR && !this.announced.has(t.id));
       for (const t of fresh) this.announced.add(t.id);
-      const usable = fresh.filter((t) => this.techState(this.human, t) === 'avail');
-      if (usable.length) this.log(`New technology available: ${usable.map((t) => t.name).join(', ')}.`, 'info');
+      for (const h of this.humans()) {
+        if (!h.alive) continue;
+        const usable = fresh.filter((t) => this.techState(h, t) === 'avail');
+        if (usable.length) this.log(`New technology available: ${usable.map((t) => t.name).join(', ')}.`, 'info', h.id);
+      }
     }
 
     if (this.politics) {
@@ -1308,10 +1455,11 @@ class Game {
           if (this.rng() < chance && this.revolt(p)) p.lastRevolt = this.tick;
         }
       }
-      const h = this.human;
-      if (h.alive && h.stability < REVOLT_BELOW + 5 && this.time - this.unrestWarnedAt > 45) {
-        this.unrestWarnedAt = this.time;
-        this.log(`Unrest is spreading (stability ${Math.round(h.stability)}). Below ${REVOLT_BELOW}, poorly controlled regions may revolt.`, 'bad');
+      for (const h of this.humans()) {
+        if (h.alive && h.stability < REVOLT_BELOW + 5 && this.time - h.unrestWarnedAt > 45) {
+          h.unrestWarnedAt = this.time;
+          this.log(`Unrest is spreading (stability ${Math.round(h.stability)}). Below ${REVOLT_BELOW}, poorly controlled regions may revolt.`, 'bad', h.id);
+        }
       }
     }
 
@@ -1341,7 +1489,7 @@ class Game {
     if (this.politics) p.shock = Math.min(40, p.shock + 20);
     if (p.human && this.time - (p.capitalLogAt || -1e9) > 20) {
       p.capitalLogAt = this.time;
-      this.log(this.politics ? 'Your capital has fallen! The government moved, and the country is in turmoil.' : 'Your capital has fallen! The government moved to safer ground.', 'bad');
+      this.log(this.politics ? 'Your capital has fallen! The government moved, and the country is in turmoil.' : 'Your capital has fallen! The government moved to safer ground.', 'bad', p.id);
     }
     if (this.politics) this.computeAdmin();
   }
@@ -1433,18 +1581,22 @@ class Game {
 
   checkGameOver() {
     if (this.over || !this.started) return;
-    const h = this.human;
-    if (!h.alive) { this.over = { won: false, time: this.time, year: this.year }; return; }
-    const share = this.landShare(h);
-    if (share >= WIN_SHARE) { this.over = { won: true, time: this.time, year: this.year, reason: 'share' }; return; }
-    let rivals = 0;
-    for (const p of this.players) if (p && p.alive && !p.human && !h.allies.has(p.id)) rivals++;
-    if (rivals === 0) { this.over = { won: true, time: this.time, year: this.year, reason: 'rivals' }; return; }
-    if (this.mode.endYear && this.year >= this.mode.endYear) {
-      let top = h;
-      for (const p of this.players) if (p && p.alive && p.tiles > top.tiles) top = p;
-      this.over = { won: top === h, time: this.time, year: this.year, reason: 'year', leader: top.id };
+    const end = (winner, reason) => { this.over = { winner, reason, time: this.time, year: this.year }; };
+    let top = null;
+    for (const p of this.players) {
+      if (!p || !p.alive) continue;
+      if (!top || p.tiles > top.tiles) top = p;
+      if (this.landShare(p) >= WIN_SHARE) { end(p.id, 'share'); return; }
     }
+    const humans = this.humans();
+    if (!humans.some((h) => h.alive)) { end(top ? top.id : 0, 'fallen'); return; }
+    if (!this.multiplayer) {
+      const h = humans[0];
+      let rivals = 0;
+      for (const p of this.players) if (p && p.alive && !p.human && !h.allies.has(p.id)) rivals++;
+      if (rivals === 0) { end(h.id, 'rivals'); return; }
+    }
+    if (this.mode.endYear && this.year >= this.mode.endYear) end(top.id, 'year');
   }
 
   step() {

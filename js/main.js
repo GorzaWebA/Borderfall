@@ -10,6 +10,7 @@
   const TICK_MS = 1000 / TPS;
   let last = performance.now();
   let acc = 0;
+  let frameNo = 0;
 
   function frame(now) {
     const dt = Math.min(250, now - last);
@@ -17,7 +18,7 @@
     const g = ui.game;
     const running = g && g.started && !ui.isPaused();
     if (running) {
-      acc += dt * ui.speed;
+      acc += dt * (g.multiplayer ? 1 : ui.speed);
       let n = 0;
       while (acc >= TICK_MS && n < 12) {
         g.step();
@@ -26,8 +27,15 @@
       }
       if (n === 12) acc = 0;
     }
+    if (ui.net && g) {
+      if (ui.net.role === 'host') ui.net.frame();
+      else ui.net.clientFrame(dt);
+    }
     ui.frame(dt);
-    renderer.draw(running ? Math.min(1, acc / TICK_MS) : 0);
+    // Low graphics draws every other frame (about 30 fps).
+    if (renderer.quality !== 'low' || (frameNo++ & 1) === 0) {
+      renderer.draw(running ? Math.min(1, acc / TICK_MS) : 0);
+    }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

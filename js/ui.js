@@ -47,13 +47,32 @@ class UI {
     this.prefs = loadPrefs();
     this.color = this.prefs.color || PLAYER_COLORS[0];
     this.genTimer = 0;
+    this.myId = 1;
+    this.net = null;
+    this.tutorial = null;
 
     this.initMenu();
     this.initHud();
     this.initInput();
   }
 
-  isPaused() { return this.speed === 0 || this.modalOpen; }
+  isPaused() {
+    if (this.net && this.game && this.game.multiplayer) return this.isClient();
+    return this.speed === 0 || (this.modalOpen && !this.tutorialModalRunning);
+  }
+  playerName() { return ($('opt-name').value.trim() || 'Your Nation').slice(0, 16); }
+  get me() { return this.game.players[this.myId]; }
+  isClient() { return !!(this.net && this.net.role === 'client'); }
+
+  // Run a player action. Offline and on the host it runs here; clients send it to the host,
+  // which replies with the notice. Returns the result when known right away.
+  cmd(name, a = {}, quiet) {
+    if (this.isClient()) { this.net.sendCommand(name, a); return null; }
+    const res = this.game.command(this.myId, name, a);
+    if (!quiet && res && res.msg) this.notice(res.msg, res.bad);
+    this.updateHud(true);
+    return res;
+  }
 
   // ---------- menu ----------
   initMenu() {
@@ -88,6 +107,10 @@ class UI {
     $('opt-ai').addEventListener('input', () => { $('opt-ai-out').textContent = $('opt-ai').value; });
     $('opt-size').addEventListener('change', () => this.queuePreview());
     $('opt-type').addEventListener('change', () => {
+      if ($('opt-type').value === 'random') {
+        this.rollRandomType();
+        $('opt-seed').value = String(Math.floor(Math.random() * 900000) + 100000);
+      }
       const rec = recommendedRivals($('opt-type').value);
       if (rec) { $('opt-ai').value = rec; $('opt-ai-out').textContent = rec; }
       this.updateMapFields();
@@ -97,16 +120,42 @@ class UI {
     $('opt-seed').addEventListener('input', () => this.queuePreview());
     $('btn-reroll').addEventListener('click', () => {
       $('opt-seed').value = String(Math.floor(Math.random() * 900000) + 100000);
+      if ($('opt-type').value === 'random') this.rollRandomType();
+      this.updateMapFields();
       this.queuePreview(0);
     });
     $('btn-help').addEventListener('click', () => this.showHelp());
+    $('btn-tutorial').addEventListener('click', () => this.startTutorial());
+    let tutDone = false;
+    try { tutDone = localStorage.getItem('borderfall.tutorialDone') === '1'; } catch (e) { /* storage unavailable */ }
+    $('btn-tutorial').classList.toggle('nudge', !tutDone);
+    if (!tutDone) $('btn-tutorial').textContent = 'New here? Play the tutorial';
+    const gfx = P.gfx === 'low' ? 'low' : 'high';
+    document.querySelector(`input[name=gfx][value=${gfx}]`).checked = true;
+    this.r.setQuality(gfx);
+    for (const r of document.querySelectorAll('input[name=gfx]')) r.addEventListener('change', () => this.setGraphics(r.value));
+    this.initMultiplayer();
     $('setup').addEventListener('submit', (e) => { e.preventDefault(); this.startGame(); });
     $('btn-random-spawn').addEventListener('click', () => this.randomSpawn());
     this.generatePreview();
   }
 
+  rollRandomType() {
+    const kinds = ['continents', 'pangaea', 'archipelago', 'highlands'];
+    this.randomType = kinds[Math.floor(Math.random() * kinds.length)];
+  }
+
+  setGraphics(q) {
+    this.r.setQuality(q);
+    this.prefs.gfx = q;
+    savePrefs(this.prefs);
+    const r = document.querySelector(`input[name=gfx][value=${q}]`);
+    if (r) r.checked = true;
+  }
+
   mapOptions() {
-    const type = $('opt-type').value;
+    let type = $('opt-type').value;
+    if (type === 'random') { if (!this.randomType) this.rollRandomType(); type = this.randomType; }
     return { seed: seedFromInput($('opt-seed').value), type, size: isFixedMap(type) ? 'fixed' : $('opt-size').value };
   }
 
@@ -119,8 +168,10 @@ class UI {
     $('seed-label').textContent = fixed ? 'Rival placement seed' : 'World seed';
     const desc = $('map-desc');
     const comp = MAP_TYPES[type] && MAP_TYPES[type].competitive;
-    desc.hidden = !fixed;
-    desc.textContent = comp ? `${MAP_TYPES[type].desc} Every region has an identical twin.` :
+    desc.hidden = !fixed && type !== 'random';
+    if (type === 'random' && !this.randomType) this.rollRandomType();
+    desc.textContent = type === 'random' ? `This time: ${MAP_TYPES[this.randomType].label}. Press New world for another.` :
+      comp ? `${MAP_TYPES[type].desc} Every region has an identical twin.` :
       isPremade(type) ? 'Real coastlines, mountains, deserts and forests.' : '';
   }
 
@@ -169,23 +220,52 @@ class UI {
       this.generatePreview();
       if (this.mapKey !== this.mapKeyOf(o)) return;
     }
-    const name = ($('opt-name').value.trim() || 'Your Nation').slice(0, 16);
+    const name = this.playerName();
     const diff = document.querySelector('input[name=diff]:checked').value;
     const mode = document.querySelector('input[name=mode]:checked').value;
     const numAI = Number($('opt-ai').value);
-    this.prefs = { name, type: o.type, size: o.size, numAI, diff, mode, color: this.color };
-    savePrefs(this.prefs);
+    if (!this.tutorialPending) {
+      this.prefs = { ...this.prefs, name, type: $('opt-type').value, size: $('opt-size').value, numAI, diff, mode, color: this.color };
+      savePrefs(this.prefs);
+    }
+    if (this.isClient()) return;
+    const game = new Game(this.map, { difficulty: diff, mode, multiplayer: !!this.net });
+    if (this.net) {
+      const humans = this.net.lobby.players.map((p) => ({ name: p.name, color: hexToRgb(p.color), peer: p.id }));
+      game.setupPlayers({ humans, numAI, difficulty: diff });
+      this.net.startMatch(game, this.map);
+    } else {
+      game.setupPlayers({ playerName: name, playerColor: hexToRgb(this.color), numAI, difficulty: diff });
+    }
+    this.enterGame(game, 1);
+    if (this.tutorialPending) {
+      this.tutorialPending = false;
+      this.tutorial = new Tutorial(this);
+      this.tutorial.begin();
+    }
+  }
 
-    const game = new Game(this.map, { difficulty: diff, mode });
-    game.setupPlayers({ playerName: name, playerColor: hexToRgb(this.color), numAI, difficulty: diff });
+  // Everything that resets the screen for a new match, offline, hosted or joined.
+  enterGame(game, myId) {
     this.game = game;
+    this.myId = myId;
+    this.r.myId = myId;
     this.lastEvent = 0;
     this.overShown = false;
+    this.fallenShown = false;
+    this.spawnedShown = false;
+    this.closeModal();
+    if (this.tutorial && game !== this.tutorial.game) { this.tutorial.end(); this.tutorial = null; }
+    document.querySelector('.speed').hidden = game.multiplayer;
+    $('spawn-banner').querySelector('p').textContent = game.multiplayer
+      ? 'Pick your starting spot on any unclaimed land.'
+      : 'Click any unclaimed land to found your nation. Rivals are already on the map.';
     this.speed = 1;
     this.setSpeedButtons();
     $('focus').value = 50;
     this.updateFocus();
     this.r.insetLeft = 0;
+    if (this.r.map !== game.map) this.r.setMap(game.map);
     this.r.setGame(game);
     this.r.fit();
     this.r.mode = { kind: 'spawn' };
@@ -232,19 +312,33 @@ class UI {
   }
 
   spawn(tile) {
+    if (this.me.spawned) return;
+    const res = this.cmd('spawn', { tile }, true);
+    if (res && res.bad) { this.notice(res.msg, true); return; }
+    if (res) this.onSpawned(tile);
+  }
+
+  // Called once our nation exists (right away offline, or when the host confirms it).
+  onSpawned(tile) {
     const g = this.game;
-    if (!g.spawnHuman(tile)) { this.notice('Pick a spot on unclaimed land.', true); return; }
+    this.spawnedShown = true;
     this.r.mode = null;
-    $('spawn-banner').hidden = true;
     $('hud').hidden = false;
-    const x = tile % g.W, y = (tile - x) / g.W;
-    this.r.centerOn(x + 0.5, y + 0.5, Math.max(this.r.minZoom() * 2.5, 4));
+    $('spawn-banner').hidden = !(g.multiplayer && !g.started);
+    if (tile >= 0) {
+      const x = tile % g.W, y = (tile - x) / g.W;
+      this.r.centerOn(x + 0.5, y + 0.5, Math.max(this.r.minZoom() * 2.5, 4));
+    }
     this.updateHud(true);
+    if (this.tutorial) this.tutorial.check();
   }
 
   backToMenu() {
     this.closeModal();
     this.closeCtx();
+    if (this.net) { this.net.leave(); this.net = null; this.leaveLobby(true); }
+    if (this.tutorial) { this.tutorial.end(); this.tutorial = null; }
+    if ($('opt-type').value === 'random') { this.rollRandomType(); $('opt-seed').value = String(Math.floor(Math.random() * 900000) + 100000); this.updateMapFields(); }
     this.game = null;
     this.r.mode = null;
     $('hud').hidden = true;
@@ -266,7 +360,7 @@ class UI {
     ratio.addEventListener('input', () => { this.ratio = Number(ratio.value) / 100; this.updateRatio(); });
     const focus = $('focus');
     focus.addEventListener('input', () => {
-      if (this.game) this.game.human.focus = Number(focus.value) / 100;
+      if (this.game && this.game.started) this.cmd('focus', { v: Number(focus.value) / 100 }, true);
       this.updateFocus();
     });
     this.updateFocus();
@@ -300,8 +394,7 @@ class UI {
     $('fronts').addEventListener('pointerdown', (e) => {
       const btn = e.target.closest('button[data-retreat]');
       if (btn && this.game) {
-        if (this.game.retreat(Number(btn.dataset.retreat), 1)) this.notice('Troops pulled back. 20% were lost in the retreat.');
-        this.updateHud(true);
+        this.cmd('retreat', { id: Number(btn.dataset.retreat) });
       }
     });
     $('board-list').addEventListener('pointerdown', (e) => {
@@ -313,7 +406,7 @@ class UI {
   }
 
   drawBuildIcons() {
-    const color = this.game ? this.game.human.color : hexToRgb(this.color);
+    const color = this.game ? this.me.color : hexToRgb(this.color);
     for (const type of BUILD_ORDER) {
       const cv = this.buildBtns[type].querySelector('canvas');
       const c = cv.getContext('2d');
@@ -345,7 +438,7 @@ class UI {
     $('ratio-out').textContent = `${Math.round(this.ratio * 100)}%`;
     $('ratio').value = Math.round(this.ratio * 100);
     const g = this.game;
-    $('ratio-troops').textContent = g && g.human ? fmt(g.human.troops * this.ratio) : '';
+    $('ratio-troops').textContent = g && this.me ? fmt(this.me.troops * this.ratio) : '';
   }
 
   updateFocus() {
@@ -384,15 +477,15 @@ class UI {
   updateHud(force) {
     const g = this.game;
     if (!g) return;
-    const me = g.human;
+    const me = this.me;
     const cap = g.troopCap(me);
     $('v-troops').textContent = fmt(me.troops);
     $('v-cap').textContent = `/ ${fmt(cap)}`;
     const gr = $('v-growth');
     gr.textContent = `${me.growth >= 0 ? '+' : ''}${fmt(me.growth)}/s`;
     gr.classList.toggle('neg', me.growth < 0);
-    $('v-gold').textContent = fmt(me.gold);
-    $('v-income').textContent = `+${fmt(me.income)}/s`;
+    $('v-gold').textContent = fmtMoney(me.gold);
+    $('v-income').textContent = `+${fmtMoney(me.income)}/s`;
     const share = g.landShare(me);
     $('v-land').textContent = `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`;
     $('v-tiles').textContent = `${fmt(me.tiles)} tiles`;
@@ -432,7 +525,7 @@ class UI {
       const def = BUILDINGS[type];
       const unlocked = g.buildingUnlocked(me, type);
       const cost = g.buildCost(me, type);
-      b.querySelector('.cost').textContent = unlocked ? fmt(cost) : 'Locked';
+      b.querySelector('.cost').textContent = unlocked ? fmtMoney(cost) : 'Locked';
       b.classList.toggle('locked', !unlocked);
       b.classList.toggle('poor', unlocked && me.gold < cost);
       b.classList.toggle('on', !!(this.r.mode && this.r.mode.kind === 'build' && this.r.mode.type === type));
@@ -440,7 +533,7 @@ class UI {
       if (b.title !== title) b.title = title;
     }
     const mc = g.missileCost(me);
-    this.missileBtn.querySelector('.cost').textContent = me.counts.silo ? fmt(mc) : 'Needs silo';
+    this.missileBtn.querySelector('.cost').textContent = me.counts.silo ? fmtMoney(mc) : 'Needs silo';
     this.missileBtn.classList.toggle('poor', !me.counts.silo || me.gold < mc || !g.readySilo(me));
     this.missileBtn.classList.toggle('on', !!(this.r.mode && this.r.mode.kind === 'missile'));
 
@@ -449,10 +542,16 @@ class UI {
     this.updateLog();
     this.updateToasts();
 
+    if (!this.spawnedShown && me.spawned) this.onSpawned(me.capital);
     if (g.over && !this.overShown) {
       this.overShown = true;
+      this.fallenShown = true;
+      this.showGameOver();
+    } else if (!g.over && me.spawned && !me.alive && !this.fallenShown) {
+      this.fallenShown = true;
       this.showGameOver();
     }
+    if (this.tutorial) this.tutorial.check();
   }
 
   updateBoard() {
@@ -461,16 +560,16 @@ class UI {
     $('board-count').textContent = `${alive.length} left`;
     const rows = [];
     const row = (p, rank) => {
-      const ally = g.isAllied(1, p.id) ? '<span class="ally">Ally</span>' : '';
+      const ally = g.isAllied(this.myId, p.id) ? '<span class="ally">Ally</span>' : p.human && p.id !== this.myId ? '<span class="ally pl">Player</span>' : '';
       const share = g.landShare(p) * 100;
-      return `<li data-pid="${p.id}" class="${p.human ? 'me' : ''}" style="--c:${rgbCss(p.color)}"><span class="rk">${rank}</span><span class="nm">${esc(p.name)}${ally}</span><span class="ld">${share.toFixed(share < 10 ? 1 : 0)}%</span><span class="tr">${fmt(p.troops)}</span></li>`;
+      return `<li data-pid="${p.id}" class="${p.id === this.myId ? 'me' : ''}" style="--c:${rgbCss(p.color)}"><span class="rk">${rank}</span><span class="nm">${esc(p.name)}${ally}</span><span class="ld">${share.toFixed(share < 10 ? 1 : 0)}%</span><span class="tr">${fmt(p.troops)}</span></li>`;
     };
     const top = Math.min(10, alive.length);
     for (let k = 0; k < top; k++) rows.push(row(alive[k], k + 1));
-    const myRank = alive.indexOf(g.human);
+    const myRank = alive.indexOf(this.me);
     if (myRank >= top) {
       rows.push('<li class="sep" aria-hidden="true"></li>');
-      rows.push(row(g.human, myRank + 1));
+      rows.push(row(this.me, myRank + 1));
     }
     const html = rows.join('');
     if (html !== this.boardHtml) { $('board-list').innerHTML = html; this.boardHtml = html; }
@@ -481,10 +580,10 @@ class UI {
     const out = [], inc = [];
     for (const a of g.attacks) {
       if (a.dead) continue;
-      if (a.attacker === 1) {
+      if (a.attacker === this.myId) {
         const t = a.target ? g.players[a.target] : null;
         out.push(`<div class="front" style="--c:${t ? rgbCss(t.color) : '#a89f80'}"><span class="nm">${t ? esc(t.name) : 'Unclaimed land'}${a.seeded ? ' (beachhead)' : ''}</span><span class="tr">${fmt(a.troops)}</span><button type="button" data-retreat="${a.id}" title="Pull back 80% of these troops">Retreat</button></div>`);
-      } else if (a.target === 1) {
+      } else if (a.target === this.myId) {
         const p = g.players[a.attacker];
         inc.push(`<div class="front in" style="--c:${rgbCss(p.color)}"><span class="nm">${esc(p.name)}${a.seeded ? ' (beachhead)' : ''}</span><span class="tr">${fmt(a.troops)}</span><span></span></div>`);
       }
@@ -492,10 +591,10 @@ class UI {
     for (const s of g.ships) {
       if (s.dead) continue;
       const eta = Math.max(0, Math.ceil((s.path.length - 1 - s.pos) / SHIP_SPEED / TPS));
-      if (s.owner === 1) {
+      if (s.owner === this.myId) {
         const t = s.target ? g.players[s.target] : null;
         out.push(`<div class="front" style="--c:${t ? rgbCss(t.color) : '#a89f80'}"><span class="nm">Fleet to ${t ? esc(t.name) : 'unclaimed land'}</span><span class="tr">${fmt(s.troops)}</span><span class="tr" style="font-size:13px;color:var(--muted)">${eta}s</span></div>`);
-      } else if (s.target === 1) {
+      } else if (s.target === this.myId) {
         const p = g.players[s.owner];
         inc.push(`<div class="front in" style="--c:${rgbCss(p.color)}"><span class="nm">Fleet from ${esc(p.name)}</span><span class="tr">${fmt(s.troops)}</span><span class="tr" style="font-size:13px;color:var(--muted)">${eta}s</span></div>`);
       }
@@ -504,7 +603,7 @@ class UI {
       if (m.dead) continue;
       const o = g.owner[m.tile];
       const eta = Math.max(0, Math.ceil((m.dur - m.t) / TPS));
-      if (o === 1 && m.owner !== 1) {
+      if (o === this.myId && m.owner !== this.myId) {
         inc.push(`<div class="front in" style="--c:#e0533d"><span class="nm">Missile from ${esc(g.players[m.owner].name)}</span><span class="tr">${eta}s</span><span></span></div>`);
       }
     }
@@ -520,6 +619,7 @@ class UI {
     for (const e of g.events) {
       if (e.id <= this.lastEvent) continue;
       this.lastEvent = e.id;
+      if (e.to ? e.to !== this.myId : (e.skip && e.skip.includes(this.myId))) continue;
       const li = document.createElement('li');
       li.className = e.kind;
       li.textContent = e.text;
@@ -539,6 +639,7 @@ class UI {
     const g = this.game, box = $('toasts');
     const live = new Set();
     for (const r of g.requests) {
+      if (r.to !== this.myId) continue;
       live.add(r.id);
       const p = g.players[r.from];
       let el = this.toastEls.get(r.id);
@@ -550,7 +651,7 @@ class UI {
         el.addEventListener('click', (e) => {
           const b = e.target.closest('button[data-a]');
           if (!b || !this.game) return;
-          this.game.respondRequest(r.id, b.dataset.a === '1');
+          this.cmd('respond', { id: r.id, accept: b.dataset.a === '1' });
           el.remove();
           this.toastEls.delete(r.id);
         });
@@ -568,16 +669,16 @@ class UI {
   // ---------- modes ----------
   toggleBuild(type) {
     const g = this.game;
-    if (!g || !g.started || !g.human.alive || !g.buildingAvailable(type)) return;
-    if (!g.buildingUnlocked(g.human, type)) {
+    if (!g || !g.started || !this.me.alive || !g.buildingAvailable(type)) return;
+    if (!g.buildingUnlocked(this.me, type)) {
       this.notice(`Research ${TECH_BY_ID[BUILDINGS[type].tech].name} to unlock the ${BUILDINGS[type].name.toLowerCase()}.`, true);
       return;
     }
     if (this.r.mode && this.r.mode.kind === 'build' && this.r.mode.type === type) { this.r.mode = null; }
     else {
       this.r.mode = { kind: 'build', type };
-      const cost = g.buildCost(g.human, type);
-      if (g.human.gold < cost) this.notice(`${BUILDINGS[type].name} needs ${fmt(cost)} gold. You have ${fmt(g.human.gold)}.`, true);
+      const cost = g.buildCost(this.me, type);
+      if (this.me.gold < cost) this.notice(`${BUILDINGS[type].name} costs ${fmtMoney(cost)}. You have ${fmtMoney(this.me.gold)}.`, true);
       else this.notice(`Click your land to place a ${BUILDINGS[type].name.toLowerCase()}. Esc to cancel.`);
     }
     this.updateHud(true);
@@ -585,9 +686,9 @@ class UI {
 
   toggleMissile() {
     const g = this.game;
-    if (!g || !g.started || !g.human.alive) return;
+    if (!g || !g.started || !this.me.alive) return;
     if (this.r.mode && this.r.mode.kind === 'missile') { this.r.mode = null; this.updateHud(true); return; }
-    if (!g.human.counts.silo) { this.notice('Build a missile silo first.', true); return; }
+    if (!this.me.counts.silo) { this.notice('Build a missile silo first.', true); return; }
     this.r.mode = { kind: 'missile' };
     this.notice('Click a target. Air defenses near it may shoot the missile down.');
     this.updateHud(true);
@@ -600,66 +701,23 @@ class UI {
     if (!g || tile < 0) return;
     const mode = this.r.mode;
     if (mode && mode.kind === 'spawn') { this.spawn(tile); return; }
-    if (!g.started || !g.human.alive) return;
+    if (!g.started || !this.me.alive) return;
     if (mode && mode.kind === 'build') {
-      const err = g.build(1, mode.type, tile);
-      if (err) this.notice(err, true);
-      else {
-        this.notice(`${BUILDINGS[mode.type].name} built.`);
-        if (!shift) this.r.mode = null;
-      }
-      this.updateHud(true);
+      const res = this.cmd('build', { type: mode.type, tile });
+      if (!shift && !(res && res.bad)) this.r.mode = null;
       return;
     }
     if (mode && mode.kind === 'missile') {
-      const err = g.launchMissile(1, tile);
-      if (err) this.notice(err, true);
-      else { this.notice('Missile away.'); this.r.mode = null; }
-      this.updateHud(true);
+      const res = this.cmd('missile', { tile });
+      if (!(res && res.bad)) this.r.mode = null;
       return;
     }
     this.attackAt(tile);
   }
 
   attackAt(tile) {
-    const g = this.game, me = g.human;
-    if (g.isWater(tile)) return;
-    const o = g.owner[tile];
-    if (o === 1) { this.notice('Your land. Right-click it to build.'); return; }
-    if (g.isAllied(1, o)) { this.notice(`${g.players[o].name} is your ally. Right-click to reinforce them.`); return; }
-    if (o === 0 && g.fallout[tile]) { this.notice('That land is scorched and can\'t be taken yet.', true); return; }
-    const amount = Math.floor(me.troops * this.ratio);
-    if (amount < 1) { this.notice('You have no troops to send.', true); return; }
-    const who = o ? g.players[o].name : 'unclaimed land';
-    if (this.landReachable(tile)) {
-      if (g.launchAttack(1, o, amount)) { this.notice(`Attacking ${who} with ${fmt(amount)} troops.`); this.updateHud(true); return; }
-    }
-    const err = g.launchNaval(1, tile, amount);
-    if (err) this.notice(err, true);
-    else this.notice(`Fleet sailing to ${who} with ${fmt(amount)} troops.`);
-    this.updateHud(true);
-  }
-
-  // Is the clicked region connected over land to our border?
-  landReachable(tile) {
-    const g = this.game, W = g.W, H = g.H, own = g.owner;
-    const t = own[tile];
-    const st = g.nextStamp(), S = g.bfsStamp, Q = g.bfsQueue;
-    let qh = 0, qt = 0;
-    Q[qt++] = tile; S[tile] = st;
-    while (qh < qt) {
-      if (qh > 150000) return true;
-      const i = Q[qh++];
-      const x = i % W, y = (i - x) / W;
-      const nb = [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1];
-      for (const n of nb) {
-        if (n < 0) continue;
-        if (own[n] === 1) return true;
-        if (S[n] === st || !g.isTarget(n, t)) continue;
-        S[n] = st; Q[qt++] = n;
-      }
-    }
-    return false;
+    if (this.game.isWater(tile)) return;
+    this.cmd('attack', { tile, ratio: this.ratio });
   }
 
   // ---------- context menu ----------
@@ -667,48 +725,48 @@ class UI {
     const g = this.game;
     if (!g || !g.started || tile < 0) return;
     if (this.r.mode) { this.r.mode = null; this.updateHud(true); return; }
-    const me = g.human, o = g.owner[tile], water = g.isWater(tile);
+    const me = this.me, my = this.myId, o = g.owner[tile], water = g.isWater(tile);
     const ter = TERRAIN[g.map.terrain[tile]];
     const items = [];
     let title, sub;
     if (water) { title = 'Open sea'; sub = ter.name; }
-    else if (o) { const p = g.players[o]; title = p.human ? `${p.name} (you)` : p.name; sub = `${ter.name}, ${fmt(p.troops)} troops`; }
+    else if (o) { const p = g.players[o]; title = o === my ? `${p.name} (you)` : p.name; sub = `${ter.name}, ${fmt(p.troops)} troops`; }
     else { title = 'Unclaimed land'; sub = ter.name; }
 
     if (me.alive && !water) {
-      if (o === 1) {
+      if (o === my) {
         for (const type of BUILD_ORDER) {
           if (!g.buildingAvailable(type)) continue;
           const err = g.canBuild(me, type, tile);
-          items.push({ label: `Build ${BUILDINGS[type].name.toLowerCase()}`, cost: fmt(g.buildCost(me, type)), disabled: !!err, title: err || BUILDINGS[type].desc,
-            act: () => { const e = g.build(1, type, tile); this.notice(e || `${BUILDINGS[type].name} built.`, !!e); } });
+          items.push({ label: `Build ${BUILDINGS[type].name.toLowerCase()}`, cost: fmtMoney(g.buildCost(me, type)), disabled: !!err, title: err || BUILDINGS[type].desc,
+            act: () => this.cmd('build', { type, tile }) });
         }
-      } else if (!g.isAllied(1, o)) {
+      } else if (!g.isAllied(my, o)) {
         const amt = Math.floor(me.troops * this.ratio);
-        const land = this.landReachable(tile);
+        const land = g.landReachable(my, tile);
         items.push({ label: land ? `Attack with ${fmt(amt)} troops` : `Send fleet with ${fmt(amt)} troops`, act: () => this.attackAt(tile) });
         if (me.counts.silo) {
           const cost = g.missileCost(me);
-          const err = !g.readySilo(me) ? 'Every silo is reloading.' : me.gold < cost ? `Needs ${fmt(cost)} gold.` : '';
-          items.push({ label: 'Launch missile here', cost: fmt(cost), disabled: !!err, title: err, danger: true,
-            act: () => { const e = g.launchMissile(1, tile); this.notice(e || 'Missile away.', !!e); } });
+          const err = !g.readySilo(me) ? 'Every silo is reloading.' : me.gold < cost ? `Needs ${fmtMoney(cost)}.` : '';
+          items.push({ label: 'Launch missile here', cost: fmtMoney(cost), disabled: !!err, title: err, danger: true,
+            act: () => this.cmd('missile', { tile }) });
         }
       }
-      if (o > 1) {
+      if (o && o !== my) {
         const p = g.players[o];
         items.push({ sep: true });
-        if (g.isAllied(1, o)) {
+        if (g.isAllied(my, o)) {
           const amt = Math.floor(me.troops * 0.25);
-          items.push({ label: `Send ${fmt(amt)} troops`, act: () => { const e = g.sendTroops(1, o, amt); if (e) this.notice(e, true); } });
-          items.push({ label: 'Break alliance', danger: true, act: () => g.breakAlliance(1, o) });
+          items.push({ label: `Send ${fmt(amt)} troops`, act: () => this.cmd('troops', { to: o, ratio: 0.25 }) });
+          items.push({ label: 'Break alliance', danger: true, act: () => this.cmd('unally', { to: o }) });
         } else {
-          items.push({ label: 'Propose alliance', act: () => { const e = g.requestAlliance(1, o); if (e) this.notice(e, true); } });
+          items.push({ label: 'Propose alliance', act: () => this.cmd('ally', { to: o }) });
         }
         const gold = Math.floor(me.gold * 0.25);
-        items.push({ label: `Send ${fmt(gold)} gold`, title: 'Gifts improve how they feel about you.', disabled: gold < 1,
-          act: () => { const e = g.sendGold(1, o, gold); if (e) this.notice(e, true); } });
-        const [rl] = relLabel(g.getRel(o, 1));
-        sub += `, ${rl.toLowerCase()} toward you`;
+        items.push({ label: `Send ${fmtMoney(gold)}`, title: 'Gifts improve how they feel about you.', disabled: gold < 1,
+          act: () => this.cmd('gold', { to: o, ratio: 0.25 }) });
+        if (p.human) sub += ', a player';
+        else { const [rl] = relLabel(g.getRel(o, my)); sub += `, ${rl.toLowerCase()} toward you`; }
       }
     }
     if (!items.length) return;
@@ -749,7 +807,7 @@ class UI {
     let head;
     if (o) {
       const p = g.players[o];
-      head = `<span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}${p.human ? ' (you)' : ''}`;
+      head = `<span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}${o === this.myId ? ' (you)' : p.human ? ' (player)' : ''}`;
       rows.push(['Troops', fmt(p.troops)]);
       rows.push(['People', fmt(p.pop)]);
       rows.push(['Land', `${(g.landShare(p) * 100).toFixed(1)}%`]);
@@ -757,10 +815,10 @@ class UI {
         const c = g.control[tile];
         rows.push(['Control here', `<span class="${c < 50 ? 'rel-bad' : ''}">${c}%${c < 50 ? (c <= 20 ? ' (occupied)' : ' (restless)') : ''}</span>`]);
       }
-      if (!p.human) {
-        if (g.isAllied(1, o)) rows.push(['Status', '<span class="rel-good">Your ally</span>']);
-        else {
-          const v = g.getRel(o, 1);
+      if (o !== this.myId) {
+        if (g.isAllied(this.myId, o)) rows.push(['Status', '<span class="rel-good">Your ally</span>']);
+        else if (!p.human) {
+          const v = g.getRel(o, this.myId);
           const [lbl, cls] = relLabel(v);
           rows.push(['Toward you', `<span class="${cls}">${lbl}</span>`]);
         }
@@ -773,15 +831,15 @@ class UI {
     if (bi >= 0) rows.push(['Building', BUILDINGS[g.buildings[bi].type].name]);
 
     let hint = '';
-    const mode = this.r.mode, me = g.human;
+    const mode = this.r.mode, me = this.me;
     if (mode && mode.kind === 'spawn') hint = g.canSpawnAt(tile) ? 'Click to found your nation here' : 'Already claimed';
     else if (mode && mode.kind === 'build') hint = g.canBuild(me, mode.type, tile) || `Click to build (${fmt(g.buildCost(me, mode.type))} gold)`;
     else if (mode && mode.kind === 'missile') hint = 'Click to launch';
     else if (me.alive && g.started) {
-      if (o === 1) hint = 'Right-click to build here';
-      else if (g.isAllied(1, o)) hint = 'Right-click to reinforce or send gold';
+      if (o === this.myId) hint = 'Right-click to build here';
+      else if (g.isAllied(this.myId, o)) hint = 'Right-click to reinforce or send money';
       else if (o === 0 && g.fallout[tile]) hint = 'Scorched. Wait for it to clear.';
-      else hint = (g.neighbors[1].has(o) ? 'Click to attack' : 'Click to send a fleet') + ', right-click for more';
+      else hint = (g.neighbors[this.myId].has(o) ? (o ? 'Click to attack' : 'Click to expand toward here') : 'Click to send a fleet') + ', right-click for more';
     }
     tt.innerHTML = `<div class="tt-head">${head}</div>${rows.map(([k, v]) => `<div class="tt-row"><span>${k}</span><b>${v}</b></div>`).join('')}${hint ? `<div class="tt-hint">${esc(hint)}</div>` : ''}`;
     tt.hidden = false;
@@ -912,7 +970,7 @@ class UI {
       }
       if (k === 'q') { this.ratio = Math.max(0.01, Math.round(this.ratio * 100 - 10) / 100); this.updateRatio(); return; }
       if (k === 'e') { this.ratio = Math.min(1, Math.round(this.ratio * 100 + 10) / 100); this.updateRatio(); return; }
-      if (k === 'h' && g.started) { const L = g.human.label; this.r.centerOn(L.x, L.y, Math.max(this.r.cam.zoom, 3)); return; }
+      if (k === 'h' && g.started) { const L = this.me.label; this.r.centerOn(L.x, L.y, Math.max(this.r.cam.zoom, 3)); return; }
       if (k === 'm') { this.toggleMissile(); return; }
       if (k === 't' && g.started) { this.openNation('tech'); return; }
       if (k === 'g' && g.started && g.politics) { this.openNation('gov'); return; }
@@ -953,13 +1011,13 @@ class UI {
     const wrap = document.createElement('div');
     wrap.appendChild(tpl);
     const ul = wrap.querySelector('.bl');
-    const color = this.game ? this.game.human.color : hexToRgb(this.color);
+    const color = this.game ? this.me.color : hexToRgb(this.color);
     for (const t of BUILD_ORDER) {
       const d = BUILDINGS[t];
       const li = document.createElement('li');
       const needs = d.tech ? `, needs ${TECH_BY_ID[d.tech].name}` : '';
       const only = d.politics ? ' Realistic only.' : '';
-      li.innerHTML = `<canvas width="52" height="52" style="width:26px;height:26px" data-t="${t}"></canvas><span><b>${d.name}</b> (${fmt(d.base)} gold, key ${d.key}${needs}). ${d.desc}${only}</span>`;
+      li.innerHTML = `<canvas width="52" height="52" style="width:26px;height:26px" data-t="${t}"></canvas><span><b>${d.name}</b> (${fmtMoney(d.base)}, key ${d.key}${needs}). ${d.desc}${only}</span>`;
       ul.appendChild(li);
     }
     this.openModal(wrap.innerHTML);
@@ -986,25 +1044,23 @@ class UI {
   }
 
   onNationClick(e) {
-    const g = this.game, me = g.human;
+    const g = this.game, me = this.me;
     if (e.target.closest('[data-close]')) { this.closeModal(); return; }
     const tab = e.target.closest('[data-tab]');
     if (tab) { this.nationTab = tab.dataset.tab; this.nationMsg = ''; this.renderNation(); return; }
     const tech = e.target.closest('[data-tech]');
     if (tech) {
-      const err = me.alive ? g.setResearch(1, tech.dataset.tech) : 'Your nation has fallen.';
-      this.nationMsg = err || `Researching ${TECH_BY_ID[tech.dataset.tech].name}.`;
-      this.nationMsgBad = !!err;
+      const res = me.alive ? this.cmd('research', { id: tech.dataset.tech }, true) : { msg: 'Your nation has fallen.', bad: true };
+      this.nationMsg = res ? res.msg : 'Order sent.';
+      this.nationMsgBad = !!(res && res.bad);
       this.renderNation();
       return;
     }
     const act = e.target.closest('[data-gov]');
     if (act && me.alive) {
-      let err = '';
-      if (act.dataset.gov === 'martial') err = g.setMartial(1, !me.martial);
-      if (act.dataset.gov === 'celebrate') err = g.celebrate(1);
-      this.nationMsg = err || (act.dataset.gov === 'celebrate' ? 'Celebrations begin across the land.' : me.martial ? 'Martial law declared.' : 'Martial law lifted.');
-      this.nationMsgBad = !!err;
+      const res = act.dataset.gov === 'martial' ? this.cmd('martial', { on: !me.martial }, true) : this.cmd('celebrate', {}, true);
+      this.nationMsg = !res ? 'Order sent.' : res.bad ? res.msg : act.dataset.gov === 'celebrate' ? 'Celebrations begin across the land.' : me.martial ? 'Martial law declared.' : 'Martial law lifted.';
+      this.nationMsgBad = !!(res && res.bad);
       this.renderNation();
     }
   }
@@ -1025,7 +1081,7 @@ class UI {
   }
 
   techHtml() {
-    const g = this.game, me = g.human, era = eraIndex(g.year);
+    const g = this.game, me = this.me, era = eraIndex(g.year);
     const cur = me.research ? TECH_BY_ID[me.research] : null;
     const rate = me.rpRate;
     const eta = (t) => {
@@ -1063,12 +1119,12 @@ class UI {
   }
 
   govHtml() {
-    const g = this.game, me = g.human;
+    const g = this.game, me = this.me;
     const s = Math.round(me.stability), tg = Math.round(me.stabTarget);
     const sf = g.stabFactor(me);
     const label = s >= 70 ? 'Prosperous' : s >= 50 ? 'Orderly' : s >= REVOLT_BELOW + 10 ? 'Uneasy' : s >= REVOLT_BELOW ? 'Restless' : 'In revolt';
     let occupied = 0;
-    for (let t = 0; t < g.N; t++) if (g.owner[t] === 1 && g.control[t] < 50) occupied++;
+    for (let t = 0; t < g.N; t++) if (g.owner[t] === this.myId && g.control[t] < 50) occupied++;
     const rows = me.stabFactors.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(v % 1 && Math.abs(v) < 10 ? 1 : 0)}</td></tr>`).join('');
     const cc = g.celebrateCost(me);
     const cdLeft = Math.max(0, Math.ceil((me.celebrateReadyAt - g.tick) / TPS));
@@ -1090,7 +1146,7 @@ class UI {
           <button type="button" class="${me.martial ? 'primary' : 'ghost'}" data-gov="martial">${me.martial ? 'Lift martial law' : 'Declare martial law'}</button>
         </div>
         <div class="policy">
-          <div><b>Celebration</b><p>+15 stability, fading over a minute. Costs ${fmt(cc)} gold.${cdLeft ? ` Ready again in ${cdLeft}s.` : ''}</p></div>
+          <div><b>Celebration</b><p>+15 stability, fading over a minute. Costs ${fmtMoney(cc)}.${cdLeft ? ` Ready again in ${cdLeft}s.` : ''}</p></div>
           <button type="button" class="ghost" data-gov="celebrate"${cdLeft || me.gold < cc ? ' disabled' : ''}>Hold a celebration</button>
         </div>
         <p class="fine">The age ends in ${g.mode.endYear}. If nobody holds 70% of the land by then, the largest nation wins.</p>
@@ -1100,14 +1156,24 @@ class UI {
 
   showGameMenu() {
     if (!this.game) return;
-    this.openModal(`<h2 id="modal-title">Paused</h2>
-      <p class="result-lede">The world waits while this menu is open.</p>
+    const mp = this.game.multiplayer;
+    const q = this.r.quality;
+    this.openModal(`<h2 id="modal-title">${mp ? 'Menu' : 'Paused'}</h2>
+      <p class="result-lede">${mp ? 'The match keeps running while this menu is open.' : 'The world waits while this menu is open.'}</p>
+      <div class="field"><span>Graphics</span>
+        <div class="segmented two">
+          <label><input type="radio" name="gfx2" value="high"${q === 'high' ? ' checked' : ''}><span>High</span></label>
+          <label><input type="radio" name="gfx2" value="low"${q === 'low' ? ' checked' : ''}><span>Low (faster)</span></label>
+        </div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="ghost" data-act="help">How to play</button>
-        <button type="button" class="ghost" data-act="menu">Quit to main menu</button>
+        <button type="button" class="ghost" data-act="menu">${mp ? 'Leave match' : 'Quit to main menu'}</button>
         <button type="button" class="primary" data-close>Resume</button>
       </div>`, {
       onClick: (e) => {
+        const gq = e.target.closest('input[name=gfx2]');
+        if (gq) { this.setGraphics(gq.value); return; }
         const b = e.target.closest('button[data-act]');
         if (!b) return;
         if (b.dataset.act === 'help') { this.closeModal(); this.showHelp(); }
@@ -1116,16 +1182,155 @@ class UI {
     });
   }
 
+  // ---------- tutorial ----------
+  startTutorial() {
+    if (this.net) { this.mpStatus('Leave the lobby before starting the tutorial.', true); return; }
+    const map = generateMap({ seed: 4242, type: 'continents', size: 'small' });
+    this.map = map;
+    this.mapKey = '';
+    const game = new Game(map, { difficulty: 'easy', mode: 'realistic' });
+    game.setupPlayers({ playerName: this.playerName(), playerColor: hexToRgb(this.color), numAI: 5, difficulty: 'easy' });
+    // Rivals leave you alone while you learn, and you start with enough for a city.
+    for (const p of game.players) if (p && p.ai) p.ai.diff = { ...p.ai.diff, graceVsHuman: 480 };
+    game.players[1].tutorialBonus = true;
+    this.enterGame(game, 1);
+    this.tutorial = new Tutorial(this);
+    this.tutorial.begin();
+  }
+
+  // ---------- multiplayer menu ----------
+  initMultiplayer() {
+    const run = async (fn) => {
+      if (this.mpBusy) return;
+      this.mpBusy = true;
+      this.mpStatus(NET_LOCAL ? 'Connecting (same-browser test mode)…' : 'Connecting…');
+      try { await fn(); } catch (e) {
+        if (this.net) { this.net.leave(); this.net = null; }
+        this.leaveLobby(true);
+        this.mpStatus(e && e.message ? e.message : 'Could not connect. Check your internet connection and try again.', true);
+      } finally { this.mpBusy = false; }
+    };
+    const fresh = () => { if (this.net) this.net.leave(); this.net = new Net(this); return this.net; };
+    $('mp-quick').addEventListener('click', () => run(() => fresh().quickMatch(this.lobbySettings())));
+    $('mp-create').addEventListener('click', () => run(() => fresh().host(false, this.lobbySettings())));
+    $('mp-join').addEventListener('click', () => run(() => fresh().join($('mp-code').value)));
+    $('mp-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('mp-join').click(); } });
+    $('mp-leave').addEventListener('click', () => { if (this.net) this.net.leave(); this.net = null; this.leaveLobby(); });
+    $('mp-copy').addEventListener('click', async () => {
+      const url = `${location.origin}${location.pathname}?join=${this.net && this.net.code}`;
+      try { await navigator.clipboard.writeText(url); this.mpStatus('Invite link copied.'); }
+      catch (e) { this.mpStatus(`Share this link: ${url}`); }
+    });
+    // Hosts push setting changes to everyone in the lobby.
+    $('setup').addEventListener('change', () => {
+      if (this.net && this.net.role === 'host') setTimeout(() => this.net && this.net.setSettings(this.lobbySettings()), 0);
+    });
+    const m = /[?&]join=([A-Za-z]{5})/.exec(location.search);
+    if (m) { $('mp-code').value = m[1].toUpperCase(); run(() => fresh().join(m[1])); }
+  }
+
+  lobbySettings() {
+    const o = this.mapOptions();
+    return {
+      mode: document.querySelector('input[name=mode]:checked').value, type: o.type, size: o.size, seedText: $('opt-seed').value,
+      numAI: Number($('opt-ai').value), difficulty: document.querySelector('input[name=diff]:checked').value,
+    };
+  }
+
+  mpStatus(text, bad) {
+    const el = $('mp-status');
+    el.textContent = text || '';
+    el.classList.toggle('bad', !!bad);
+    const ls = $('lobby-status');
+    if (!$('lobby').hidden && text) ls.textContent = text;
+  }
+
+  showLobby(L, isHost) {
+    if (this.game) return;
+    $('lobby').hidden = false;
+    $('mp-entry').hidden = true;
+    $('lobby-code').textContent = L.code;
+    $('lobby-players').innerHTML = L.players.map((p) => `<li><span class="dot" style="background:${esc(p.color)}"></span>${esc(p.name)}${p.id === L.hostId ? ' <em>host</em>' : ''}</li>`).join('');
+    let status;
+    if (isHost) {
+      status = L.isPublic
+        ? (L.startAt ? `Public match. Starting in ${Math.max(0, Math.ceil((L.startAt - Date.now()) / 1000))}s, or start now.` : 'Public match. Waiting for someone to join; it starts automatically 40s after they do.')
+        : 'Share the code or invite link. Start whenever everyone is in.';
+      $('btn-start').textContent = `Start match (${L.players.length} ${L.players.length === 1 ? 'player' : 'players'})`;
+      $('btn-start').disabled = !!this.genTimer;
+    } else {
+      status = L.startAt ? `Starting in ${Math.max(0, Math.ceil((L.startAt - Date.now()) / 1000))}s.` : 'Waiting for the host to start the match.';
+      $('btn-start').textContent = 'Waiting for the host…';
+      $('btn-start').disabled = true;
+      this.applyLobbySettings(L.settings);
+    }
+    $('lobby-status').textContent = status;
+    for (const el of $('setup').querySelectorAll('input, select')) {
+      if (el.closest('#lobby') || el.name === 'gfx') continue;
+      el.disabled = !isHost || el.id === 'opt-name';
+    }
+    for (const b of $('opt-colors').children) b.disabled = true;
+  }
+
+  applyLobbySettings(st) {
+    const key = JSON.stringify(st);
+    if (key === this.appliedLobby) return;
+    this.appliedLobby = key;
+    const set = (sel) => { const r = document.querySelector(sel); if (r) r.checked = true; };
+    set(`input[name=mode][value=${st.mode}]`);
+    set(`input[name=diff][value=${st.difficulty}]`);
+    $('mode-desc').textContent = MODES[st.mode].desc;
+    $('opt-type').value = $('opt-type').querySelector(`option[value="${st.type}"]`) ? st.type : 'continents';
+    if (!isFixedMap(st.type)) $('opt-size').value = st.size;
+    $('opt-ai').value = st.numAI;
+    $('opt-ai-out').textContent = st.numAI;
+    $('opt-seed').value = st.seedText;
+    this.updateMapFields();
+    this.queuePreview(0);
+  }
+
+  leaveLobby(silent) {
+    $('lobby').hidden = true;
+    $('mp-entry').hidden = false;
+    this.appliedLobby = null;
+    for (const el of $('setup').querySelectorAll('input, select')) el.disabled = false;
+    for (const b of $('opt-colors').children) b.disabled = false;
+    $('btn-start').textContent = 'Choose your homeland';
+    $('btn-start').disabled = !!this.genTimer;
+    if (!silent) this.mpStatus('');
+  }
+
+  spawnCountdown(left) {
+    const g = this.game;
+    if (!g || g.started) { if (g && this.spawnedShown) $('spawn-banner').hidden = true; return; }
+    $('spawn-banner').hidden = false;
+    $('spawn-banner').querySelector('p').textContent = this.me && this.me.spawned
+      ? `Waiting for the other players. The match begins in ${left}s.`
+      : `Pick your starting spot on any unclaimed land. The match begins in ${left}s.`;
+  }
+
+  netClosed(msg) {
+    if (this.net) { this.net.leave(); this.net = null; }
+    if (!this.game) { this.leaveLobby(true); this.mpStatus(msg, true); return; }
+    this.openModal(`<h2 id="modal-title">Match ended</h2><p class="result-lede">${esc(msg)}</p>
+      <div class="modal-actions"><button type="button" class="primary" data-act="menu">Back to the menu</button></div>`, {
+      onClick: (e) => { if (e.target.closest('button[data-act]')) this.backToMenu(); },
+    });
+  }
+
   showGameOver() {
-    const g = this.game, me = g.human, o = g.over;
+    const g = this.game, me = this.me;
+    const o = g.over || { winner: 0, reason: 'fallen', time: g.time, year: g.year };
     const alive = g.players.filter((p) => p && p.alive).sort((a, b) => b.tiles - a.tiles);
     const rank = me.alive ? alive.indexOf(me) + 1 : '—';
-    const leader = o.leader ? g.players[o.leader] : null;
-    const title = o.won ? 'Victory' : me.alive ? `The year ${o.year} arrives` : 'Your nation has fallen';
+    const won = o.winner === this.myId;
+    const leader = o.winner ? g.players[o.winner] : null;
+    const title = won ? 'Victory' : me.alive ? `The year ${o.year} arrives` : 'Your nation has fallen';
     let lede;
-    if (o.won && o.reason === 'share') lede = `You hold ${Math.round(g.landShare(me) * 100)}% of the world. No one is left to challenge you.`;
-    else if (o.won && o.reason === 'year') lede = `The year ${o.year} arrives and yours is the largest nation on earth, with ${Math.round(g.landShare(me) * 100)}% of the land.`;
-    else if (o.won) lede = 'Every rival is gone or sworn to you. The world is yours.';
+    if (won && o.reason === 'share') lede = `You hold ${Math.round(g.landShare(me) * 100)}% of the world. No one is left to challenge you.`;
+    else if (won && o.reason === 'year') lede = `The year ${o.year} arrives and yours is the largest nation on earth, with ${Math.round(g.landShare(me) * 100)}% of the land.`;
+    else if (won) lede = 'Every rival is gone or sworn to you. The world is yours.';
+    else if (me.alive && leader && o.reason === 'share') lede = `${leader.name} controls ${Math.round(g.landShare(leader) * 100)}% of the world and wins the game.`;
     else if (me.alive && leader) lede = `${leader.name} ends the age as the largest nation, with ${Math.round(g.landShare(leader) * 100)}% of the land. You hold ${Math.round(g.landShare(me) * 100)}%.`;
     else lede = 'Your last province was taken. You can keep watching how the war ends, or start again.';
     this.openModal(`<h2 id="modal-title">${title}</h2>
@@ -1139,7 +1344,7 @@ class UI {
       </div>
       <div class="modal-actions">
         <button type="button" class="ghost" data-close>Keep watching</button>
-        <button type="button" class="primary" data-act="menu">New game</button>
+        <button type="button" class="primary" data-act="menu">${this.net ? 'Leave game' : 'New game'}</button>
       </div>`, {
       onClick: (e) => {
         const b = e.target.closest('button[data-act]');
