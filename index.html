@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Borderfall</title>
   <meta name="description" content="Borderfall is a real-time world conquest strategy game that runs in your browser. Expand, build, sail and strike against AI nations.">
-  <meta name="theme-color" content="#0b1c2a">
+  <meta name="theme-color" content="#241e19">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700;800&family=Alegreya:ital,wght@0,500;0,700;0,800;1,400;1,500&family=Alegreya+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -18,24 +18,26 @@
   <!-- Start screen: the live map preview sits behind this panel -->
   <section id="menu" class="screen">
     <div class="menu-panel">
-      <h1 class="wordmark">Borderfall</h1>
-      <p class="tagline">Found a nation in 1500 and carry it through the centuries. Take land, grow your people, research new technology, keep order at home and hold 70% of the world to win.</p>
+      <header class="brand">
+        <h1 class="wordmark">Borderfall</h1>
+        <p class="tagline">A real-time conquest game. Start with a few villages in 1500 and push your borders across five centuries.</p>
+      </header>
       <form id="setup" autocomplete="off">
         <div class="field">
           <span id="mode-label">Mode</span>
-          <div class="segmented two" role="radiogroup" aria-labelledby="mode-label">
-            <label><input type="radio" name="mode" value="realistic" checked><span>Realistic</span></label>
-            <label><input type="radio" name="mode" value="blitz"><span>Blitz</span></label>
+          <div class="modes" role="radiogroup" aria-labelledby="mode-label">
+            <label><input type="radio" name="mode" value="realistic" checked><span><b>Realistic</b><small>1500 to 2000, about 37 minutes</small></span></label>
+            <label><input type="radio" name="mode" value="blitz"><span><b>Blitz</b><small>1500 to 1700, about 15 minutes</small></span></label>
           </div>
           <p id="mode-desc" class="field-note"></p>
         </div>
-        <label class="field">
-          <span>Nation name</span>
-          <input id="opt-name" maxlength="16" value="Your Nation" spellcheck="false">
-        </label>
         <div class="field">
-          <span id="color-label">Color</span>
-          <div id="opt-colors" class="swatches" role="radiogroup" aria-labelledby="color-label"></div>
+          <span id="name-label">Your nation</span>
+          <div class="seed-row">
+            <input id="opt-name" maxlength="16" spellcheck="false" aria-labelledby="name-label">
+            <button type="button" id="btn-rename" class="ghost">Another name</button>
+          </div>
+          <div id="opt-colors" class="swatches" role="radiogroup" aria-label="Colour"></div>
         </div>
         <div class="row2">
           <label class="field">
@@ -77,36 +79,41 @@
           </label>
         </div>
         <p id="map-desc" class="field-note" hidden></p>
-        <label class="field">
-          <span>Tribes <output id="opt-tribes-out">12</output></span>
-          <input type="range" id="opt-tribes" min="0" max="40" value="12">
-        </label>
-        <label class="field">
-          <span>Rival nations <output id="opt-ai-out">14</output></span>
-          <input type="range" id="opt-ai" min="3" max="60" value="14">
-        </label>
-        <div class="field">
-          <span id="diff-label">Difficulty</span>
-          <div class="segmented" role="radiogroup" aria-labelledby="diff-label">
-            <label><input type="radio" name="diff" value="easy"><span>Easy</span></label>
-            <label><input type="radio" name="diff" value="normal" checked><span>Normal</span></label>
-            <label><input type="radio" name="diff" value="hard"><span>Hard</span></label>
+        <details class="world" id="world-settings">
+          <summary><span>World settings</span><small id="world-summary"></small></summary>
+          <div class="world-body">
+            <label class="field">
+              <span>Rival nations <output id="opt-ai-out">14</output></span>
+              <input type="range" id="opt-ai" min="3" max="60" value="14">
+            </label>
+            <label class="field">
+              <span>Tribes <output id="opt-tribes-out">12</output></span>
+              <input type="range" id="opt-tribes" min="0" max="40" value="12">
+            </label>
+            <div class="field">
+              <span id="diff-label">Difficulty</span>
+              <div class="segmented" role="radiogroup" aria-labelledby="diff-label">
+                <label><input type="radio" name="diff" value="easy"><span>Easy</span></label>
+                <label><input type="radio" name="diff" value="normal" checked><span>Normal</span></label>
+                <label><input type="radio" name="diff" value="hard"><span>Hard</span></label>
+              </div>
+            </div>
+            <div class="field">
+              <span id="seed-label">World seed</span>
+              <div class="seed-row">
+                <input id="opt-seed" spellcheck="false" aria-labelledby="seed-label">
+                <button type="button" id="btn-reroll" class="ghost">New world</button>
+              </div>
+            </div>
+            <div class="field">
+              <span id="gfx-label">Graphics</span>
+              <div class="segmented two" role="radiogroup" aria-labelledby="gfx-label">
+                <label><input type="radio" name="gfx" value="high" checked><span>High</span></label>
+                <label><input type="radio" name="gfx" value="low"><span>Low, for older devices</span></label>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="field">
-          <span id="seed-label">World seed</span>
-          <div class="seed-row">
-            <input id="opt-seed" spellcheck="false" aria-label="World seed">
-            <button type="button" id="btn-reroll" class="ghost">New world</button>
-          </div>
-        </div>
-        <div class="field">
-          <span id="gfx-label">Graphics</span>
-          <div class="segmented two" role="radiogroup" aria-labelledby="gfx-label">
-            <label><input type="radio" name="gfx" value="high" checked><span>High</span></label>
-            <label><input type="radio" name="gfx" value="low"><span>Low (faster)</span></label>
-          </div>
-        </div>
+        </details>
 
         <section id="lobby" class="lobby" hidden aria-live="polite">
           <div class="lobby-head">
@@ -123,7 +130,7 @@
 
       <section id="mp-entry" class="mp">
         <h2>Multiplayer</h2>
-        <p class="field-note">Play live against friends or strangers, plus computer nations. Your name, color and the settings above are used.</p>
+        <p class="field-note">Play live with friends or strangers. Computer nations fill the rest of the world.</p>
         <div class="mp-row">
           <button type="button" class="ghost" id="mp-quick">Quick match</button>
           <button type="button" class="ghost" id="mp-create">Create lobby</button>
@@ -161,7 +168,7 @@
         <span class="v" id="v-gold">0</span>
         <span class="sub"><span id="v-income" class="rate">+0/s</span></span>
       </div>
-      <div class="stat" title="Your people. Land and cities decide how many you can feed. Workers earn gold and soldiers are drawn from them.">
+      <div class="stat" title="Your people. Land and cities decide how many you can feed. Workers earn money and soldiers are drawn from them.">
         <span class="k">People</span>
         <span class="v" id="v-pop">0</span>
         <span class="sub"><span id="v-popcap">/ 0</span> <span id="v-popgrowth" class="rate">+0/s</span></span>
@@ -212,15 +219,15 @@
     <footer id="dock" class="panel">
       <div class="dock-sliders">
         <label class="slider">
-          <span class="slider-head">Attack with <output id="ratio-out">10%</output> <em id="ratio-troops"></em></span>
+          <span class="slider-head"><span>Attack</span> <output id="ratio-out">10%</output> <em id="ratio-troops"></em></span>
           <input type="range" id="ratio" min="1" max="100" value="10">
         </label>
-        <label class="slider" title="Army focus grows troops faster. Economy focus earns more gold.">
+        <label class="slider" title="Army focus grows troops faster. Economy focus earns more money.">
           <span class="slider-head"><span>Army</span><output id="focus-out">Balanced</output><span>Economy</span></span>
           <input type="range" id="focus" min="0" max="100" value="50">
         </label>
         <label class="slider" title="Share of your income spent on research each moment. More money means faster technology but less to build with.">
-          <span class="slider-head">Research budget <output id="sci-out">20%</output> <em id="sci-cost"></em></span>
+          <span class="slider-head"><span>Research</span> <output id="sci-out">20%</output> <em id="sci-cost"></em></span>
           <input type="range" id="science" min="0" max="80" value="20">
         </label>
       </div>
@@ -259,12 +266,12 @@
       </section>
       <section>
         <h3>Taking land</h3>
-        <p>Click land to send the share of troops set on the <b>Attack with</b> slider. Settling empty land is quick, and your border grows toward the spot you click. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead.</p>
+        <p>Click land to send the share of troops set on the <b>Attack</b> slider. Settling empty land is quick, and your border grows toward the spot you click. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead.</p>
         <p>Troops at home defend you. Troops sent out don't, so don't empty your barracks while a neighbor is watching. Troops regrow fastest when you're well under your cap.</p>
       </section>
       <section>
         <h3>People</h3>
-        <p>Your population grows toward what your land and cities can feed. Only a share of them can serve as soldiers (8% at first, more with Standing Army, Levée en Masse and Total War). Everyone else works and earns gold. Soldiers who die in battle are gone for good, and conquered land brings some of its people with it.</p>
+        <p>Your population grows toward what your land and cities can feed. Only a share of them can serve as soldiers (8% at first, more with Standing Army, Levée en Masse and Total War). Everyone else works and pays taxes. Soldiers who die in battle are gone for good, and conquered land brings some of its people with it.</p>
       </section>
       <section>
         <h3>Technology</h3>
@@ -272,9 +279,9 @@
       </section>
       <section>
         <h3>Stability and control (Realistic)</h3>
-        <p>Stability rises and falls toward a target set by your technology, how far you've outgrown your administration, how much of your land is still occupied, war losses, harsh taxes or levies, and the sheer size of your empire. High stability boosts gold, recruiting, research and growth; low stability cuts them.</p>
+        <p>Stability rises and falls toward a target set by your technology, how far you've outgrown your administration, how much of your land is still occupied, war losses, harsh taxes or levies, and the sheer size of your empire. High stability boosts income, recruiting, research and growth; low stability cuts them.</p>
         <p>Land you take from another nation starts out occupied (hatched on the map) and slowly integrates. Land far from your capital, cities and courthouses never comes fully under control. Below 30 stability, poorly controlled regions can revolt and break away as a new nation.</p>
-        <p>Click Stability to declare martial law (more order, less gold and growth) or hold a celebration (costs gold, lifts stability for a while).</p>
+        <p>Click Stability to declare martial law (more order, less income and growth) or hold a celebration (costs money, lifts stability for a while).</p>
       </section>
       <section>
         <h3>Terrain</h3>
@@ -286,7 +293,7 @@
       </section>
       <section>
         <h3>Borders, tribes and encirclement</h3>
-        <p>Pulsing marks on the map show every front where you're attacking (gold) or being attacked (red), with the troops fighting there. Small tribes hold scattered patches of land at the start; they never build or research and are easy to absorb. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally or a nation you're at peace with. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
+        <p>Arrows on the map show every front where you're attacking (brass) or being attacked (red), with the troops fighting there written at the tail. Small tribes hold scattered patches of land at the start; they never build or research and are easy to absorb. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally or a nation you're at peace with. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
       </section>
       <section>
         <h3>Peace</h3>
@@ -294,7 +301,7 @@
       </section>
       <section>
         <h3>Money</h3>
-        <p>Your treasury fills from your workers' taxes, cities, harbors and factories. A city costs about $2 million, and each extra building of a kind costs more. Build on top of one of your own buildings of the same type to stack it, up to level 5; each level adds the building's full effect again. The Army–Economy slider trades troop recruiting for income, and the Research budget slider sets how much of your income goes to research.</p>
+        <p>Your treasury fills from your workers' taxes, cities, harbors and factories. A city costs about $2 million, and each extra building of a kind costs more. Build on top of one of your own buildings of the same type to stack it, up to level 5; each level adds the building's full effect again. The Army–Economy slider trades troop recruiting for income, and the Research slider sets how much of your income goes to research.</p>
       </section>
       <section>
         <h3>Multiplayer</h3>
@@ -302,7 +309,7 @@
       </section>
       <section>
         <h3>Diplomacy</h3>
-        <p>Right-click a nation to propose an alliance, send gold, or reinforce an ally. Nations warm to peaceful neighbors and remember who attacked them. Breaking an alliance makes everyone trust you less. When one nation grows too large, others band together against it.</p>
+        <p>Right-click a nation to propose an alliance, send money, or reinforce an ally. Nations warm to peaceful neighbors and remember who attacked them. Breaking an alliance makes everyone trust you less. When one nation grows too large, others band together against it.</p>
       </section>
       <section>
         <h3>Controls</h3>

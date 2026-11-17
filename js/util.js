@@ -148,18 +148,17 @@ function fmtTime(sec) {
   return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
+// Invented early-modern states, drawn from several naming traditions as a real world map would be.
 const NATION_NAMES = [
-  'Aldmere', 'Brightvale', 'Corvania', 'Drakmoor', 'Eastreach', 'Faelund', 'Gorvath', 'Highmarch',
-  'Istria', 'Jarnholm', 'Kalvoria', 'Lothmere', 'Myrkwald', 'Norrhaven', 'Ostravia', 'Pellaria',
-  'Quorinth', 'Ravenmark', 'Solmara', 'Tarvos', 'Ulmaren', 'Valdris', 'Westhollow', 'Xandrel',
-  'Yrsenland', 'Zephyra', 'Ashkarra', 'Belmonte', 'Cindral', 'Duskhaven', 'Emberfall', 'Frosthelm',
-  'Glenmora', 'Hallowind', 'Ironvale', 'Jadeport', 'Kestrelia', 'Lunaris', 'Marrowgate', 'Nythera',
-  'Obsidra', 'Pyrewatch', 'Ruskvald', 'Saltmarsh', 'Thornwick', 'Umbravia', 'Verdance', 'Wyvernhold',
-  'Corsaria', 'Stormcrest', 'Goldmere', 'Tidegard', 'Vossberg', 'Sundara', 'Kharnak', 'Elmshire',
-  'Brakken', 'Calderon', 'Mistral', 'Orlenne', 'Pallisade', 'Sevrin', 'Teshkent', 'Varnholt',
-  'Aquilonia', 'Barrowmere', 'Carthenne', 'Dunmarrow', 'Estrava', 'Falkreach', 'Galdoria', 'Hesperon',
-  'Ilvaria', 'Jorvik', 'Korrin', 'Lysandor', 'Meridia', 'Nordvik', 'Oakhaven', 'Parthis',
-  'Rhovanion', 'Sarnath', 'Tolvara', 'Uthmar', 'Vellmoor', 'Westmarch', 'Yarrowby', 'Zarovia',
-  'Ambervale', 'Blackmoor', 'Coralis', 'Drovenia', 'Elmaria', 'Fenwick', 'Greystone', 'Harrowgate',
-  'Isenmark', 'Kingsreach', 'Larkspur', 'Montclaire', 'Novaria', 'Ostmark', 'Pinecrest', 'Redcliff',
+  'Aldmark', 'Ardenholt', 'Belgora', 'Brennland', 'Castrena', 'Calvena', 'Corvania', 'Corvara', 'Dobrava', 'Drevna',
+  'Drovenia', 'Estrava', 'Falkenrode', 'Galdoria', 'Hesmark', 'Hollmark', 'Ilvaria', 'Kaldmark', 'Kalvoria', 'Kessenburg',
+  'Kostrava', 'Kraslav', 'Lusena', 'Lutovia', 'Meridia', 'Miravel', 'Montaria', 'Murcena', 'Novaria', 'Oronda',
+  'Ostervald', 'Ostravia', 'Ostmark', 'Pelora', 'Polesk', 'Rostovna', 'Sarrenne', 'Skarnholm', 'Sorvik', 'Tannhold',
+  'Tarnova', 'Tarvos', 'Terranza', 'Thessara', 'Tolvara', 'Torvenna', 'Ulmaren', 'Valdena', 'Valtessa', 'Varnovia',
+  'Vastria', 'Velicha', 'Vellora', 'Velmark', 'Volesna', 'Vyshna', 'Wendmark', 'Ylvaara', 'Zarovia', 'Zelnik',
+  'Albera', 'Almarad', 'Altuq', 'Argena', 'Aurenca', 'Benmarra', 'Carthenne', 'Dravos', 'Elvessa', 'Gorvath',
+  'Haarland', 'Jarnholm', 'Kerevan', 'Khazaran', 'Korrin', 'Lysara', 'Marrovia', 'Myrene', 'Nordhal', 'Ordaq',
+  'Orlenne', 'Parthis', 'Qasira', 'Qarrat', 'Rhudenia', 'Sahrun', 'Samarqe', 'Sevrin', 'Silvara', 'Tazirt',
+  'Turvan', 'Valmora', 'Varnholt', 'Vossberg', 'Westvald', 'Yarvena', 'Zentha', 'Brakken', 'Belmonte', 'Montclaire',
+  'Ostrel', 'Kavrany', 'Seltau', 'Ruthen',
 ];

@@ -1,7 +1,12 @@
 'use strict';
 // DOM interface: start menu, HUD, input handling, context menu, tooltips and modals.
 
-const PLAYER_COLORS = ['#3d7dd8', '#d64545', '#e0a526', '#2fa66a', '#8e5bd8', '#e07b39', '#2fb5c0', '#d9539a'];
+// Heraldic tinctures for the player's nation.
+const PLAYER_COLORS = [
+  { hex: '#2f63b5', name: 'Azure' }, { hex: '#b83a2e', name: 'Gules' }, { hex: '#d6a426', name: 'Or' },
+  { hex: '#2f8a57', name: 'Vert' }, { hex: '#7446a8', name: 'Purpure' }, { hex: '#c8692a', name: 'Tenné' },
+  { hex: '#3d9fc0', name: 'Celeste' }, { hex: '#9c3563', name: 'Murrey' },
+];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -45,7 +50,7 @@ class UI {
     this.toastEls = new Map();
     this.noticeTimer = 0;
     this.prefs = loadPrefs();
-    this.color = this.prefs.color || PLAYER_COLORS[0];
+    this.color = PLAYER_COLORS.some((c) => c.hex === this.prefs.color) ? this.prefs.color : PLAYER_COLORS[0].hex;
     this.genTimer = 0;
     this.myId = 1;
     this.net = null;
@@ -60,7 +65,17 @@ class UI {
     if (this.net && this.game && this.game.multiplayer) return this.isClient();
     return this.speed === 0 || (this.modalOpen && !this.tutorialModalRunning);
   }
-  playerName() { return ($('opt-name').value.trim() || 'Your Nation').slice(0, 16); }
+  playerName() {
+    const v = $('opt-name').value.trim();
+    if (!v) $('opt-name').value = this.suggestName();
+    return ($('opt-name').value.trim()).slice(0, 16);
+  }
+  // A name in the same style as the rival nations, different from the one shown now.
+  suggestName() {
+    const cur = $('opt-name').value.trim();
+    const pool = NATION_NAMES.filter((n) => n !== cur);
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
   get me() { return this.game.players[this.myId]; }
   isClient() { return !!(this.net && this.net.role === 'client'); }
 
@@ -77,7 +92,7 @@ class UI {
   // ---------- menu ----------
   initMenu() {
     const P = this.prefs;
-    if (P.name) $('opt-name').value = P.name;
+    $('opt-name').value = P.name && P.name !== 'Your Nation' ? P.name : this.suggestName();
     if (P.type && $('opt-type').querySelector(`option[value="${P.type}"]`)) $('opt-type').value = P.type;
     if (P.size) $('opt-size').value = P.size;
     if (P.numAI) $('opt-ai').value = P.numAI;
@@ -90,19 +105,23 @@ class UI {
     $('opt-seed').value = String(Math.floor(Math.random() * 900000) + 100000);
 
     const sw = $('opt-colors');
-    for (const c of PLAYER_COLORS) {
+    for (const { hex, name } of PLAYER_COLORS) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.style.background = c;
+      b.style.setProperty('--sw', hex);
+      b.title = name;
       b.setAttribute('role', 'radio');
-      b.setAttribute('aria-label', `Color ${c}`);
-      b.setAttribute('aria-checked', String(c === this.color));
+      b.setAttribute('aria-label', name);
+      b.setAttribute('aria-checked', String(hex === this.color));
       b.addEventListener('click', () => {
-        this.color = c;
+        this.color = hex;
         for (const x of sw.children) x.setAttribute('aria-checked', String(x === b));
       });
       sw.appendChild(b);
     }
+    $('btn-rename').addEventListener('click', () => { $('opt-name').value = this.suggestName(); });
+    $('setup').addEventListener('input', () => this.updateWorldSummary());
+    $('setup').addEventListener('change', () => this.updateWorldSummary());
 
     $('opt-ai').addEventListener('input', () => { $('opt-ai-out').textContent = $('opt-ai').value; });
     if (P.numTribes !== undefined) $('opt-tribes').value = P.numTribes;
@@ -137,6 +156,7 @@ class UI {
     document.querySelector(`input[name=gfx][value=${gfx}]`).checked = true;
     this.r.setQuality(gfx);
     for (const r of document.querySelectorAll('input[name=gfx]')) r.addEventListener('change', () => this.setGraphics(r.value));
+    this.updateWorldSummary();
     this.initMultiplayer();
     $('setup').addEventListener('submit', (e) => { e.preventDefault(); this.startGame(); });
     $('btn-random-spawn').addEventListener('click', () => this.randomSpawn());
@@ -163,6 +183,12 @@ class UI {
   }
 
   // Fixed maps (real world, competitive) have no size choice; the seed only places rivals.
+  updateWorldSummary() {
+    const diff = document.querySelector('input[name=diff]:checked').value;
+    const tribes = Number($('opt-tribes').value);
+    $('world-summary').textContent = `${$('opt-ai').value} rivals, ${tribes ? tribes + ' tribes' : 'no tribes'}, ${diff}`;
+  }
+
   updateMapFields() {
     const type = $('opt-type').value;
     const fixed = isFixedMap(type);
@@ -426,18 +452,7 @@ class UI {
     const cv = this.missileBtn.querySelector('canvas');
     const c = cv.getContext('2d');
     c.clearRect(0, 0, 60, 60);
-    c.save();
-    c.translate(30, 30);
-    c.rotate(-Math.PI / 4);
-    c.fillStyle = '#e0533d';
-    c.strokeStyle = '#f4efe2';
-    c.lineWidth = 3;
-    c.beginPath();
-    c.moveTo(0, -22); c.lineTo(7, -10); c.lineTo(7, 12); c.lineTo(13, 20); c.lineTo(-13, 20); c.lineTo(-7, 12); c.lineTo(-7, -10);
-    c.closePath();
-    c.fill();
-    c.stroke();
-    c.restore();
+    drawBuildingIcon(c, 'missile', 30, 30, 40, [214, 90, 60], false);
   }
 
   setSpeedButtons() {
@@ -658,9 +673,13 @@ class UI {
       if (e.id <= this.lastEvent) continue;
       this.lastEvent = e.id;
       if (e.to ? e.to !== this.myId : (e.skip && e.skip.includes(this.myId))) continue;
+      // The log reads as a chronicle: each entry carries the year it happened.
       const li = document.createElement('li');
       li.className = e.kind;
-      li.textContent = e.text;
+      const yr = document.createElement('span');
+      yr.className = 'yr';
+      yr.textContent = g.year;
+      li.append(yr, document.createTextNode(e.text));
       li.dataset.t = String(performance.now());
       log.appendChild(li);
     }
@@ -874,7 +893,7 @@ class UI {
     let hint = '';
     const mode = this.r.mode, me = this.me;
     if (mode && mode.kind === 'spawn') hint = g.canSpawnAt(tile) ? 'Click to found your nation here' : 'Already claimed';
-    else if (mode && mode.kind === 'build') hint = g.canBuild(me, mode.type, tile) || `Click to build (${fmt(g.buildCost(me, mode.type))} gold)`;
+    else if (mode && mode.kind === 'build') hint = g.canBuild(me, mode.type, tile) || `Click to build (${fmtMoney(g.buildCost(me, mode.type))})`;
     else if (mode && mode.kind === 'missile') hint = 'Click to launch';
     else if (me.alive && g.started) {
       if (o === this.myId) hint = 'Right-click to build here';
@@ -1212,7 +1231,7 @@ class UI {
       <section class="gov-card">
         <div class="gov-stab"><b class="${s < REVOLT_BELOW ? 'bad' : s < 45 ? 'warn' : ''}">${s}</b><span>${label}<br><small>${tg === s ? 'Holding steady' : `${tg > s ? 'Rising' : 'Falling'} toward ${tg}`}</small></span></div>
         <div class="goal stab big" aria-hidden="true"><div style="width:${clamp(me.stability, 0, 100)}%"></div><i></i></div>
-        <p>Stability multiplies gold, recruiting and research by <b>×${sf.toFixed(2)}</b>. Below <b>${REVOLT_BELOW}</b>, restless regions can break away as a new nation.</p>
+        <p>Stability multiplies income, recruiting and research by <b>×${sf.toFixed(2)}</b>. Below <b>${REVOLT_BELOW}</b>, restless regions can break away as a new nation.</p>
         <table class="factors"><caption>What sets your stability</caption>${rows}<tr class="sum"><th scope="row">Target</th><td>${tg}</td></tr></table>
       </section>
       <section class="gov-card">
@@ -1221,7 +1240,7 @@ class UI {
         <p>Average control <b>${Math.round(me.avgControl)}%</b>. <b>${fmt(occupied)}</b> tiles are occupied or restless and show hatching on the map. Conquered land integrates slowly; land far from your capital, cities and courthouses never settles fully.</p>
         <h3>Policies</h3>
         <div class="policy">
-          <div><b>Martial law</b><p>+15 stability. Gold −25% and population growth −30% while it lasts.</p></div>
+          <div><b>Martial law</b><p>+15 stability. Income −25% and population growth −30% while it lasts.</p></div>
           <button type="button" class="${me.martial ? 'primary' : 'ghost'}" data-gov="martial">${me.martial ? 'Lift martial law' : 'Declare martial law'}</button>
         </div>
         <div class="policy">
@@ -1242,7 +1261,7 @@ class UI {
       <div class="field"><span>Graphics</span>
         <div class="segmented two">
           <label><input type="radio" name="gfx2" value="high"${q === 'high' ? ' checked' : ''}><span>High</span></label>
-          <label><input type="radio" name="gfx2" value="low"${q === 'low' ? ' checked' : ''}><span>Low (faster)</span></label>
+          <label><input type="radio" name="gfx2" value="low"${q === 'low' ? ' checked' : ''}><span>Low, for older devices</span></label>
         </div>
       </div>
       <div class="modal-actions">
@@ -1349,6 +1368,8 @@ class UI {
       el.disabled = !isHost || el.id === 'opt-name';
     }
     for (const b of $('opt-colors').children) b.disabled = true;
+    $('btn-rename').disabled = true;
+    $('world-settings').open = true;
   }
 
   applyLobbySettings(st) {
@@ -1367,6 +1388,7 @@ class UI {
     $('opt-ai-out').textContent = st.numAI;
     $('opt-seed').value = st.seedText;
     this.updateMapFields();
+    this.updateWorldSummary();
     this.queuePreview(0);
   }
 
@@ -1376,6 +1398,7 @@ class UI {
     this.appliedLobby = null;
     for (const el of $('setup').querySelectorAll('input, select')) el.disabled = false;
     for (const b of $('opt-colors').children) b.disabled = false;
+    $('btn-rename').disabled = false;
     $('btn-start').textContent = 'Choose your homeland';
     $('btn-start').disabled = !!this.genTimer;
     if (!silent) this.mpStatus('');

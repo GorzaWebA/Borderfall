@@ -111,7 +111,7 @@ class Tutorial {
   finish() {
     try { localStorage.setItem('borderfall.tutorialDone', '1'); } catch (e) { /* storage unavailable */ }
     this.end();
-    this.ui.notice('Tutorial complete. Good luck!');
+    this.ui.notice('Tutorial complete. The rest of the world is yours to take.');
   }
 
   end() {
