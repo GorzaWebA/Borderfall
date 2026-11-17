@@ -83,12 +83,12 @@
           <summary><span>World settings</span><small id="world-summary"></small></summary>
           <div class="world-body">
             <label class="field">
-              <span>Rival nations <output id="opt-ai-out">14</output></span>
-              <input type="range" id="opt-ai" min="3" max="60" value="14">
+              <span>Rival nations <output id="opt-ai-out">20</output></span>
+              <input type="range" id="opt-ai" min="3" max="60" value="20">
             </label>
             <label class="field">
-              <span>Tribes <output id="opt-tribes-out">12</output></span>
-              <input type="range" id="opt-tribes" min="0" max="40" value="12">
+              <span>Tribes <output id="opt-tribes-out">16</output></span>
+              <input type="range" id="opt-tribes" min="0" max="40" value="16">
             </label>
             <div class="field">
               <span id="diff-label">Difficulty</span>
@@ -161,17 +161,17 @@
       <div class="stat" title="Troops at home. They defend your land and are sent on attacks.">
         <span class="k">Troops</span>
         <span class="v" id="v-troops">0</span>
-        <span class="sub"><span id="v-cap">/ 0</span> <span id="v-growth" class="rate">+0/s</span></span>
+        <span class="sub"><span id="v-cap">/ 0</span> <span id="v-growth" class="rate">+0/min</span></span>
       </div>
       <div class="stat" title="Money in your treasury. It pays for buildings, missiles and celebrations.">
         <span class="k">Treasury</span>
         <span class="v" id="v-gold">0</span>
-        <span class="sub"><span id="v-income" class="rate">+0/s</span></span>
+        <span class="sub"><span id="v-income" class="rate">+0/min</span></span>
       </div>
       <div class="stat" title="Your people. Land and cities decide how many you can feed. Workers earn money and soldiers are drawn from them.">
         <span class="k">People</span>
         <span class="v" id="v-pop">0</span>
-        <span class="sub"><span id="v-popcap">/ 0</span> <span id="v-popgrowth" class="rate">+0/s</span></span>
+        <span class="sub"><span id="v-popcap">/ 0</span> <span id="v-popgrowth" class="rate">+0/min</span></span>
       </div>
       <div class="stat" title="Share of all land you control. Hold 70% to win.">
         <span class="k">Land</span>
@@ -275,7 +275,11 @@
       </section>
       <section>
         <h3>Technology</h3>
-        <p>Click the year in the top bar to open the technology tree. Pick what to research next: research comes from your population and universities. Most technologies need earlier ones first, and in Realistic none can start before its year. If you don't pick, the cheapest available one is chosen for you.</p>
+        <p>Click the year in the top bar to open the technology tree: 51 technologies across six eras. Pick what to research next. Research comes from your people and universities, plus whatever the Research slider spends. Most technologies need earlier ones first, and in Realistic none can start before its year. Each technology you know makes the next one cost more, so no nation learns everything. If you don't pick, the cheapest available one is chosen for you.</p>
+      </section>
+      <section>
+        <h3>Ideology</h3>
+        <p>Press G or open Government to choose an ideology: Crown, Commerce, Militarism, Reason, Frontier, or Moderation, the balanced one with small bonuses and no drawbacks. Each has strengths and weaknesses. Every ideology has a tree of six doctrines you buy with money: the first opens two branches, and the last needs both. Changing ideology loses your doctrines and, in Realistic, shakes your stability.</p>
       </section>
       <section>
         <h3>Stability and control (Realistic)</h3>
@@ -293,7 +297,7 @@
       </section>
       <section>
         <h3>Borders, tribes and encirclement</h3>
-        <p>Arrows on the map show every front where you're attacking (brass) or being attacked (red), with the troops fighting there written at the tail. Small tribes hold scattered patches of land at the start; they never build or research and are easy to absorb. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally or a nation you're at peace with. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
+        <p>Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with a tag giving the troops fighting there. Tribes, labelled in italics with the treasure they hold, are scattered across the map at the start. They never build or research, their armies are small, and whoever absorbs one takes its stores. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally or a nation you're at peace with. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
       </section>
       <section>
         <h3>Peace</h3>
@@ -320,7 +324,7 @@
           <dt>1 – 9</dt><dd>Choose a building to place</dd>
           <dt>T</dt><dd>Open the technology tree</dd>
           <dt>P</dt><dd>Open diplomacy and peace</dd>
-          <dt>G</dt><dd>Open government (Realistic)</dd>
+          <dt>G</dt><dd>Open government and ideology</dd>
           <dt>M</dt><dd>Aim a missile</dd>
           <dt>Q / E</dt><dd>Lower or raise the attack share</dd>
           <dt>Space</dt><dd>Pause</dd>

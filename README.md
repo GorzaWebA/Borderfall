@@ -41,13 +41,14 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 ## What you do
 
-- **Expand.** Click land to send troops into it (10% of your troops by default). Settling empty land is steady and cheap, and your border grows toward the spot you click. Arrows on the map show every front where you're attacking (brass) or being attacked (red).
+- **Expand.** Click land to send troops into it (10% of your troops by default). Settling empty land is steady and cheap, and your border grows toward the spot you click. Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with the troops fighting there on a tag.
 - **Encircle.** Completely surround a patch of land and it becomes yours, unless it belongs to an ally or a nation you're at peace with.
-- **Absorb tribes.** Small tribes hold scattered land at the start. They never build or research, so they're easy pickings. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
+- **Absorb tribes.** Weak tribes hold scattered land at the start, each sitting on a store of treasure shown under its name. They never build or research, so they're easy pickings, and whoever absorbs one takes its stores. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
 - **Grow your people.** Population grows toward what your land and cities can feed. Only a share can serve as soldiers (8% in 1500, up to 23% by the World Wars); the rest work and pay taxes. Soldiers killed in battle are gone for good.
 - **Manage your treasury.** Money comes in dollars at a realistic scale: you start with $1.2 million, a city costs $2 million, and a missile $8 million.
-- **Research.** Set a research budget: the share of your income spent on research each moment. 28 technologies across six eras, from Military Drill and the Printing Press to Railroads, Machine Guns and Nuclear Fission. Click the year to open the tree and choose what comes next.
+- **Research.** Set a research budget: the share of your income spent on research each moment. 51 technologies across six eras, from Military Drill and Craft Guilds to Railroads, the Telegraph, Machine Guns and Nuclear Fission. Click the year to open the tree and choose what comes next.
 - **Keep order (Realistic).** Stability depends on your technology, how far you've outgrown your administration, occupied land, war losses, taxes and levies, and the size of your empire. Conquered land shows hatched until it integrates. Below 30 stability, restless regions break away as new nations. Declare martial law or hold a celebration when things get tense.
+- **Choose an ideology.** Crown, Commerce, Militarism, Reason or Frontier, each with strengths and weaknesses, or Moderation, the balanced one. Each has a tree of six doctrines bought with money; the first opens two branches and the last needs both.
 - **Build and stack.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos. Most unlock through technology. Build on top of one of your own buildings of the same type to stack it up to level 5; every level adds its full effect again.
 - **Sail.** Click land across the water and a fleet carries your troops there to open a beachhead.
 - **Strike.** Missiles wipe out troops and scorch land for a while; the screen shakes when one hits you. Air defense can shoot them down.
@@ -56,7 +57,7 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 ## Features
 
-- 3 to 60 AI rivals with distinct personalities (warlords, merchants, guardians, opportunists) and three difficulty levels.
+- 3 to 60 AI rivals (20 by default on a medium world) with distinct personalities (warlords, merchants, guardians, opportunists) and three difficulty levels.
 - Six terrain types that change how fast fronts move, how costly land is, and how much it's worth.
 - A guided tutorial for your first game.
 - High and Low graphics. Low draws at 30 fps and native resolution with simpler effects, for phones and older computers.
@@ -72,7 +73,7 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 | `1`–`9` | Choose a building to place (hold Shift to place several) |
 | `T` | Open the technology tree |
 | `P` | Open diplomacy: peace, war, alliances |
-| `G` | Open government: stability, administration, policies (Realistic) |
+| `G` | Open government: ideology and doctrines, plus stability, administration and policies in Realistic |
 | `M` | Aim a missile |
 | `Q` / `E` | Lower or raise the share of troops sent per attack |
 | `W` `A` `S` `D` / arrows | Pan the map |
@@ -84,13 +85,13 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 | Building | Cost | Unlocked by | What it does |
 | --- | --- | --- | --- |
-| City | $2M | — | Houses 20K people, earns $20K/s, extends administration |
+| City | $2M | — | Houses 20K people, earns $1.2M/min, extends administration |
 | Barracks | $1.8M | Military Drill | Recruiting +25%, 0.5% more people can serve |
 | Fortress | $1.4M | — | Land within 9 tiles costs attackers double and falls half as fast |
 | Harbor | $1.8M | — | Coast only. Trade income from every harbor in the world, +2 fleets |
-| University | $2.2M | Printing Press | +4 research per second |
+| University | $2.2M | Printing Press | +2 research per second |
 | Courthouse | $2.4M | Bureaucracy | Realistic only. Administers more land and brings it under control |
-| Factory | $5M | Steam Power | Earns $50K/s, recruiting +15% |
+| Factory | $5M | Steam Power | Earns $3M/min, recruiting +15% |
 | Air Defense | $5M | Radar | Shoots down one enemy missile aimed within 22 tiles every 12s |
 | Missile Silo | $10M | Rocketry | Launches missiles (20s reload) |
 

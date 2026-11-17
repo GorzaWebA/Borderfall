@@ -22,10 +22,10 @@ const T_DEF = new Float32Array(TERRAIN.map((t) => t.def || 0));
 const T_VALUE = new Float32Array(TERRAIN.map((t) => t.value || 0));
 
 const MAP_SIZES = {
-  small: { label: 'Small', w: 420, h: 260 },
-  medium: { label: 'Medium', w: 560, h: 350 },
-  large: { label: 'Large', w: 720, h: 450 },
-  huge: { label: 'Huge', w: 960, h: 600 },
+  small: { label: 'Small', w: 420, h: 260, ai: 12 },
+  medium: { label: 'Medium', w: 560, h: 350, ai: 20 },
+  large: { label: 'Large', w: 720, h: 450, ai: 30 },
+  huge: { label: 'Huge', w: 960, h: 600, ai: 44 },
 };
 
 // Random worlds. Competitive maps are mirrored or rotated copies of one region so
@@ -36,7 +36,7 @@ const MAP_TYPES = {
   archipelago: { label: 'Archipelago', freq: 4.2, warp: 0.25, edge: 0.05, land: 0.34, mount: 0.05, hills: 0.12 },
   highlands: { label: 'Highlands', freq: 2.8, warp: 0.4, edge: 0.06, land: 0.55, mount: 0.11, hills: 0.22 },
   duel: {
-    label: 'Mirror Strait', competitive: true, w: 600, h: 340, seed: 7301, sym: 'x', ai: 9,
+    label: 'Mirror Strait', competitive: true, w: 600, h: 340, seed: 7301, sym: 'x', ai: 11,
     freq: 3.0, warp: 0.3, edge: 0.06, land: 0.5, mount: 0.07, hills: 0.14,
     desc: 'Two mirrored continents face each other across a strait, joined by a single land bridge.',
     shape(ex, ey) {
@@ -48,7 +48,7 @@ const MAP_TYPES = {
     },
   },
   quad: {
-    label: 'Four Kingdoms', competitive: true, w: 520, h: 520, seed: 9142, sym: 'xy', ai: 11,
+    label: 'Four Kingdoms', competitive: true, w: 520, h: 520, seed: 9142, sym: 'xy', ai: 15,
     freq: 3.2, warp: 0.3, edge: 0.06, land: 0.48, mount: 0.07, hills: 0.14,
     desc: 'Four identical realms in two pairs, with a contested island in the middle.',
     shape(ex, ey) {
@@ -64,7 +64,7 @@ const MAP_TYPES = {
     },
   },
   ring: {
-    label: 'Ring Sea', competitive: true, w: 540, h: 540, seed: 5520, sym: 'rot6', ai: 11,
+    label: 'Ring Sea', competitive: true, w: 540, h: 540, seed: 5520, sym: 'rot6', ai: 17,
     freq: 3.4, warp: 0.25, edge: 0.05, land: 0.4, mount: 0.07, hills: 0.13,
     desc: 'A ring of land with six matching sectors around an inner sea and its island.',
     shape(ex, ey) {
@@ -74,7 +74,7 @@ const MAP_TYPES = {
     },
   },
   isthmus: {
-    label: 'Twin Continents', competitive: true, w: 560, h: 420, seed: 3317, sym: 'y', ai: 9,
+    label: 'Twin Continents', competitive: true, w: 560, h: 420, seed: 3317, sym: 'y', ai: 11,
     freq: 2.8, warp: 0.3, edge: 0.06, land: 0.46, mount: 0.07, hills: 0.14,
     desc: 'North and south mirror each other, joined by one mountainous isthmus.',
     shape(ex, ey) {
@@ -90,14 +90,14 @@ const MAP_TYPES = {
 
 // Real-world maps live in maps/<id>.js and load only when picked.
 const PREMADE_LIST = [
-  { id: 'world', label: 'World', ai: 24 },
-  { id: 'europe', label: 'Europe', ai: 18 },
-  { id: 'africa', label: 'Africa', ai: 16 },
-  { id: 'americas', label: 'The Americas', ai: 18 },
-  { id: 'namerica', label: 'North America', ai: 14 },
-  { id: 'samerica', label: 'South America', ai: 10 },
-  { id: 'oceania', label: 'Oceania', ai: 12 },
-  { id: 'cyprus', label: 'Cyprus', ai: 6 },
+  { id: 'world', label: 'World', ai: 32 },
+  { id: 'europe', label: 'Europe', ai: 24 },
+  { id: 'africa', label: 'Africa', ai: 22 },
+  { id: 'americas', label: 'The Americas', ai: 24 },
+  { id: 'namerica', label: 'North America', ai: 18 },
+  { id: 'samerica', label: 'South America', ai: 14 },
+  { id: 'oceania', label: 'Oceania', ai: 16 },
+  { id: 'cyprus', label: 'Cyprus', ai: 8 },
 ];
 const PREMADE = {};
 const MAP_ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -108,10 +108,12 @@ function mapLabel(type) {
   const p = PREMADE_LIST.find((m) => m.id === type);
   return p ? p.label : (MAP_TYPES[type] || MAP_TYPES.continents).label;
 }
-function recommendedRivals(type) {
+// Default number of rival nations for a map, or for a random world of the given size.
+function recommendedRivals(type, size) {
   const p = PREMADE_LIST.find((m) => m.id === type);
   if (p) return p.ai;
-  return MAP_TYPES[type] && MAP_TYPES[type].ai;
+  if (MAP_TYPES[type] && MAP_TYPES[type].ai) return MAP_TYPES[type].ai;
+  return (MAP_SIZES[size] || MAP_SIZES.medium).ai;
 }
 
 function registerPremadeMap(meta, data) { PREMADE[meta.id] = { meta, data }; }

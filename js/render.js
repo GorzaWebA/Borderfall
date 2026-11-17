@@ -261,7 +261,7 @@ class Renderer {
 
   drawCapitals(ox, oy, z) {
     const ctx = this.ctx, g = this.game, W = this.map.W;
-    const r = clamp(z * 1.6, 5, 13);
+    const r = clamp(z * 1.1, 6, 34);
     for (let k = 1; k < g.players.length; k++) {
       const p = g.players[k];
       if (!p.alive || p.capital < 0) continue;
@@ -277,10 +277,10 @@ class Renderer {
     this.shake = { mag, dur, until: performance.now() + dur };
   }
 
-  // Attacks involving me, drawn like a staff map: a dotted line of contact along the front and
-  // a broad arrow pointing the way the attacker is pushing, with the troops committed on it.
+  // Attacks involving me: a dotted line of contact along the front and a tag with the troops
+  // committed there, set on the front itself.
   drawFronts(ox, oy, z, now) {
-    const ctx = this.ctx, g = this.game, me = this.myId, W = this.map.W, own = g.owner;
+    const ctx = this.ctx, g = this.game, me = this.myId, W = this.map.W;
     const pulse = 0.5 + 0.5 * Math.sin(now / 260);
     const dot = Math.max(1.3, z * 0.42);
     for (const a of g.attacks) {
@@ -294,16 +294,8 @@ class Renderer {
       if (!tiles || !tiles.length) continue;
       const incoming = a.target === me;
       const rgb = incoming ? '214,90,60' : '230,199,121';
-      let cx = 0, cy = 0, vx = 0, vy = 0;
-      for (const t of tiles) {
-        const x = t % W, y = (t - x) / W;
-        cx += x; cy += y;
-        // Direction of the push: from the attacker's neighbouring tiles into this one.
-        if (own[t - 1] === a.attacker) vx += 1;
-        if (own[t + 1] === a.attacker) vx -= 1;
-        if (own[t - W] === a.attacker) vy += 1;
-        if (own[t + W] === a.attacker) vy -= 1;
-      }
+      let cx = 0, cy = 0;
+      for (const t of tiles) { const x = t % W; cx += x; cy += (t - x) / W; }
       cx /= tiles.length; cy /= tiles.length;
       let ax = cx, ay = cy, bd = 1e18;
       ctx.fillStyle = `rgba(${rgb},${0.45 + 0.45 * pulse})`;
@@ -316,16 +308,9 @@ class Renderer {
         if (sx > -4 && sy > -4 && sx < this.cw + 4 && sy < this.ch + 4) { ctx.moveTo(sx + dot, sy); ctx.arc(sx, sy, dot, 0, Math.PI * 2); }
       }
       ctx.fill();
-      let len = Math.hypot(vx, vy);
-      if (len < 0.5) {
-        const A = g.players[a.attacker];
-        vx = ax - A.label.x; vy = ay - A.label.y; len = Math.hypot(vx, vy) || 1;
-      }
-      vx /= len; vy /= len;
-      const tipX = ox + (ax + 0.5) * z + vx * z * 1.5, tipY = oy + (ay + 0.5) * z + vy * z * 1.5;
-      const L = clamp(z * 14, 58, 112);
-      if (!this.visible(tipX, tipY, L + 40)) continue;
-      drawCampaignArrow(ctx, tipX, tipY, vx, vy, L, `rgb(${rgb})`, fmt(a.troops), incoming);
+      const bx = ox + (ax + 0.5) * z, by = oy + (ay + 0.5) * z;
+      if (!this.visible(bx, by, 60)) continue;
+      drawFrontTag(ctx, bx, by, fmt(a.troops), `rgb(${rgb})`, incoming);
     }
   }
 
@@ -333,7 +318,8 @@ class Renderer {
     const ctx = this.ctx, g = this.game;
     const low = this.quality === 'low';
     if (low && z < 0.9) return;
-    const base = clamp(z * 4, 13, 36);
+    // Tokens grow with the map so they stay readable up close; buildings sit at least 4 tiles apart.
+    const base = clamp(z * 3, 13, 120);
     for (const b of g.buildings) {
       if (!b.alive) continue;
       const lvl = b.level || 1;
@@ -499,9 +485,12 @@ class Renderer {
       if (fs < (this.quality === 'low' ? 11 : 8)) continue;
       if (!this.visible(sx, sy, 220)) continue;
       const name = p.name;
+      // Tribes are peoples rather than states: italic like a map names a people, with the
+      // treasure they hold underneath instead of their (small) army.
+      const tribe = p.tribe;
       const setName = () => {
-        ctx.font = `700 ${fs}px ${FONT_LABEL}`;
-        if (spacingOk) ctx.letterSpacing = `${(fs * 0.14).toFixed(1)}px`;
+        ctx.font = tribe ? `italic 600 ${fs}px ${FONT_BOOK}` : `700 ${fs}px ${FONT_LABEL}`;
+        if (spacingOk) ctx.letterSpacing = tribe ? '0px' : `${(fs * 0.14).toFixed(1)}px`;
       };
       setName();
       let w = ctx.measureText(name).width;
@@ -512,7 +501,7 @@ class Renderer {
         setName();
         w = ctx.measureText(name).width;
       }
-      const shift = spacingOk ? fs * 0.07 : 0;   // the last letter carries trailing spacing
+      const shift = spacingOk && !tribe ? fs * 0.07 : 0;   // the last letter carries trailing spacing
       const mine = p.id === this.myId;
       const ny = sy - fs * 0.38;
       ctx.lineWidth = Math.max(2.5, fs * 0.19);
@@ -524,9 +513,9 @@ class Renderer {
       const troopFs = Math.max(8, fs * 0.72);
       ctx.font = `italic 500 ${troopFs}px ${FONT_BOOK}`;
       ctx.lineWidth = Math.max(2.5, troopFs * 0.2);
-      const t = fmt(p.troops), ty = sy + fs * 0.55;
+      const t = tribe ? fmtMoney(p.gold) : fmt(p.troops), ty = sy + fs * 0.55;
       ctx.strokeText(t, sx, ty);
-      ctx.fillStyle = g.isAllied(this.myId, p.id) ? '#1f5e4a' : (mine ? '#6b4a0e' : '#3a2f25');
+      ctx.fillStyle = tribe ? '#7a5512' : g.isAllied(this.myId, p.id) ? '#1f5e4a' : (mine ? '#6b4a0e' : '#3a2f25');
       ctx.fillText(t, sx, ty);
     }
   }
@@ -562,7 +551,7 @@ class Renderer {
         ctx.setLineDash([]);
       }
       ctx.globalAlpha = 0.85;
-      drawBuildingIcon(ctx, mode.type, sx, sy, clamp(z * 4, 14, 36), err ? [150, 60, 50] : me.color, false, 1, false);
+      drawBuildingIcon(ctx, mode.type, sx, sy, clamp(z * 3, 14, 120), err ? [150, 60, 50] : me.color, false, 1, false);
       ctx.globalAlpha = 1;
     } else if (mode.kind === 'missile') {
       const [rIn, rOut] = g.missileRadii(g.players[this.myId]);
@@ -770,59 +759,21 @@ function drawCapital(ctx, x, y, r, color) {
   ctx.restore();
 }
 
-// A broad, slightly curved arrow ending at (tx, ty) and pointing along (vx, vy), with the
-// troops on it written on a paper tag at its tail.
-function drawCampaignArrow(ctx, tx, ty, vx, vy, L, fill, label, incoming) {
-  const nx = -vy, ny = vx;
-  const head = L * 0.34;
-  const bx = tx - vx * head, by = ty - vy * head;
-  const t0x = tx - vx * L + nx * L * 0.16, t0y = ty - vy * L + ny * L * 0.16;
-  const cx = (t0x + bx) / 2 + nx * L * 0.1, cy = (t0y + by) / 2 + ny * L * 0.1;
-  const hw0 = L * 0.055, hw1 = L * 0.095, hh = L * 0.2;
-  const left = [], right = [];
-  const n = 10;
-  for (let k = 0; k <= n; k++) {
-    const t = k / n, it = 1 - t;
-    const px = it * it * t0x + 2 * it * t * cx + t * t * bx;
-    const py = it * it * t0y + 2 * it * t * cy + t * t * by;
-    let dx = 2 * it * (cx - t0x) + 2 * t * (bx - cx), dy = 2 * it * (cy - t0y) + 2 * t * (by - cy);
-    const dl = Math.hypot(dx, dy) || 1;
-    dx /= dl; dy /= dl;
-    const hw = hw0 + (hw1 - hw0) * t;
-    left.push([px - dy * hw, py + dx * hw]);
-    right.push([px + dy * hw, py - dx * hw]);
-  }
+// The troops fighting on a front, on a paper tag edged in the front's colour.
+function drawFrontTag(ctx, x, y, label, edge, incoming) {
   ctx.save();
+  ctx.font = `700 14px ${FONT_NUM}`;
+  const w = ctx.measureText(label).width + 16, h = 21;
   ctx.beginPath();
-  ctx.moveTo(left[0][0], left[0][1]);
-  for (const [px, py] of left) ctx.lineTo(px, py);
-  ctx.lineTo(bx - vy * hh, by + vx * hh);
-  ctx.lineTo(tx, ty);
-  ctx.lineTo(bx + vy * hh, by - vx * hh);
-  for (let k = right.length - 1; k >= 0; k--) ctx.lineTo(right[k][0], right[k][1]);
-  ctx.closePath();
-  ctx.lineJoin = 'round';
-  ctx.globalAlpha = 0.93;
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.lineWidth = 1.6;
-  ctx.strokeStyle = INK;
-  ctx.stroke();
-  // troop tag at the tail
-  ctx.font = `700 13px ${FONT_NUM}`;
-  const w = ctx.measureText(label).width + 12, h = 19;
-  const lx = t0x - vx * (w * 0.35 + 4), ly = t0y - vy * (h * 0.6 + 2);
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(lx - w / 2, ly - h / 2, w, h, 3); else ctx.rect(lx - w / 2, ly - h / 2, w, h);
+  if (ctx.roundRect) ctx.roundRect(x - w / 2, y - h / 2, w, h, 3); else ctx.rect(x - w / 2, y - h / 2, w, h);
   ctx.fillStyle = PAPER;
   ctx.fill();
-  ctx.lineWidth = incoming ? 2 : 1.2;
-  ctx.strokeStyle = incoming ? fill : INK;
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = incoming ? edge : '#8a6a22';
   ctx.stroke();
   ctx.fillStyle = INK;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(label, lx, ly + 0.5);
+  ctx.fillText(label, x, y + 0.5);
   ctx.restore();
 }

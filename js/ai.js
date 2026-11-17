@@ -2,10 +2,10 @@
 // Computer-controlled nations.
 
 const PERSONALITIES = [
-  { key: 'warlord', label: 'Warlord', aggression: 1.35, expandAt: 0.32, expandRatio: 0.45, attackAt: 0.5, attackRatio: 0.45, build: 0.8, fortBias: 0.6, siloBias: 1.4, loyalty: 0.6, focus: 0.35, science: 0.12, techs: { mil: 3, eco: 1, sci: 1, gov: 1 } },
-  { key: 'merchant', label: 'Merchant', aggression: 0.75, expandAt: 0.38, expandRatio: 0.4, attackAt: 0.72, attackRatio: 0.35, build: 1.4, fortBias: 1.0, siloBias: 0.7, loyalty: 1.2, focus: 0.7, science: 0.3, techs: { mil: 1, eco: 3, sci: 2, gov: 1.5 } },
-  { key: 'guardian', label: 'Guardian', aggression: 0.85, expandAt: 0.42, expandRatio: 0.38, attackAt: 0.75, attackRatio: 0.32, build: 1.1, fortBias: 1.8, siloBias: 0.8, loyalty: 1.4, focus: 0.5, science: 0.2, techs: { mil: 2, eco: 1, sci: 1, gov: 2.5 } },
-  { key: 'opportunist', label: 'Opportunist', aggression: 1.1, expandAt: 0.34, expandRatio: 0.5, attackAt: 0.6, attackRatio: 0.4, build: 1.0, fortBias: 0.8, siloBias: 1.0, loyalty: 0.8, focus: 0.5, science: 0.2, techs: { mil: 1.5, eco: 1.5, sci: 1.5, gov: 1.5 } },
+  { key: 'warlord', label: 'Warlord', aggression: 1.35, expandAt: 0.32, expandRatio: 0.45, attackAt: 0.5, attackRatio: 0.45, build: 0.8, fortBias: 0.6, siloBias: 1.4, loyalty: 0.6, focus: 0.35, science: 0.12, techs: { mil: 3, eco: 1, sci: 1, gov: 1 }, ideologies: ['militarism', 'militarism', 'frontier'] },
+  { key: 'merchant', label: 'Merchant', aggression: 0.75, expandAt: 0.38, expandRatio: 0.4, attackAt: 0.72, attackRatio: 0.35, build: 1.4, fortBias: 1.0, siloBias: 0.7, loyalty: 1.2, focus: 0.7, science: 0.3, techs: { mil: 1, eco: 3, sci: 2, gov: 1.5 }, ideologies: ['commerce', 'commerce', 'reason'] },
+  { key: 'guardian', label: 'Guardian', aggression: 0.85, expandAt: 0.42, expandRatio: 0.38, attackAt: 0.75, attackRatio: 0.32, build: 1.1, fortBias: 1.8, siloBias: 0.8, loyalty: 1.4, focus: 0.5, science: 0.2, techs: { mil: 2, eco: 1, sci: 1, gov: 2.5 }, ideologies: ['crown', 'crown', 'moderation'] },
+  { key: 'opportunist', label: 'Opportunist', aggression: 1.1, expandAt: 0.34, expandRatio: 0.5, attackAt: 0.6, attackRatio: 0.4, build: 1.0, fortBias: 0.8, siloBias: 1.0, loyalty: 0.8, focus: 0.5, science: 0.2, techs: { mil: 1.5, eco: 1.5, sci: 1.5, gov: 1.5 }, ideologies: ['moderation', 'frontier', 'reason'] },
 ];
 
 const DIFFICULTY = {
@@ -30,6 +30,7 @@ class AIController {
     this.enemy = 0;
     p.focus = pers.focus;
     p.science = pers.science;
+    this.ideologyAt = 40 + r.int(90);   // seconds into the game before choosing an ideology
   }
 
   update() {
@@ -55,6 +56,7 @@ class AIController {
     const unstable = g.politics && p.stability < 38;
     const overextended = g.politics && p.tiles > p.adminCap * 1.1;
     if (g.politics) this.managePolitics();
+    this.manageIdeology();
 
     // Answer incoming attacks when we can.
     for (const a of g.attacks) {
@@ -137,6 +139,23 @@ class AIController {
     }
   }
 
+  // Choose an ideology that suits the personality, then buy doctrines with spare money.
+  manageIdeology() {
+    const g = this.g, p = this.p;
+    if (!p.ideology) {
+      if (g.time < this.ideologyAt) return;
+      const opts = this.pers.ideologies || ['moderation'];
+      g.setIdeology(p.id, opts[g.rng.int(opts.length)]);
+      return;
+    }
+    if (g.rng() > 0.25) return;
+    const av = IDEOLOGY_BY_ID[p.ideology].tree.filter((d) => g.doctrineState(p, d) === 'avail');
+    if (!av.length) return;
+    const d = av[g.rng.int(av.length)];
+    const reserve = this.saving ? g.buildCost(p, this.saving) * 0.5 : 0;
+    if (p.gold > g.doctrineCost(d) * 1.4 + reserve) g.adoptDoctrine(p.id, d.key);
+  }
+
   pickResearch() {
     const g = this.g, p = this.p, W = this.pers.techs;
     const av = g.availableTechs(p);
@@ -146,7 +165,7 @@ class AIController {
       let w = W[t.kind] || 1;
       if (g.politics && t.kind === 'gov' && p.stability < 50) w *= 2;
       if (t.unlock && t.unlock.includes('courthouse') && g.politics && p.tiles > p.adminCap * 0.8) w *= 3;
-      const s = w / (t.cost - (p.progress[t.id] || 0) + 200) * (0.7 + g.rng() * 0.6);
+      const s = w / (g.techCost(p, t) - (p.progress[t.id] || 0) + 200) * (0.7 + g.rng() * 0.6);
       if (s > bestS) { bestS = s; best = t.id; }
     }
     return best;
@@ -419,8 +438,8 @@ class TribeAI {
       if (a.dead || a.target !== p.id) continue;
       if (p.troops > a.troops * 1.2 && ratio > 0.3) { g.launchAttack(p.id, a.attacker, Math.min(p.troops * 0.4, a.troops * 1.4)); return; }
     }
-    if ((nb.get(0) || 0) > 0 && p.tiles < 350 && ratio > 0.55 && !g.attacks.some((a) => !a.dead && a.attacker === p.id)) {
-      g.launchAttack(p.id, 0, p.troops * 0.25);
+    if ((nb.get(0) || 0) > 0 && p.tiles < 160 && ratio > 0.6 && !g.attacks.some((a) => !a.dead && a.attacker === p.id)) {
+      g.launchAttack(p.id, 0, p.troops * 0.2);
       return;
     }
     if (g.time > 60 && ratio > 0.8 && rng() < 0.15) {

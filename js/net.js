@@ -338,7 +338,7 @@ class Net {
       a: g.attacks.filter((a) => !a.dead).map((a) => [a.id, a.attacker, a.target, Math.round(a.troops), a.seeded ? 1 : 0]),
       p: g.players.slice(1).map((p) => [p.id, p.alive ? 1 : 0, p.spawned ? 1 : 0, Math.round(p.troops), p.tiles, Math.round(p.pop),
         Math.round(p.label.x * 10) / 10, Math.round(p.label.y * 10) / 10, Math.round(p.label.size * 10) / 10, p.label.tile, p.capital,
-        [...p.allies], p.human ? 1 : 0, p.peakTiles, p.kills, [...p.peace.keys()]]),
+        [...p.allies], p.human ? 1 : 0, p.peakTiles, p.kills, [...p.peace.keys()], p.tribe ? Math.round(p.gold) : 0, p.ideology || '']),
     };
     N.own.length = 0; N.ctl.length = 0; N.fo.length = 0; N.bld.clear(); N.ships.length = 0; N.missiles.length = 0; N.fx = [];
     for (const [peer, c] of this.clients) {
@@ -362,6 +362,7 @@ class Net {
           martial: p.martial, boost: p.boost, celebrateReadyAt: p.celebrateReadyAt, missilesLaunched: p.missilesLaunched,
           coastal: p.coastal, mods: p.mods, field: p.field, traitorUntil: p.traitorUntil,
           science: p.science, researchSpend: p.researchSpend, grossIncome: p.grossIncome,
+          ideology: p.ideology, ideologyAt: p.ideologyAt, doctrines: [...p.doctrines], ideoStab: p.ideoStab,
         },
       });
       if (now() - c.slow > 1000) {
@@ -445,16 +446,19 @@ class Net {
     g.attacks = u.a.map(([id, attacker, target, troops, seeded]) => ({ id, attacker, target, troops, seeded: !!seeded, dead: false }));
     if (u.fr) for (const [id, ...tiles] of u.fr) { const a = g.attacks.find((x) => x.id === id); if (a) a.fs = tiles; }
     for (const row of u.p) {
-      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, peace] = row;
+      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, peace, stash, ideo] = row;
       const p = g.players[id];
       if (!p) continue;
       p.alive = !!alive; p.spawned = !!spawned; p.troops = troops; p.tiles = tiles; p.pop = pop;
       p.label = { x: lx, y: ly, size: ls, tile: lt };
       p.capital = cap; p.allies = new Set(allies); p.human = !!human; p.peakTiles = peak; p.kills = kills;
       p.peace = new Map((peace || []).map((x) => [x, 0]));
+      if (p.tribe) p.gold = stash || 0;
+      if (id !== ui.myId) p.ideology = ideo || null;
     }
     Object.assign(me, u.me);
     me.techs = new Set(u.me.techs);
+    me.doctrines = new Set(u.me.doctrines || []);
     for (const [id, text, kind] of u.ev) g.events.push({ id, text, kind, time: g.time, to: 0 });
     if (g.events.length > 200) g.events.splice(0, g.events.length - 200);
     g.requests = u.rq.map(([id, from, expires, kind]) => ({ id, from, to: ui.myId, expires, kind }));
