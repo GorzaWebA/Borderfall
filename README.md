@@ -4,7 +4,7 @@ A real-time world conquest strategy game that runs in your browser. Found a nati
 
 ## Play
 
-**[▶ Play Borderfall](https://gorzaweba.github.io/Strategy-game/)** — https://gorzaweba.github.io/Strategy-game/
+**[▶ Play Borderfall](https://gorzaweba.github.io/Borderfall/)** — https://gorzaweba.github.io/Borderfall/
 
 No install, no account. Works on desktop and mobile browsers.
 
@@ -79,7 +79,7 @@ The game is plain HTML, CSS and JavaScript with no build step, so GitHub Pages s
 1. Make sure the game files are on the `main` branch.
 2. In the repository, open **Settings → Pages**.
 3. Under **Build and deployment**, set **Source** to **Deploy from a branch**, pick **`main`** and **`/ (root)`**, then **Save**.
-4. After a minute or two the game is live at https://gorzaweba.github.io/Strategy-game/. Every push to `main` updates it.
+4. After a minute or two the game is live at https://gorzaweba.github.io/Borderfall/. Every push to `main` updates it.
 
 ## Run it locally
 
