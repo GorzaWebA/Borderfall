@@ -94,6 +94,10 @@ class Renderer {
         r = c[0] * BORDER_DARKEN; gg = c[1] * BORDER_DARKEN; b = c[2] * BORDER_DARKEN;
       } else {
         r = lerp(r, c[0], TERRITORY_MIX); gg = lerp(gg, c[1], TERRITORY_MIX); b = lerp(b, c[2], TERRITORY_MIX);
+        // Occupied or poorly governed land shows diagonal hatching.
+        if (g.politics && g.control[i] < 50 && ((x + ((i - x) / W)) % 4) === 0) {
+          r *= 0.72; gg *= 0.72; b *= 0.72;
+        }
       }
     } else if (g && g.fallout[i]) {
       r = lerp(r, FALLOUT_COLOR[0], 0.65) * 0.8; gg = lerp(gg, FALLOUT_COLOR[1], 0.65) * 0.8; b = lerp(b, FALLOUT_COLOR[2], 0.65) * 0.8;
@@ -201,6 +205,7 @@ class Renderer {
     const g = this.game;
     if (!g) return;
     this.drawBuildings(ox, oy, z);
+    this.drawCapitals(ox, oy, z);
     this.drawShips(ox, oy, z, alpha);
     this.drawMissiles(ox, oy, z, alpha);
     this.drawEffects(ox, oy, z);
@@ -210,6 +215,19 @@ class Renderer {
 
   visible(sx, sy, pad) {
     return sx > -pad && sy > -pad && sx < this.cw + pad && sy < this.ch + pad;
+  }
+
+  drawCapitals(ox, oy, z) {
+    const ctx = this.ctx, g = this.game, W = this.map.W;
+    const size = clamp(z * 2.2, 6, 22);
+    for (let k = 1; k < g.players.length; k++) {
+      const p = g.players[k];
+      if (!p.alive || p.capital < 0) continue;
+      const x = p.capital % W, y = (p.capital - x) / W;
+      const sx = ox + (x + 0.5) * z, sy = oy + (y + 0.5) * z;
+      if (!this.visible(sx, sy, size)) continue;
+      drawStar(ctx, sx, sy, size * 0.55, p.color);
+    }
   }
 
   drawBuildings(ox, oy, z) {
@@ -285,7 +303,7 @@ class Renderer {
       // Target ring.
       const tx = ox + (m.tx + 0.5) * z, ty = oy + (m.ty + 0.5) * z;
       ctx.beginPath();
-      ctx.arc(tx, ty, MISSILE_R_OUT * z, 0, Math.PI * 2);
+      ctx.arc(tx, ty, m.rOut * z, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(224,83,61,${0.35 + pulse * 0.4})`;
       ctx.setLineDash([6, 5]);
       ctx.lineWidth = 1.5;
@@ -410,8 +428,9 @@ class Renderer {
       const err = g.canBuild(g.human, mode.type, t);
       const def = BUILDINGS[mode.type];
       if (def.radius) {
+        const rad = def.radius + (mode.type === 'fort' ? g.human.mods.fortRadius : 0);
         ctx.beginPath();
-        ctx.arc(sx, sy, def.radius * z, 0, Math.PI * 2);
+        ctx.arc(sx, sy, rad * z, 0, Math.PI * 2);
         ctx.fillStyle = err ? 'rgba(224,83,61,0.08)' : 'rgba(201,164,76,0.12)';
         ctx.fill();
         ctx.strokeStyle = err ? 'rgba(224,83,61,0.6)' : 'rgba(241,213,138,0.8)';
@@ -424,15 +443,16 @@ class Renderer {
       drawBuildingIcon(ctx, mode.type, sx, sy, clamp(z * 2.4, 12, 28), err ? [150, 60, 50] : g.human.color, false);
       ctx.globalAlpha = 1;
     } else if (mode.kind === 'missile') {
+      const [rIn, rOut] = g.missileRadii(g.human);
       ctx.beginPath();
-      ctx.arc(sx, sy, MISSILE_R_OUT * z, 0, Math.PI * 2);
+      ctx.arc(sx, sy, rOut * z, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(224,83,61,0.12)';
       ctx.fill();
       ctx.strokeStyle = '#e0533d';
       ctx.lineWidth = 1.5;
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(sx, sy, MISSILE_R_IN * z, 0, Math.PI * 2);
+      ctx.arc(sx, sy, rIn * z, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(255,200,170,0.8)';
       ctx.setLineDash([4, 4]);
       ctx.stroke();
@@ -468,8 +488,14 @@ function drawBuildingIcon(ctx, type, x, y, s, color, dim) {
     ctx.lineTo(-h * 0.8, h * 0.45);
     ctx.lineTo(-h, -h * 0.55);
     ctx.closePath();
-  } else if (type === 'aa' || type === 'harbor') {
+  } else if (type === 'aa' || type === 'harbor' || type === 'university') {
     ctx.arc(0, 0, h, 0, Math.PI * 2);
+  } else if (type === 'courthouse') {
+    ctx.moveTo(0, -h);
+    ctx.lineTo(h, 0);
+    ctx.lineTo(0, h);
+    ctx.lineTo(-h, 0);
+    ctx.closePath();
   } else if (type === 'silo') {
     ctx.moveTo(0, -h * 1.05);
     ctx.lineTo(h * 0.95, h * 0.8);
@@ -529,11 +555,57 @@ function drawBuildingIcon(ctx, type, x, y, s, color, dim) {
       ctx.arc(0, u * 0.5, u * 0.18, 0, Math.PI * 2);
       ctx.fill();
       break;
+    case 'university':
+      // open book
+      ctx.moveTo(0, -u * 0.45); ctx.lineTo(0, u * 0.65);
+      ctx.moveTo(0, -u * 0.45); ctx.quadraticCurveTo(-u * 0.45, -u * 0.75, -u * 0.95, -u * 0.5); ctx.lineTo(-u * 0.95, u * 0.45);
+      ctx.quadraticCurveTo(-u * 0.45, u * 0.2, 0, u * 0.65);
+      ctx.moveTo(0, -u * 0.45); ctx.quadraticCurveTo(u * 0.45, -u * 0.75, u * 0.95, -u * 0.5); ctx.lineTo(u * 0.95, u * 0.45);
+      ctx.quadraticCurveTo(u * 0.45, u * 0.2, 0, u * 0.65);
+      ctx.stroke();
+      break;
+    case 'courthouse':
+      // columns under a pediment
+      ctx.moveTo(-u * 0.75, -u * 0.25); ctx.lineTo(0, -u * 0.75); ctx.lineTo(u * 0.75, -u * 0.25); ctx.closePath();
+      ctx.moveTo(-u * 0.5, -u * 0.1); ctx.lineTo(-u * 0.5, u * 0.5);
+      ctx.moveTo(0, -u * 0.1); ctx.lineTo(0, u * 0.5);
+      ctx.moveTo(u * 0.5, -u * 0.1); ctx.lineTo(u * 0.5, u * 0.5);
+      ctx.moveTo(-u * 0.75, u * 0.62); ctx.lineTo(u * 0.75, u * 0.62);
+      ctx.stroke();
+      break;
+    case 'factory':
+      // saw-tooth roof with a chimney
+      ctx.moveTo(-u * 0.85, u * 0.7); ctx.lineTo(-u * 0.85, -u * 0.05); ctx.lineTo(-u * 0.35, -u * 0.4); ctx.lineTo(-u * 0.35, -u * 0.05);
+      ctx.lineTo(u * 0.15, -u * 0.4); ctx.lineTo(u * 0.15, -u * 0.05); ctx.lineTo(u * 0.5, -u * 0.05); ctx.lineTo(u * 0.5, -u * 0.9);
+      ctx.lineTo(u * 0.85, -u * 0.9); ctx.lineTo(u * 0.85, u * 0.7); ctx.closePath();
+      ctx.stroke();
+      break;
     case 'silo':
       ctx.moveTo(0, -u * 0.9); ctx.lineTo(u * 0.3, -u * 0.3); ctx.lineTo(u * 0.3, u * 0.7); ctx.lineTo(-u * 0.3, u * 0.7); ctx.lineTo(-u * 0.3, -u * 0.3);
       ctx.closePath();
       ctx.fill();
       break;
   }
+  ctx.restore();
+}
+
+// Capital marker: a five-point star in the nation's colour with a pale outline.
+function drawStar(ctx, x, y, r, color) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + i * Math.PI / 5;
+    const rr = i % 2 ? r * 0.45 : r;
+    if (i === 0) ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    else ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.fillStyle = '#f1d58a';
+  ctx.strokeStyle = rgbCss([color[0] * 0.55, color[1] * 0.55, color[2] * 0.55].map(Math.round));
+  ctx.lineWidth = Math.max(1.2, r * 0.22);
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  ctx.fill();
   ctx.restore();
 }

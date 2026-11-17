@@ -5,6 +5,13 @@ const PLAYER_COLORS = ['#3d7dd8', '#d64545', '#e0a526', '#2fa66a', '#8e5bd8', '#
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+function fmtDuration(sec) {
+  if (!isFinite(sec)) return 'a long time';
+  if (sec < 60) return `${Math.max(1, sec)}s`;
+  const m = Math.floor(sec / 60), r = sec % 60;
+  return r ? `${m}m ${r}s` : `${m}m`;
+}
+
 function relLabel(v) {
   if (v >= 40) return ['Friendly', 'rel-good'];
   if (v >= 10) return ['Warm', 'rel-good'];
@@ -56,6 +63,10 @@ class UI {
     if (P.size) $('opt-size').value = P.size;
     if (P.numAI) $('opt-ai').value = P.numAI;
     if (P.diff) { const r = document.querySelector(`input[name=diff][value=${P.diff}]`); if (r) r.checked = true; }
+    if (P.mode && MODES[P.mode]) { const r = document.querySelector(`input[name=mode][value=${P.mode}]`); if (r) r.checked = true; }
+    const modeDesc = () => { $('mode-desc').textContent = MODES[document.querySelector('input[name=mode]:checked').value].desc; };
+    for (const r of document.querySelectorAll('input[name=mode]')) r.addEventListener('change', modeDesc);
+    modeDesc();
     $('opt-ai-out').textContent = $('opt-ai').value;
     $('opt-seed').value = String(Math.floor(Math.random() * 900000) + 100000);
 
@@ -117,11 +128,12 @@ class UI {
     }
     const name = ($('opt-name').value.trim() || 'Your Nation').slice(0, 16);
     const diff = document.querySelector('input[name=diff]:checked').value;
+    const mode = document.querySelector('input[name=mode]:checked').value;
     const numAI = Number($('opt-ai').value);
-    this.prefs = { name, type: o.type, size: o.size, numAI, diff, color: this.color };
+    this.prefs = { name, type: o.type, size: o.size, numAI, diff, mode, color: this.color };
     savePrefs(this.prefs);
 
-    const game = new Game(this.map, { difficulty: diff });
+    const game = new Game(this.map, { difficulty: diff, mode });
     game.setupPlayers({ playerName: name, playerColor: hexToRgb(this.color), numAI, difficulty: diff });
     this.game = game;
     this.lastEvent = 0;
@@ -141,6 +153,8 @@ class UI {
     $('fronts').hidden = true;
     for (const el of this.toastEls.values()) el.remove();
     this.toastEls.clear();
+    $('st-stability').hidden = !game.politics;
+    for (const type of BUILD_ORDER) this.buildBtns[type].hidden = !game.buildingAvailable(type);
     this.drawBuildIcons();
   }
 
@@ -193,6 +207,8 @@ class UI {
       b.addEventListener('click', () => { this.speed = Number(b.dataset.speed); this.setSpeedButtons(); });
     }
     $('btn-menu').addEventListener('click', () => this.showGameMenu());
+    $('st-year').addEventListener('click', () => this.openNation('tech'));
+    $('st-stability').addEventListener('click', () => this.openNation('gov'));
     const ratio = $('ratio');
     ratio.addEventListener('input', () => { this.ratio = Number(ratio.value) / 100; this.updateRatio(); });
     const focus = $('focus');
@@ -329,14 +345,44 @@ class UI {
     $('v-tiles').textContent = `${fmt(me.tiles)} tiles`;
     $('v-landbar').style.width = `${Math.min(100, share * 100)}%`;
     $('v-time').textContent = fmtTime(g.time);
+    $('v-pop').textContent = fmt(me.pop);
+    $('v-popcap').textContent = `/ ${fmt(me.popCap)}`;
+    const pg = $('v-popgrowth');
+    pg.textContent = `${me.popGrowth >= 0 ? '+' : ''}${fmt(me.popGrowth)}/s`;
+    pg.classList.toggle('neg', me.popGrowth < 0);
+    if (g.politics) {
+      const st = Math.round(me.stability), tg = Math.round(me.stabTarget);
+      const v = $('v-stab');
+      v.textContent = st;
+      v.className = 'v' + (st < REVOLT_BELOW ? ' bad' : st < 45 ? ' warn' : '');
+      $('v-stabtrend').textContent = tg > st + 1 ? `rising to ${tg}` : tg < st - 1 ? `falling to ${tg}` : 'steady';
+      $('v-stabbar').style.width = `${clamp(me.stability, 0, 100)}%`;
+    }
+    $('v-year').textContent = g.year;
+    $('v-era').textContent = ERAS[eraIndex(g.year)].name;
+    if (me.research) {
+      const t = TECH_BY_ID[me.research];
+      const f = clamp((me.progress[t.id] || 0) / t.cost, 0, 1);
+      $('v-research').textContent = `${t.name} ${Math.floor(f * 100)}%`;
+      $('v-resbar').style.width = `${f * 100}%`;
+    } else {
+      $('v-research').textContent = g.availableTechs(me).length ? 'Choose research' : 'Nothing to research yet';
+      $('v-resbar').style.width = '0%';
+    }
     this.updateRatio();
 
     for (const type of BUILD_ORDER) {
       const b = this.buildBtns[type];
+      if (!g.buildingAvailable(type)) { b.hidden = true; continue; }
+      const def = BUILDINGS[type];
+      const unlocked = g.buildingUnlocked(me, type);
       const cost = g.buildCost(me, type);
-      b.querySelector('.cost').textContent = fmt(cost);
-      b.classList.toggle('poor', me.gold < cost);
+      b.querySelector('.cost').textContent = unlocked ? fmt(cost) : 'Locked';
+      b.classList.toggle('locked', !unlocked);
+      b.classList.toggle('poor', unlocked && me.gold < cost);
       b.classList.toggle('on', !!(this.r.mode && this.r.mode.kind === 'build' && this.r.mode.type === type));
+      const title = unlocked ? `${def.name}: ${def.desc} (key ${def.key})` : `${def.name} (locked): research ${TECH_BY_ID[def.tech].name} to unlock. ${def.desc}`;
+      if (b.title !== title) b.title = title;
     }
     const mc = g.missileCost(me);
     this.missileBtn.querySelector('.cost').textContent = me.counts.silo ? fmt(mc) : 'Needs silo';
@@ -467,7 +513,11 @@ class UI {
   // ---------- modes ----------
   toggleBuild(type) {
     const g = this.game;
-    if (!g || !g.started || !g.human.alive) return;
+    if (!g || !g.started || !g.human.alive || !g.buildingAvailable(type)) return;
+    if (!g.buildingUnlocked(g.human, type)) {
+      this.notice(`Research ${TECH_BY_ID[BUILDINGS[type].tech].name} to unlock the ${BUILDINGS[type].name.toLowerCase()}.`, true);
+      return;
+    }
     if (this.r.mode && this.r.mode.kind === 'build' && this.r.mode.type === type) { this.r.mode = null; }
     else {
       this.r.mode = { kind: 'build', type };
@@ -573,6 +623,7 @@ class UI {
     if (me.alive && !water) {
       if (o === 1) {
         for (const type of BUILD_ORDER) {
+          if (!g.buildingAvailable(type)) continue;
           const err = g.canBuild(me, type, tile);
           items.push({ label: `Build ${BUILDINGS[type].name.toLowerCase()}`, cost: fmt(g.buildCost(me, type)), disabled: !!err, title: err || BUILDINGS[type].desc,
             act: () => { const e = g.build(1, type, tile); this.notice(e || `${BUILDINGS[type].name} built.`, !!e); } });
@@ -645,7 +696,12 @@ class UI {
       const p = g.players[o];
       head = `<span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}${p.human ? ' (you)' : ''}`;
       rows.push(['Troops', fmt(p.troops)]);
+      rows.push(['People', fmt(p.pop)]);
       rows.push(['Land', `${(g.landShare(p) * 100).toFixed(1)}%`]);
+      if (g.politics) {
+        const c = g.control[tile];
+        rows.push(['Control here', `<span class="${c < 50 ? 'rel-bad' : ''}">${c}%${c < 50 ? (c <= 20 ? ' (occupied)' : ' (restless)') : ''}</span>`]);
+      }
       if (!p.human) {
         if (g.isAllied(1, o)) rows.push(['Status', '<span class="rel-good">Your ally</span>']);
         else {
@@ -803,6 +859,8 @@ class UI {
       if (k === 'e') { this.ratio = Math.min(1, Math.round(this.ratio * 100 + 10) / 100); this.updateRatio(); return; }
       if (k === 'h' && g.started) { const L = g.human.label; this.r.centerOn(L.x, L.y, Math.max(this.r.cam.zoom, 3)); return; }
       if (k === 'm') { this.toggleMissile(); return; }
+      if (k === 't' && g.started) { this.openNation('tech'); return; }
+      if (k === 'g' && g.started && g.politics) { this.openNation('gov'); return; }
       const bt = BUILD_ORDER.find((t) => BUILDINGS[t].key === k);
       if (bt) this.toggleBuild(bt);
     });
@@ -813,6 +871,7 @@ class UI {
   // ---------- modals ----------
   openModal(html, opts = {}) {
     $('modal-body').innerHTML = html;
+    $('modal').querySelector('.modal-card').classList.toggle('wide', !!opts.wide);
     $('modal').hidden = false;
     this.modalOpen = true;
     this.closeCtx();
@@ -843,13 +902,145 @@ class UI {
     for (const t of BUILD_ORDER) {
       const d = BUILDINGS[t];
       const li = document.createElement('li');
-      li.innerHTML = `<canvas width="52" height="52" style="width:26px;height:26px" data-t="${t}"></canvas><span><b>${d.name}</b> (${fmt(d.base)} gold, key ${d.key}). ${d.desc}</span>`;
+      const needs = d.tech ? `, needs ${TECH_BY_ID[d.tech].name}` : '';
+      const only = d.politics ? ' Realistic only.' : '';
+      li.innerHTML = `<canvas width="52" height="52" style="width:26px;height:26px" data-t="${t}"></canvas><span><b>${d.name}</b> (${fmt(d.base)} gold, key ${d.key}${needs}). ${d.desc}${only}</span>`;
       ul.appendChild(li);
     }
     this.openModal(wrap.innerHTML);
     for (const cv of $('modal-body').querySelectorAll('canvas[data-t]')) {
       drawBuildingIcon(cv.getContext('2d'), cv.dataset.t, 26, 26, 36, color, false);
     }
+  }
+
+  openNation(tab) {
+    const g = this.game;
+    if (!g || !g.started) return;
+    this.nationTab = tab === 'gov' && g.politics ? 'gov' : 'tech';
+    this.nationMsg = '';
+    this.openModal(this.nationHtml(), { wide: true, onClick: (e) => this.onNationClick(e) });
+  }
+
+  renderNation() {
+    const body = $('modal-body');
+    const scroller = body.querySelector('.tree');
+    const sx = scroller ? scroller.scrollLeft : 0;
+    body.innerHTML = this.nationHtml();
+    const nt = body.querySelector('.tree');
+    if (nt) nt.scrollLeft = sx;
+  }
+
+  onNationClick(e) {
+    const g = this.game, me = g.human;
+    if (e.target.closest('[data-close]')) { this.closeModal(); return; }
+    const tab = e.target.closest('[data-tab]');
+    if (tab) { this.nationTab = tab.dataset.tab; this.nationMsg = ''; this.renderNation(); return; }
+    const tech = e.target.closest('[data-tech]');
+    if (tech) {
+      const err = me.alive ? g.setResearch(1, tech.dataset.tech) : 'Your nation has fallen.';
+      this.nationMsg = err || `Researching ${TECH_BY_ID[tech.dataset.tech].name}.`;
+      this.nationMsgBad = !!err;
+      this.renderNation();
+      return;
+    }
+    const act = e.target.closest('[data-gov]');
+    if (act && me.alive) {
+      let err = '';
+      if (act.dataset.gov === 'martial') err = g.setMartial(1, !me.martial);
+      if (act.dataset.gov === 'celebrate') err = g.celebrate(1);
+      this.nationMsg = err || (act.dataset.gov === 'celebrate' ? 'Celebrations begin across the land.' : me.martial ? 'Martial law declared.' : 'Martial law lifted.');
+      this.nationMsgBad = !!err;
+      this.renderNation();
+    }
+  }
+
+  nationHtml() {
+    const g = this.game;
+    const tabs = g.politics
+      ? `<div class="tabs" role="tablist">
+          <button type="button" role="tab" data-tab="tech" aria-selected="${this.nationTab === 'tech'}">Technology</button>
+          <button type="button" role="tab" data-tab="gov" aria-selected="${this.nationTab === 'gov'}">Government</button>
+        </div>`
+      : '';
+    const msg = this.nationMsg ? `<p class="nation-msg${this.nationMsgBad ? ' bad' : ''}" role="status">${esc(this.nationMsg)}</p>` : '';
+    const content = this.nationTab === 'gov' ? this.govHtml() : this.techHtml();
+    return `<div class="nation-top"><h2 id="modal-title">${this.nationTab === 'gov' ? 'Government' : 'Technology'}</h2>${tabs}</div>
+      ${content}${msg}
+      <div class="modal-actions"><button type="button" class="primary" data-close>Back to the map</button></div>`;
+  }
+
+  techHtml() {
+    const g = this.game, me = g.human, era = eraIndex(g.year);
+    const cur = me.research ? TECH_BY_ID[me.research] : null;
+    const rate = me.rpRate;
+    const eta = (t) => {
+      const left = t.cost - (me.progress[t.id] || 0);
+      return rate > 0 ? Math.ceil(left / rate) : Infinity;
+    };
+    const lede = `It is ${g.year}, the ${ERAS[era].name.toLowerCase()} era. You produce ${rate.toFixed(1)} research per second from your people and universities.` +
+      (cur ? ` Researching ${cur.name}, done in about ${fmtDuration(eta(cur))}.` : ' Pick a technology to research.') +
+      (g.mode.timeGate ? ' Technologies marked with a later year open up as time passes.' : '');
+    let cols = '';
+    for (let e = 0; e < ERAS.length; e++) {
+      const techs = TECHS.filter((t) => t.era === e);
+      let cards = '';
+      for (const t of techs) {
+        const st = g.techState(me, t);
+        const isCur = me.research === t.id;
+        const prog = me.progress[t.id] || 0;
+        let foot;
+        if (st === 'done') foot = 'Known';
+        else if (isCur) foot = `Researching, ${Math.floor(prog / t.cost * 100)}%`;
+        else if (st === 'avail') foot = `${fmt(t.cost)} research, about ${fmtDuration(eta(t))}`;
+        else if (st === 'year') foot = `Opens in ${t.year}`;
+        else foot = `Needs ${t.req.filter((r) => !me.techs.has(r)).map((r) => TECH_BY_ID[r].name).join(', ')}`;
+        const bar = (isCur || (prog > 0 && st !== 'done')) ? `<span class="tp"><i style="width:${Math.min(100, prog / t.cost * 100)}%"></i></span>` : '';
+        cards += `<button type="button" class="tech s-${st}${isCur ? ' cur' : ''}" data-tech="${t.id}"${st === 'done' ? ' disabled' : ''} aria-pressed="${isCur}">
+          <span class="th"><span class="tn">${esc(t.name)}</span>${g.mode.timeGate ? `<span class="ty">${t.year}</span>` : ''}</span>
+          <span class="td">${esc(t.desc)}${!g.politics && t.kind === 'gov' ? ' Stability and administration don\'t apply in Blitz.' : ''}</span>
+          <span class="tf">${esc(foot)}</span>${bar}
+        </button>`;
+      }
+      const span = e < ERAS.length - 1 ? `${ERAS[e].from}–${ERAS[e + 1].from - 1}` : `${ERAS[e].from} on`;
+      cols += `<section class="era${e === era ? ' now' : ''}${g.mode.timeGate && e > era ? ' future' : ''}"><h3>${ERAS[e].name} <span>${span}</span></h3>${cards}</section>`;
+    }
+    return `<p class="result-lede">${esc(lede)}</p><div class="tree">${cols}</div>`;
+  }
+
+  govHtml() {
+    const g = this.game, me = g.human;
+    const s = Math.round(me.stability), tg = Math.round(me.stabTarget);
+    const sf = g.stabFactor(me);
+    const label = s >= 70 ? 'Prosperous' : s >= 50 ? 'Orderly' : s >= REVOLT_BELOW + 10 ? 'Uneasy' : s >= REVOLT_BELOW ? 'Restless' : 'In revolt';
+    let occupied = 0;
+    for (let t = 0; t < g.N; t++) if (g.owner[t] === 1 && g.control[t] < 50) occupied++;
+    const rows = me.stabFactors.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(v % 1 && Math.abs(v) < 10 ? 1 : 0)}</td></tr>`).join('');
+    const cc = g.celebrateCost(me);
+    const cdLeft = Math.max(0, Math.ceil((me.celebrateReadyAt - g.tick) / TPS));
+    const adminPct = Math.round(me.tiles / Math.max(1, me.adminCap) * 100);
+    return `<div class="gov">
+      <section class="gov-card">
+        <div class="gov-stab"><b class="${s < REVOLT_BELOW ? 'bad' : s < 45 ? 'warn' : ''}">${s}</b><span>${label}<br><small>${tg === s ? 'Holding steady' : `${tg > s ? 'Rising' : 'Falling'} toward ${tg}`}</small></span></div>
+        <div class="goal stab big" aria-hidden="true"><div style="width:${clamp(me.stability, 0, 100)}%"></div><i></i></div>
+        <p>Stability multiplies gold, recruiting and research by <b>×${sf.toFixed(2)}</b>. Below <b>${REVOLT_BELOW}</b>, restless regions can break away as a new nation.</p>
+        <table class="factors"><caption>What sets your stability</caption>${rows}<tr class="sum"><th scope="row">Target</th><td>${tg}</td></tr></table>
+      </section>
+      <section class="gov-card">
+        <h3>Administration</h3>
+        <p>You govern <b>${fmt(me.tiles)}</b> tiles with room for <b>${fmt(me.adminCap)}</b> (${adminPct}%). Beyond that, every extra tile costs stability. Cities and courthouses add room and bring nearby land under full control.</p>
+        <p>Average control <b>${Math.round(me.avgControl)}%</b>. <b>${fmt(occupied)}</b> tiles are occupied or restless and show hatching on the map. Conquered land integrates slowly; land far from your capital, cities and courthouses never settles fully.</p>
+        <h3>Policies</h3>
+        <div class="policy">
+          <div><b>Martial law</b><p>+15 stability. Gold −25% and population growth −30% while it lasts.</p></div>
+          <button type="button" class="${me.martial ? 'primary' : 'ghost'}" data-gov="martial">${me.martial ? 'Lift martial law' : 'Declare martial law'}</button>
+        </div>
+        <div class="policy">
+          <div><b>Celebration</b><p>+15 stability, fading over a minute. Costs ${fmt(cc)} gold.${cdLeft ? ` Ready again in ${cdLeft}s.` : ''}</p></div>
+          <button type="button" class="ghost" data-gov="celebrate"${cdLeft || me.gold < cc ? ' disabled' : ''}>Hold a celebration</button>
+        </div>
+        <p class="fine">The age ends in ${g.mode.endYear}. If nobody holds 70% of the land by then, the largest nation wins.</p>
+      </section>
+    </div>`;
   }
 
   showGameMenu() {
@@ -874,13 +1065,18 @@ class UI {
     const g = this.game, me = g.human, o = g.over;
     const alive = g.players.filter((p) => p && p.alive).sort((a, b) => b.tiles - a.tiles);
     const rank = me.alive ? alive.indexOf(me) + 1 : '—';
-    const title = o.won ? 'Victory' : 'Your nation has fallen';
-    const lede = o.won
-      ? (o.reason === 'share' ? `You hold ${Math.round(g.landShare(me) * 100)}% of the world. No one is left to challenge you.` : 'Every rival is gone or sworn to you. The world is yours.')
-      : 'Your last province was taken. You can keep watching how the war ends, or start again.';
+    const leader = o.leader ? g.players[o.leader] : null;
+    const title = o.won ? 'Victory' : me.alive ? `The year ${o.year} arrives` : 'Your nation has fallen';
+    let lede;
+    if (o.won && o.reason === 'share') lede = `You hold ${Math.round(g.landShare(me) * 100)}% of the world. No one is left to challenge you.`;
+    else if (o.won && o.reason === 'year') lede = `The year ${o.year} arrives and yours is the largest nation on earth, with ${Math.round(g.landShare(me) * 100)}% of the land.`;
+    else if (o.won) lede = 'Every rival is gone or sworn to you. The world is yours.';
+    else if (me.alive && leader) lede = `${leader.name} ends the age as the largest nation, with ${Math.round(g.landShare(leader) * 100)}% of the land. You hold ${Math.round(g.landShare(me) * 100)}%.`;
+    else lede = 'Your last province was taken. You can keep watching how the war ends, or start again.';
     this.openModal(`<h2 id="modal-title">${title}</h2>
       <p class="result-lede">${lede}</p>
       <div class="result-stats">
+        <div><span>Year</span><b>${o.year}</b></div>
         <div><span>Time</span><b>${fmtTime(o.time)}</b></div>
         <div><span>Peak land</span><b>${(me.peakTiles / g.map.landCount * 100).toFixed(1)}%</b></div>
         <div><span>Nations conquered</span><b>${me.kills}</b></div>

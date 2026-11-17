@@ -19,8 +19,16 @@
   <section id="menu" class="screen">
     <div class="menu-panel">
       <h1 class="wordmark">Borderfall</h1>
-      <p class="tagline">Found a nation on an unclaimed world and grow it into an empire. Take land, build cities, sail fleets, forge alliances and hold 70% of the world to win.</p>
+      <p class="tagline">Found a nation in 1500 and carry it through five centuries. Take land, grow your people, research new technology, keep order at home and hold 70% of the world to win.</p>
       <form id="setup" autocomplete="off">
+        <div class="field">
+          <span id="mode-label">Mode</span>
+          <div class="segmented two" role="radiogroup" aria-labelledby="mode-label">
+            <label><input type="radio" name="mode" value="realistic" checked><span>Realistic</span></label>
+            <label><input type="radio" name="mode" value="blitz"><span>Blitz</span></label>
+          </div>
+          <p id="mode-desc" class="field-note"></p>
+        </div>
         <label class="field">
           <span>Nation name</span>
           <input id="opt-name" maxlength="16" value="Your Nation" spellcheck="false">
@@ -92,12 +100,29 @@
         <span class="v" id="v-gold">0</span>
         <span class="sub"><span id="v-income" class="rate">+0/s</span></span>
       </div>
+      <div class="stat" title="Your people. Land and cities decide how many you can feed. Workers earn gold and soldiers are drawn from them.">
+        <span class="k">People</span>
+        <span class="v" id="v-pop">0</span>
+        <span class="sub"><span id="v-popcap">/ 0</span> <span id="v-popgrowth" class="rate">+0/s</span></span>
+      </div>
       <div class="stat" title="Share of all land you control. Hold 70% to win.">
         <span class="k">Land</span>
         <span class="v" id="v-land">0%</span>
         <span class="sub"><span id="v-tiles">0 tiles</span></span>
         <div class="goal" aria-hidden="true"><div id="v-landbar"></div><i></i></div>
       </div>
+      <button type="button" class="stat stat-btn" id="st-stability" title="How loyal and orderly your nation is. Click for details and policies.">
+        <span class="k">Stability</span>
+        <span class="v" id="v-stab">0</span>
+        <span class="sub"><span id="v-stabtrend">steady</span></span>
+        <div class="goal stab" aria-hidden="true"><div id="v-stabbar"></div><i></i></div>
+      </button>
+      <button type="button" class="stat stat-btn year" id="st-year" title="The current year and what you're researching. Click to open the technology tree.">
+        <span class="k" id="v-era">Renaissance</span>
+        <span class="v" id="v-year">1500</span>
+        <span class="sub"><span id="v-research">Choose research</span></span>
+        <div class="goal research" aria-hidden="true"><div id="v-resbar"></div></div>
+      </button>
       <div class="clock">
         <span id="v-time">0:00</span>
         <div class="speed" role="group" aria-label="Game speed">
@@ -152,12 +177,30 @@
     <div class="help">
       <section>
         <h3>Goal</h3>
-        <p>Control 70% of the world's land, or leave only allies standing. If you lose every tile, your nation falls.</p>
+        <p>Control 70% of the world's land, or leave only allies standing. In Realistic, if nobody manages that by the year 2000, the largest nation wins. If you lose every tile, your nation falls.</p>
+      </section>
+      <section>
+        <h3>Modes</h3>
+        <p><b>Realistic</b> starts in 1500 and moves one year every 4 seconds. Each technology waits for its year, and you have to keep your nation stable. <b>Blitz</b> lets you research anything as soon as you know what it builds on, has no stability or revolts, and grows faster.</p>
       </section>
       <section>
         <h3>Taking land</h3>
         <p>Click land next to your border to attack it with the share of troops set on the <b>Attack with</b> slider. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead.</p>
         <p>Troops at home defend you. Troops sent out don't, so don't empty your barracks while a neighbor is watching. Troops regrow fastest when you're well under your cap.</p>
+      </section>
+      <section>
+        <h3>People</h3>
+        <p>Your population grows toward what your land and cities can feed. Only a share of them can serve as soldiers (8% at first, more with Standing Army, Levée en Masse and Total War). Everyone else works and earns gold. Soldiers who die in battle are gone for good, and conquered land brings some of its people with it.</p>
+      </section>
+      <section>
+        <h3>Technology</h3>
+        <p>Click the year in the top bar to open the technology tree. Pick what to research next: research comes from your population and universities. Most technologies need earlier ones first, and in Realistic none can start before its year. If you don't pick, the cheapest available one is chosen for you.</p>
+      </section>
+      <section>
+        <h3>Stability and control (Realistic)</h3>
+        <p>Stability rises and falls toward a target set by your technology, how far you've outgrown your administration, how much of your land is still occupied, war losses, harsh taxes or levies, and the sheer size of your empire. High stability boosts gold, recruiting, research and growth; low stability cuts them.</p>
+        <p>Land you take from another nation starts out occupied (hatched on the map) and slowly integrates. Land far from your capital, cities and courthouses never comes fully under control. Below 30 stability, poorly controlled regions can revolt and break away as a new nation.</p>
+        <p>Click Stability to declare martial law (more order, less gold and growth) or hold a celebration (costs gold, lifts stability for a while).</p>
       </section>
       <section>
         <h3>Terrain</h3>
@@ -177,7 +220,9 @@
           <dt>Click</dt><dd>Attack, sail, place a building, or fire</dd>
           <dt>Right-click / long-press</dt><dd>Options for that spot</dd>
           <dt>Drag, wheel, pinch</dt><dd>Move and zoom the map</dd>
-          <dt>1 – 6</dt><dd>Choose a building to place</dd>
+          <dt>1 – 9</dt><dd>Choose a building to place</dd>
+          <dt>T</dt><dd>Open the technology tree</dd>
+          <dt>G</dt><dd>Open government (Realistic)</dd>
           <dt>M</dt><dd>Aim a missile</dd>
           <dt>Q / E</dt><dd>Lower or raise the attack share</dd>
           <dt>Space</dt><dd>Pause</dd>
@@ -191,6 +236,7 @@
 
   <script src="js/util.js"></script>
   <script src="js/mapgen.js"></script>
+  <script src="js/tech.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/game.js"></script>
   <script src="js/render.js"></script>

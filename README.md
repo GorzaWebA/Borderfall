@@ -1,6 +1,6 @@
 # Borderfall
 
-A real-time world conquest strategy game that runs in your browser. Found a nation on an unclaimed world, grow it into an empire, and hold 70% of the land to win.
+A real-time world conquest strategy game that runs in your browser. Found a nation in the year 1500, carry it through five centuries of technology, population growth and politics, and hold 70% of the land to win.
 
 ## Play
 
@@ -10,11 +10,24 @@ No install, no account. Works on desktop and mobile browsers.
 
 ![A mid-game world with a dozen nations, the leaderboard, and the build dock](docs/screenshot.jpg)
 
+## Two ways to play
+
+| | Realistic | Blitz |
+| --- | --- | --- |
+| Calendar | Starts in 1500, one year every 4 seconds | Same calendar, for flavor |
+| Technology | Each tech waits for its year and for the techs it builds on | Only needs the techs it builds on |
+| Politics | Stability, administration, occupied land, revolts | None |
+| Growth | Slower; fronts crawl until railroads and engines | Fast and aggressive |
+| Ending | 70% of the land, or the largest nation in the year 2000 | 70% of the land |
+| Typical length | 20–35 minutes | 5–10 minutes |
+
 ## What you do
 
 - **Expand.** Click land next to your border to send troops into it. Unclaimed land is cheap; enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
-- **Manage two resources.** Troops grow toward a cap set by your land and cities. Gold comes from land, cities and harbor trade. A slider trades troop growth for gold income.
-- **Build.** Cities, barracks, fortresses, harbors, air defense and missile silos, each with a clear job.
+- **Grow your people.** Population grows toward what your land and cities can feed. Only a share can serve as soldiers (8% in 1500, up to 23% by the World Wars); the rest work and earn gold. Soldiers killed in battle are gone for good.
+- **Research.** 28 technologies across six eras, from Military Drill and the Printing Press to Railroads, Machine Guns and Nuclear Fission. Click the year to open the tree and choose what comes next.
+- **Keep order (Realistic).** Stability depends on your technology, how far you've outgrown your administration, occupied land, war losses, taxes and levies, and the size of your empire. Conquered land shows hatched until it integrates. Below 30 stability, restless regions break away as new nations. Declare martial law or hold a celebration when things get tense.
+- **Build.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos. Most unlock through technology.
 - **Sail.** Click land across the water and a fleet carries your troops there to open a beachhead.
 - **Strike.** Missiles wipe out troops and scorch land for a while. Air defense can shoot them down.
 - **Negotiate.** Propose alliances, send gold to win favor, reinforce allies, or betray them at a cost. Nations remember who attacked them and gang up on whoever grows too big.
@@ -33,7 +46,9 @@ No install, no account. Works on desktop and mobile browsers.
 | Click | Attack, send a fleet, place a building, or fire a missile |
 | Right-click / long-press | Options for that spot (build, alliance, gifts, missiles) |
 | Drag, mouse wheel, pinch | Move and zoom the map |
-| `1`–`6` | Choose a building to place (hold Shift to place several) |
+| `1`–`9` | Choose a building to place (hold Shift to place several) |
+| `T` | Open the technology tree |
+| `G` | Open government: stability, administration, policies (Realistic) |
 | `M` | Aim a missile |
 | `Q` / `E` | Lower or raise the share of troops sent per attack |
 | `W` `A` `S` `D` / arrows | Pan the map |
@@ -43,14 +58,17 @@ No install, no account. Works on desktop and mobile browsers.
 
 ## Buildings
 
-| Building | Cost | What it does |
-| --- | --- | --- |
-| City | 1,000 | +10K troop cap, +12 gold/s |
-| Barracks | 900 | Troops grow 20% faster, +4K troop cap |
-| Fortress | 700 | Land within 9 tiles costs attackers double and falls half as fast |
-| Harbor | 900 | Coast only. Earns trade gold from every harbor in the world, +2 fleets |
-| Air Defense | 2,500 | Shoots down one enemy missile aimed within 22 tiles every 12s |
-| Missile Silo | 5,000 | Launches missiles (20s reload) |
+| Building | Cost | Unlocked by | What it does |
+| --- | --- | --- | --- |
+| City | 1,000 | — | Houses 20K people, +10 gold/s, extends administration |
+| Barracks | 900 | Military Drill | Recruiting +25%, 0.5% more people can serve |
+| Fortress | 700 | — | Land within 9 tiles costs attackers double and falls half as fast |
+| Harbor | 900 | — | Coast only. Trade gold from every harbor in the world, +2 fleets |
+| University | 1,100 | Printing Press | +4 research per second |
+| Courthouse | 1,200 | Bureaucracy | Realistic only. Administers more land and brings it under control |
+| Factory | 2,500 | Steam Power | +25 gold/s, recruiting +15% |
+| Air Defense | 2,500 | Radar | Shoots down one enemy missile aimed within 22 tiles every 12s |
+| Missile Silo | 5,000 | Rocketry | Launches missiles (20s reload) |
 
 Each additional building of the same type costs more.
 
@@ -79,7 +97,9 @@ index.html      page structure, menus and HUD
 style.css       interface styles
 js/util.js      seeded random numbers, noise, colors, formatting
 js/mapgen.js    procedural world generation and terrain
-js/game.js      simulation: territory, combat, economy, fleets, missiles, diplomacy
+js/tech.js      game modes, eras and the technology tree
+js/game.js      simulation: territory, combat, population, economy, technology,
+                politics, fleets, missiles, diplomacy
 js/ai.js        AI nations
 js/render.js    canvas map renderer
 js/ui.js        menus, HUD, input, tooltips
