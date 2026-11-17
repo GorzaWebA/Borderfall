@@ -8,7 +8,7 @@ A real-time world conquest strategy game that runs in your browser, alone or wit
 
 No install, no account. Works on desktop and mobile browsers. New players can start with the built-in tutorial.
 
-![A mid-game world with a dozen nations, the leaderboard, and the build dock](docs/screenshot.jpg)
+![Europe in 1633: nations as atlas colour washes, building symbols, a campaign arrow pushing into a neighbour, the dated chronicle on the left and the build dock below](docs/screenshot.jpg)
 
 ## Two ways to play
 
@@ -41,7 +41,7 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 ## What you do
 
-- **Expand.** Click land to send troops into it (10% of your troops by default). Settling empty land is steady and cheap, and your border grows toward the spot you click. Pulsing marks on the map show every front where you're attacking (gold) or being attacked (red).
+- **Expand.** Click land to send troops into it (10% of your troops by default). Settling empty land is steady and cheap, and your border grows toward the spot you click. Arrows on the map show every front where you're attacking (brass) or being attacked (red).
 - **Encircle.** Completely surround a patch of land and it becomes yours, unless it belongs to an ally or a nation you're at peace with.
 - **Absorb tribes.** Small tribes hold scattered land at the start. They never build or research, so they're easy pickings. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
 - **Grow your people.** Population grows toward what your land and cities can feed. Only a share can serve as soldiers (8% in 1500, up to 23% by the World Wars); the rest work and pay taxes. Soldiers killed in battle are gone for good.

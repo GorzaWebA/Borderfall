@@ -17,7 +17,7 @@ const MODES = {
     absorb: 0.22,         // share of a conquered region's people who join the conqueror
     endYear: 2000,        // if nobody holds 70% by then, the largest nation wins
     minutes: 37,
-    desc: 'About 35–40 minutes. Starts in 1500 and ends in 2000. Technologies open up as the years pass. Grow your population, keep your people loyal and hold on to what you conquer.',
+    desc: 'Technologies open up as the years pass. Grow your population, keep your people loyal and hold on to what you conquer.',
   },
   blitz: {
     label: 'Blitz',
@@ -32,7 +32,7 @@ const MODES = {
     absorb: 0.3,
     endYear: 1700,
     minutes: 15,
-    desc: 'About 15 minutes. Research anything once you know what it builds on. No stability or revolts, faster growth. Ends in 1700 if nobody has won.',
+    desc: 'Research anything once you know what it builds on. No stability or revolts, and nations grow faster.',
   },
 };
 
@@ -59,7 +59,7 @@ const TECHS = [
   { id: 'cartography', name: 'Cartography', year: 1520, cost: 200, req: [], kind: 'eco', fx: { fleetSpeed: 0.3, fleetCap: 1 }, desc: 'Fleets sail 30% faster. +1 fleet.' },
   { id: 'bastion', name: 'Star Forts', year: 1540, cost: 280, req: ['drill'], kind: 'mil', fx: { fort: 0.5, fortRadius: 2 }, desc: 'Fortresses are 25% stronger and reach 2 tiles farther.' },
   { id: 'crops', name: 'New World Crops', year: 1550, cost: 300, req: ['cartography'], kind: 'eco', fx: { popCap: 0.15 }, desc: 'Land feeds 15% more people.' },
-  { id: 'banking', name: 'Banking', year: 1570, cost: 350, req: ['printing'], kind: 'eco', fx: { gold: 0.15 }, desc: 'Gold income +15%.' },
+  { id: 'banking', name: 'Banking', year: 1570, cost: 350, req: ['printing'], kind: 'eco', fx: { gold: 0.15 }, desc: 'Income +15%.' },
   // Early Modern
   { id: 'standing', name: 'Standing Army', year: 1600, cost: 500, req: ['drill'], kind: 'mil', fx: { mobil: 0.03, recruit: 0.15 }, desc: '3% more of your people can serve. Recruiting +15%.' },
   { id: 'bureaucracy', name: 'Bureaucracy', year: 1610, cost: 550, req: ['printing'], kind: 'gov', unlock: ['courthouse'], fx: { admin: 0.25 }, desc: 'Unlocks Courthouse. Administration +25%.' },
@@ -77,7 +77,7 @@ const TECHS = [
   { id: 'nationalism', name: 'Nationalism', year: 1840, cost: 2200, req: ['constitution'], kind: 'gov', fx: { stability: 10, weariness: -0.5 }, desc: 'Stability +10. War weariness halved.' },
   { id: 'rifling', name: 'Rifled Arms', year: 1850, cost: 2400, req: ['levee', 'steam'], kind: 'mil', fx: { atk: 0.1, def: 0.1 }, desc: 'Attacks lose 10% fewer troops. Defense +10%.' },
   { id: 'medicine', name: 'Modern Medicine', year: 1870, cost: 2600, req: ['agri'], kind: 'eco', fx: { popGrowth: 0.3 }, desc: 'Population grows 30% faster.' },
-  { id: 'electricity', name: 'Electricity', year: 1880, cost: 2900, req: ['steam'], kind: 'sci', fx: { research: 0.2, gold: 0.1 }, desc: 'Research +20%. Gold income +10%.' },
+  { id: 'electricity', name: 'Electricity', year: 1880, cost: 2900, req: ['steam'], kind: 'sci', fx: { research: 0.2, gold: 0.1 }, desc: 'Research +20%. Income +10%.' },
   // Modern
   { id: 'machinegun', name: 'Machine Guns', year: 1900, cost: 3400, req: ['rifling'], kind: 'mil', fx: { def: 0.2 }, desc: 'Defense +20%.' },
   { id: 'combustion', name: 'Combustion Engine', year: 1905, cost: 3600, req: ['electricity', 'railroad'], kind: 'eco', fx: { speed: 0.25, fleetSpeed: 0.3 }, desc: 'Fronts advance 25% faster. Fleets 30% faster.' },
