@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Borderfall</title>
+  <meta name="description" content="Borderfall is a real-time world conquest strategy game that runs in your browser. Expand, build, sail and strike against AI nations.">
+  <meta name="theme-color" content="#0b1c2a">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="map" aria-label="World map"></canvas>
+
+  <!-- Start screen: the live map preview sits behind this panel -->
+  <section id="menu" class="screen">
+    <div class="menu-panel">
+      <h1 class="wordmark">Borderfall</h1>
+      <p class="tagline">Found a nation on an unclaimed world and grow it into an empire. Take land, build cities, sail fleets, forge alliances and hold 70% of the world to win.</p>
+      <form id="setup" autocomplete="off">
+        <label class="field">
+          <span>Nation name</span>
+          <input id="opt-name" maxlength="16" value="Your Nation" spellcheck="false">
+        </label>
+        <div class="field">
+          <span id="color-label">Color</span>
+          <div id="opt-colors" class="swatches" role="radiogroup" aria-labelledby="color-label"></div>
+        </div>
+        <div class="row2">
+          <label class="field">
+            <span>World</span>
+            <select id="opt-type">
+              <option value="continents">Continents</option>
+              <option value="pangaea">Pangaea</option>
+              <option value="archipelago">Archipelago</option>
+              <option value="highlands">Highlands</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Size</span>
+            <select id="opt-size">
+              <option value="small">Small</option>
+              <option value="medium" selected>Medium</option>
+              <option value="large">Large</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Rival nations <output id="opt-ai-out">14</output></span>
+          <input type="range" id="opt-ai" min="3" max="40" value="14">
+        </label>
+        <div class="field">
+          <span id="diff-label">Difficulty</span>
+          <div class="segmented" role="radiogroup" aria-labelledby="diff-label">
+            <label><input type="radio" name="diff" value="easy"><span>Easy</span></label>
+            <label><input type="radio" name="diff" value="normal" checked><span>Normal</span></label>
+            <label><input type="radio" name="diff" value="hard"><span>Hard</span></label>
+          </div>
+        </div>
+        <div class="field">
+          <span>World seed</span>
+          <div class="seed-row">
+            <input id="opt-seed" spellcheck="false" aria-label="World seed">
+            <button type="button" id="btn-reroll" class="ghost">New world</button>
+          </div>
+        </div>
+        <button type="submit" class="primary" id="btn-start">Choose your homeland</button>
+      </form>
+      <button type="button" class="text-btn" id="btn-help">How to play</button>
+    </div>
+  </section>
+
+  <!-- Spawn phase -->
+  <div id="spawn-banner" class="banner" hidden>
+    <p>Click any unclaimed land to found your nation. Rivals are already on the map.</p>
+    <button type="button" id="btn-random-spawn" class="ghost">Pick for me</button>
+  </div>
+
+  <!-- In-game HUD -->
+  <div id="hud" hidden>
+    <header id="topbar" class="panel">
+      <div class="stat" title="Troops at home. They defend your land and are sent on attacks.">
+        <span class="k">Troops</span>
+        <span class="v" id="v-troops">0</span>
+        <span class="sub"><span id="v-cap">/ 0</span> <span id="v-growth" class="rate">+0/s</span></span>
+      </div>
+      <div class="stat" title="Gold pays for buildings and missiles.">
+        <span class="k">Gold</span>
+        <span class="v" id="v-gold">0</span>
+        <span class="sub"><span id="v-income" class="rate">+0/s</span></span>
+      </div>
+      <div class="stat" title="Share of all land you control. Hold 70% to win.">
+        <span class="k">Land</span>
+        <span class="v" id="v-land">0%</span>
+        <span class="sub"><span id="v-tiles">0 tiles</span></span>
+        <div class="goal" aria-hidden="true"><div id="v-landbar"></div><i></i></div>
+      </div>
+      <div class="clock">
+        <span id="v-time">0:00</span>
+        <div class="speed" role="group" aria-label="Game speed">
+          <button type="button" data-speed="0" title="Pause (Space)">Pause</button>
+          <button type="button" data-speed="1" class="on">1×</button>
+          <button type="button" data-speed="2">2×</button>
+          <button type="button" data-speed="4">4×</button>
+        </div>
+        <button type="button" id="btn-menu" class="icon-btn" title="Menu">Menu</button>
+      </div>
+    </header>
+
+    <aside id="board" class="panel">
+      <h2>Nations <span id="board-count"></span></h2>
+      <ol id="board-list"></ol>
+    </aside>
+
+    <div id="side-left">
+      <div id="fronts" class="panel" hidden></div>
+      <ul id="log" aria-live="polite"></ul>
+    </div>
+
+    <footer id="dock" class="panel">
+      <div class="dock-sliders">
+        <label class="slider">
+          <span class="slider-head">Attack with <output id="ratio-out">30%</output> <em id="ratio-troops"></em></span>
+          <input type="range" id="ratio" min="1" max="100" value="30">
+        </label>
+        <label class="slider" title="Army focus grows troops faster. Economy focus earns more gold.">
+          <span class="slider-head"><span>Army</span><output id="focus-out">Balanced</output><span>Economy</span></span>
+          <input type="range" id="focus" min="0" max="100" value="50">
+        </label>
+      </div>
+      <div class="builds" id="builds"></div>
+    </footer>
+
+    <div id="notice" role="status"></div>
+    <div id="toasts"></div>
+  </div>
+
+  <div id="tooltip" hidden></div>
+  <div id="ctx" class="panel" hidden></div>
+
+  <div id="modal" class="screen" hidden>
+    <div class="modal-card panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <template id="help-tpl">
+    <h2 id="modal-title">How to play</h2>
+    <div class="help">
+      <section>
+        <h3>Goal</h3>
+        <p>Control 70% of the world's land, or leave only allies standing. If you lose every tile, your nation falls.</p>
+      </section>
+      <section>
+        <h3>Taking land</h3>
+        <p>Click land next to your border to attack it with the share of troops set on the <b>Attack with</b> slider. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead.</p>
+        <p>Troops at home defend you. Troops sent out don't, so don't empty your barracks while a neighbor is watching. Troops regrow fastest when you're well under your cap.</p>
+      </section>
+      <section>
+        <h3>Terrain</h3>
+        <p>Plains are fast and valuable. Forests and hills slow attackers. Mountains are slow, costly and worth little. Deserts and tundra are cheap to hold but earn less.</p>
+      </section>
+      <section>
+        <h3>Buildings</h3>
+        <ul class="bl"></ul>
+      </section>
+      <section>
+        <h3>Diplomacy</h3>
+        <p>Right-click a nation to propose an alliance, send gold, or reinforce an ally. Nations warm to peaceful neighbors and remember who attacked them. Breaking an alliance makes everyone trust you less. When one nation grows too large, others band together against it.</p>
+      </section>
+      <section>
+        <h3>Controls</h3>
+        <dl class="keys">
+          <dt>Click</dt><dd>Attack, sail, place a building, or fire</dd>
+          <dt>Right-click / long-press</dt><dd>Options for that spot</dd>
+          <dt>Drag, wheel, pinch</dt><dd>Move and zoom the map</dd>
+          <dt>1 – 6</dt><dd>Choose a building to place</dd>
+          <dt>M</dt><dd>Aim a missile</dd>
+          <dt>Q / E</dt><dd>Lower or raise the attack share</dd>
+          <dt>Space</dt><dd>Pause</dd>
+          <dt>H</dt><dd>Jump to your nation</dd>
+          <dt>Esc</dt><dd>Cancel</dd>
+        </dl>
+      </section>
+    </div>
+    <div class="modal-actions"><button type="button" class="primary" data-close>Got it</button></div>
+  </template>
+
+  <script src="js/util.js"></script>
+  <script src="js/mapgen.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
