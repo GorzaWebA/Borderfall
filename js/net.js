@@ -266,7 +266,7 @@ class Net {
     const base = {
       settings: L.settings, seed: map.seed,
       terrain: isPremade(L.settings.type) ? null : rleEncode(map.terrain),
-      players: game.players.slice(1).map((p) => ({ id: p.id, name: p.name, color: p.color, human: p.human })),
+      players: game.players.slice(1).map((p) => ({ id: p.id, name: p.name, color: p.color, human: p.human, tribe: p.tribe })),
       owner: rleEncode(game.owner), spawnLeft: SPAWN_PHASE_SECONDS, diff: L.settings.difficulty,
     };
     for (const [peer, pid] of this.pidByPeer) {
@@ -328,16 +328,17 @@ class Net {
       o: N.own.length ? packPairs(N.own) : '',
       c: N.ctl.length ? packPairs(N.ctl) : '',
       f: N.fo.length ? packPairs(N.fo) : '',
-      b: [...N.bld].map((id) => { const b = g.buildings[id]; return [b.id, b.type, b.tile, b.owner, b.alive ? 1 : 0, b.cooldown]; }),
+      b: [...N.bld].map((id) => { const b = g.buildings[id]; return [b.id, b.type, b.tile, b.owner, b.alive ? 1 : 0, b.cooldown, b.level || 1]; }),
       ns: N.ships.map((s) => [s.id, s.owner, s.target, s.troops, s.speed, s.landing, s.path]),
       s: g.ships.filter((s) => !s.dead).map((s) => [s.id, Math.round(s.pos * 10) / 10, Math.round(s.troops)]),
       nm: N.missiles.map((m) => [m.id, m.owner, m.sx, m.sy, m.tx, m.ty, m.tile, m.dur, m.rOut]),
       m: g.missiles.filter((m) => !m.dead).map((m) => [m.id, m.t]),
       fx: N.fx,
+      fr: null,
       a: g.attacks.filter((a) => !a.dead).map((a) => [a.id, a.attacker, a.target, Math.round(a.troops), a.seeded ? 1 : 0]),
       p: g.players.slice(1).map((p) => [p.id, p.alive ? 1 : 0, p.spawned ? 1 : 0, Math.round(p.troops), p.tiles, Math.round(p.pop),
         Math.round(p.label.x * 10) / 10, Math.round(p.label.y * 10) / 10, Math.round(p.label.size * 10) / 10, p.label.tile, p.capital,
-        [...p.allies], p.human ? 1 : 0, p.peakTiles, p.kills]),
+        [...p.allies], p.human ? 1 : 0, p.peakTiles, p.kills, [...p.peace.keys()]]),
     };
     N.own.length = 0; N.ctl.length = 0; N.fo.length = 0; N.bld.clear(); N.ships.length = 0; N.missiles.length = 0; N.fx = [];
     for (const [peer, c] of this.clients) {
@@ -346,13 +347,21 @@ class Net {
       if (g.events.length) c.lastEvent = g.events[g.events.length - 1].id;
       const msg = Object.assign({}, common, {
         ev: ev.map((e) => [e.id, e.text, e.kind]),
-        rq: g.requests.filter((r) => r.to === c.pid).map((r) => [r.id, r.from, r.expires]),
+        rq: g.requests.filter((r) => r.to === c.pid).map((r) => [r.id, r.from, r.expires, r.kind]),
+        // Sampled border tiles of every front this player is fighting on, for the map markers.
+        fr: g.attacks.filter((a) => !a.dead && a.target && (a.attacker === c.pid || a.target === c.pid)).map((a) => {
+          const step = Math.max(1, Math.ceil(a.frontier.length / 80));
+          const out = [a.id];
+          for (let k = 0; k < a.frontier.length; k += step) out.push(a.frontier[k]);
+          return out;
+        }),
         me: {
           gold: p.gold, income: p.income, growth: p.growth, popCap: p.popCap, popGrowth: p.popGrowth, focus: p.focus,
           techs: [...p.techs], research: p.research, progress: p.progress, rpRate: p.rpRate, stability: p.stability,
           stabTarget: p.stabTarget, stabFactors: p.stabFactors, avgControl: p.avgControl, adminCap: p.adminCap,
           martial: p.martial, boost: p.boost, celebrateReadyAt: p.celebrateReadyAt, missilesLaunched: p.missilesLaunched,
           coastal: p.coastal, mods: p.mods, field: p.field, traitorUntil: p.traitorUntil,
+          science: p.science, researchSpend: p.researchSpend, grossIncome: p.grossIncome,
         },
       });
       if (now() - c.slow > 1000) {
@@ -396,6 +405,7 @@ class Net {
   addMirrorPlayer(g, q) {
     while (g.players.length <= q.id) g.players.push(null);
     const p = new Player(q.id, q.name, q.color, q.human);
+    p.tribe = !!q.tribe;
     g.initPlayer(p);
     g.players[q.id] = p;
     return p;
@@ -411,7 +421,7 @@ class Net {
     if (u.o) unpackPairs(u.o, (t, o) => { g.owner[t] = o; if (!o) g.control[t] = 0; else if (!g.politics) g.control[t] = 100; g.markDirtyAround(t); });
     if (u.c) unpackPairs(u.c, (t, c) => { g.control[t] = c; g.markDirty(t); });
     if (u.f) unpackPairs(u.f, (t, v) => { g.fallout[t] = v ? FALLOUT_SECONDS : 0; g.markDirty(t); });
-    for (const [id, type, tile, owner, alive, cd] of u.b) this.mirrorBuilding(g, id, type, tile, owner, alive, cd);
+    for (const [id, type, tile, owner, alive, cd, level] of u.b) this.mirrorBuilding(g, id, type, tile, owner, alive, cd, level);
     for (const [id, owner, target, troops, speed, landing, path] of u.ns) {
       g.ships.push({ id, owner, target, troops, speed, landing, path, pos: 0, dead: false });
     }
@@ -423,7 +433,7 @@ class Net {
     }
     const liveM = new Map(u.m);
     for (const fx of u.fx) {
-      if (fx.type === 'blast') g.effects.push({ type: 'blast', x: fx.x, y: fx.y, r: fx.r, at: g.time });
+      if (fx.type === 'blast') g.effects.push({ type: 'blast', x: fx.x, y: fx.y, r: fx.r, at: g.time, hit: fx.hit, by: fx.by });
       else {
         const m = g.missiles.find((x) => x.id === fx.mid);
         if (m) g.effects.push({ type: 'intercept', m, arc: fx.arc, at: g.time });
@@ -433,40 +443,42 @@ class Net {
     for (const m of g.missiles) m.t = liveM.get(m.id);
     g.effects = g.effects.filter((e) => g.time - e.at < 4);
     g.attacks = u.a.map(([id, attacker, target, troops, seeded]) => ({ id, attacker, target, troops, seeded: !!seeded, dead: false }));
+    if (u.fr) for (const [id, ...tiles] of u.fr) { const a = g.attacks.find((x) => x.id === id); if (a) a.fs = tiles; }
     for (const row of u.p) {
-      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills] = row;
+      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, peace] = row;
       const p = g.players[id];
       if (!p) continue;
       p.alive = !!alive; p.spawned = !!spawned; p.troops = troops; p.tiles = tiles; p.pop = pop;
       p.label = { x: lx, y: ly, size: ls, tile: lt };
       p.capital = cap; p.allies = new Set(allies); p.human = !!human; p.peakTiles = peak; p.kills = kills;
+      p.peace = new Map((peace || []).map((x) => [x, 0]));
     }
     Object.assign(me, u.me);
     me.techs = new Set(u.me.techs);
     for (const [id, text, kind] of u.ev) g.events.push({ id, text, kind, time: g.time, to: 0 });
     if (g.events.length > 200) g.events.splice(0, g.events.length - 200);
-    g.requests = u.rq.map(([id, from, expires]) => ({ id, from, to: ui.myId, expires }));
+    g.requests = u.rq.map(([id, from, expires, kind]) => ({ id, from, to: ui.myId, expires, kind }));
     if (u.rel) u.rel.forEach((v, k) => { g.rel[(k + 1) * g.P + ui.myId] = v; });
     if (u.nb) g.neighbors[ui.myId] = new Map(u.nb);
     if (u.over) g.over = u.over;
     this.localTicks = 0;
   }
 
-  mirrorBuilding(g, id, type, tile, owner, alive, cooldown) {
+  mirrorBuilding(g, id, type, tile, owner, alive, cooldown, level = 1) {
     while (g.buildings.length <= id) g.buildings.push({ id: g.buildings.length, alive: false, type: 'city', tile: 0, owner: 0, x: 0, y: 0, cooldown: 0 });
     const b = g.buildings[id];
     const wasAlive = b.alive && b.owner;
     if (wasAlive) {
       const po = g.players[b.owner];
-      po.counts[b.type]--;
+      po.counts[b.type] -= b.level || 1;
       const k = po.blds.indexOf(b);
       if (k >= 0) po.blds.splice(k, 1);
       if (g.bldAt[b.tile] === id) g.bldAt[b.tile] = -1;
     }
-    Object.assign(b, { id, type, tile, owner, alive: !!alive, cooldown, x: tile % g.W, y: Math.floor(tile / g.W) });
+    Object.assign(b, { id, type, tile, owner, alive: !!alive, cooldown, level, x: tile % g.W, y: Math.floor(tile / g.W) });
     if (b.alive) {
       const pn = g.players[owner];
-      pn.counts[type]++;
+      pn.counts[type] += level;
       pn.blds.push(b);
       g.bldAt[tile] = id;
     }

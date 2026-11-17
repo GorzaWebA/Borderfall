@@ -35,7 +35,7 @@ class UI {
     this.map = null;
     this.speed = 1;
     this.modalOpen = false;
-    this.ratio = 0.3;
+    this.ratio = 0.1;
     this.lastEvent = 0;
     this.hudTimer = 0;
     this.mouse = { x: -1, y: -1, inside: false };
@@ -105,6 +105,9 @@ class UI {
     }
 
     $('opt-ai').addEventListener('input', () => { $('opt-ai-out').textContent = $('opt-ai').value; });
+    if (P.numTribes !== undefined) $('opt-tribes').value = P.numTribes;
+    $('opt-tribes-out').textContent = $('opt-tribes').value;
+    $('opt-tribes').addEventListener('input', () => { $('opt-tribes-out').textContent = $('opt-tribes').value; });
     $('opt-size').addEventListener('change', () => this.queuePreview());
     $('opt-type').addEventListener('change', () => {
       if ($('opt-type').value === 'random') {
@@ -225,17 +228,17 @@ class UI {
     const mode = document.querySelector('input[name=mode]:checked').value;
     const numAI = Number($('opt-ai').value);
     if (!this.tutorialPending) {
-      this.prefs = { ...this.prefs, name, type: $('opt-type').value, size: $('opt-size').value, numAI, diff, mode, color: this.color };
+      this.prefs = { ...this.prefs, name, type: $('opt-type').value, size: $('opt-size').value, numAI, numTribes: Number($('opt-tribes').value), diff, mode, color: this.color };
       savePrefs(this.prefs);
     }
     if (this.isClient()) return;
     const game = new Game(this.map, { difficulty: diff, mode, multiplayer: !!this.net });
     if (this.net) {
       const humans = this.net.lobby.players.map((p) => ({ name: p.name, color: hexToRgb(p.color), peer: p.id }));
-      game.setupPlayers({ humans, numAI, difficulty: diff });
+      game.setupPlayers({ humans, numAI, numTribes: Number($('opt-tribes').value), difficulty: diff });
       this.net.startMatch(game, this.map);
     } else {
-      game.setupPlayers({ playerName: name, playerColor: hexToRgb(this.color), numAI, difficulty: diff });
+      game.setupPlayers({ playerName: name, playerColor: hexToRgb(this.color), numAI, numTribes: Number($('opt-tribes').value), difficulty: diff });
     }
     this.enterGame(game, 1);
     if (this.tutorialPending) {
@@ -263,6 +266,8 @@ class UI {
     this.speed = 1;
     this.setSpeedButtons();
     $('focus').value = 50;
+    $('science').value = 20;
+    this.updateScience();
     this.updateFocus();
     this.r.insetLeft = 0;
     if (this.r.map !== game.map) this.r.setMap(game.map);
@@ -354,6 +359,11 @@ class UI {
       b.addEventListener('click', () => { this.speed = Number(b.dataset.speed); this.setSpeedButtons(); });
     }
     $('btn-menu').addEventListener('click', () => this.showGameMenu());
+    $('btn-peace').addEventListener('click', () => this.openNation('dipl'));
+    $('science').addEventListener('input', () => {
+      if (this.game && this.game.started) this.cmd('science', { v: Number($('science').value) / 100 }, true);
+      this.updateScience();
+    });
     $('st-year').addEventListener('click', () => this.openNation('tech'));
     $('st-stability').addEventListener('click', () => this.openNation('gov'));
     const ratio = $('ratio');
@@ -455,6 +465,31 @@ class UI {
     this.noticeTimer = setTimeout(() => n.classList.remove('show'), 2600);
   }
 
+  updateScience() {
+    const v = Number($('science').value);
+    $('sci-out').textContent = `${v}%`;
+    const me = this.game && this.me;
+    $('sci-cost').textContent = me && me.grossIncome ? `${fmtMoney(me.grossIncome * v / 100)}/s` : '';
+  }
+
+  // Missile hits on us shake the screen and flash; an incoming missile pulses the screen edge.
+  checkBombs() {
+    const g = this.game, my = this.myId;
+    for (const e of g.effects) {
+      if (e.type !== 'blast' || e.seen) continue;
+      e.seen = true;
+      if (e.hit && e.hit.includes(my) && e.by !== my) {
+        this.r.startShake(18, 850);
+        const f = $('flash');
+        f.classList.remove('boom');
+        void f.offsetWidth;
+        f.classList.add('boom');
+      }
+    }
+    const incoming = g.missiles.some((m) => !m.dead && m.owner !== my && g.owner[m.tile] === my);
+    $('flash').classList.toggle('warn', incoming);
+  }
+
   frame(dt) {
     // Keyboard panning.
     if (this.keys.size && !this.modalOpen) {
@@ -543,6 +578,8 @@ class UI {
     this.updateToasts();
 
     if (!this.spawnedShown && me.spawned) this.onSpawned(me.capital);
+    this.checkBombs();
+    this.updateScience();
     if (g.over && !this.overShown) {
       this.overShown = true;
       this.fallenShown = true;
@@ -556,11 +593,12 @@ class UI {
 
   updateBoard() {
     const g = this.game;
-    const alive = g.players.filter((p) => p && p.alive && p.spawned).sort((a, b) => b.tiles - a.tiles);
-    $('board-count').textContent = `${alive.length} left`;
+    const alive = g.players.filter((p) => p && p.alive && p.spawned && !p.tribe).sort((a, b) => b.tiles - a.tiles);
+    const tribes = g.players.filter((p) => p && p.alive && p.tribe).length;
+    $('board-count').textContent = tribes ? `${alive.length} left, ${tribes} tribes` : `${alive.length} left`;
     const rows = [];
     const row = (p, rank) => {
-      const ally = g.isAllied(this.myId, p.id) ? '<span class="ally">Ally</span>' : p.human && p.id !== this.myId ? '<span class="ally pl">Player</span>' : '';
+      const ally = g.isAllied(this.myId, p.id) ? '<span class="ally">Ally</span>' : g.atPeace(this.myId, p.id) ? '<span class="ally">Peace</span>' : p.human && p.id !== this.myId ? '<span class="ally pl">Player</span>' : '';
       const share = g.landShare(p) * 100;
       return `<li data-pid="${p.id}" class="${p.id === this.myId ? 'me' : ''}" style="--c:${rgbCss(p.color)}"><span class="rk">${rank}</span><span class="nm">${esc(p.name)}${ally}</span><span class="ld">${share.toFixed(share < 10 ? 1 : 0)}%</span><span class="tr">${fmt(p.troops)}</span></li>`;
     };
@@ -647,7 +685,7 @@ class UI {
         el = document.createElement('div');
         el.className = 'toast';
         el.style.setProperty('--c', rgbCss(p.color));
-        el.innerHTML = `<p><b>${esc(p.name)}</b> proposes an alliance. Allies can't attack each other.</p><div class="acts"><button type="button" class="primary" data-a="1">Accept</button><button type="button" class="ghost" data-a="0">Decline</button></div><div class="timer"></div>`;
+        el.innerHTML = `<p><b>${esc(p.name)}</b> ${r.kind === 'peace' ? 'offers peace. Neither side may attack the other while it lasts.' : 'proposes an alliance. Allies can\'t attack each other.'}</p><div class="acts"><button type="button" class="primary" data-a="1">Accept</button><button type="button" class="ghost" data-a="0">Decline</button></div><div class="timer"></div>`;
         el.addEventListener('click', (e) => {
           const b = e.target.closest('button[data-a]');
           if (!b || !this.game) return;
@@ -760,7 +798,9 @@ class UI {
           items.push({ label: `Send ${fmt(amt)} troops`, act: () => this.cmd('troops', { to: o, ratio: 0.25 }) });
           items.push({ label: 'Break alliance', danger: true, act: () => this.cmd('unally', { to: o }) });
         } else {
-          items.push({ label: 'Propose alliance', act: () => this.cmd('ally', { to: o }) });
+          if (g.atPeace(my, o)) items.push({ label: 'Declare war', danger: true, title: 'Ends the peace. Other nations will trust you less.', act: () => this.cmd('war', { to: o }) });
+          else items.push({ label: 'Offer peace', act: () => this.cmd('peace', { to: o }) });
+          if (!p.tribe) items.push({ label: 'Propose alliance', act: () => this.cmd('ally', { to: o }) });
         }
         const gold = Math.floor(me.gold * 0.25);
         items.push({ label: `Send ${fmtMoney(gold)}`, title: 'Gifts improve how they feel about you.', disabled: gold < 1,
@@ -817,6 +857,7 @@ class UI {
       }
       if (o !== this.myId) {
         if (g.isAllied(this.myId, o)) rows.push(['Status', '<span class="rel-good">Your ally</span>']);
+        else if (g.atPeace(this.myId, o)) rows.push(['Status', '<span class="rel-good">At peace</span>']);
         else if (!p.human) {
           const v = g.getRel(o, this.myId);
           const [lbl, cls] = relLabel(v);
@@ -974,6 +1015,7 @@ class UI {
       if (k === 'm') { this.toggleMissile(); return; }
       if (k === 't' && g.started) { this.openNation('tech'); return; }
       if (k === 'g' && g.started && g.politics) { this.openNation('gov'); return; }
+      if (k === 'p' && g.started) { this.openNation('dipl'); return; }
       const bt = BUILD_ORDER.find((t) => BUILDINGS[t].key === k);
       if (bt) this.toggleBuild(bt);
     });
@@ -1029,7 +1071,7 @@ class UI {
   openNation(tab) {
     const g = this.game;
     if (!g || !g.started) return;
-    this.nationTab = tab === 'gov' && g.politics ? 'gov' : 'tech';
+    this.nationTab = tab === 'gov' && g.politics ? 'gov' : tab === 'dipl' ? 'dipl' : 'tech';
     this.nationMsg = '';
     this.openModal(this.nationHtml(), { wide: true, onClick: (e) => this.onNationClick(e) });
   }
@@ -1056,6 +1098,14 @@ class UI {
       this.renderNation();
       return;
     }
+    const dip = e.target.closest('[data-dip]');
+    if (dip && me.alive) {
+      const res = this.cmd(dip.dataset.dip, dip.dataset.to ? { to: Number(dip.dataset.to) } : {}, true);
+      this.nationMsg = res ? (res.msg || 'Done.') : 'Order sent.';
+      this.nationMsgBad = !!(res && res.bad);
+      this.renderNation();
+      return;
+    }
     const act = e.target.closest('[data-gov]');
     if (act && me.alive) {
       const res = act.dataset.gov === 'martial' ? this.cmd('martial', { on: !me.martial }, true) : this.cmd('celebrate', {}, true);
@@ -1067,15 +1117,12 @@ class UI {
 
   nationHtml() {
     const g = this.game;
-    const tabs = g.politics
-      ? `<div class="tabs" role="tablist">
-          <button type="button" role="tab" data-tab="tech" aria-selected="${this.nationTab === 'tech'}">Technology</button>
-          <button type="button" role="tab" data-tab="gov" aria-selected="${this.nationTab === 'gov'}">Government</button>
-        </div>`
-      : '';
+    const tab = (id, label) => `<button type="button" role="tab" data-tab="${id}" aria-selected="${this.nationTab === id}">${label}</button>`;
+    const tabs = `<div class="tabs" role="tablist">${tab('tech', 'Technology')}${g.politics ? tab('gov', 'Government') : ''}${tab('dipl', 'Diplomacy')}</div>`;
     const msg = this.nationMsg ? `<p class="nation-msg${this.nationMsgBad ? ' bad' : ''}" role="status">${esc(this.nationMsg)}</p>` : '';
-    const content = this.nationTab === 'gov' ? this.govHtml() : this.techHtml();
-    return `<div class="nation-top"><h2 id="modal-title">${this.nationTab === 'gov' ? 'Government' : 'Technology'}</h2>${tabs}</div>
+    const content = this.nationTab === 'gov' ? this.govHtml() : this.nationTab === 'dipl' ? this.diplHtml() : this.techHtml();
+    const title = { gov: 'Government', dipl: 'Diplomacy', tech: 'Technology' }[this.nationTab];
+    return `<div class="nation-top"><h2 id="modal-title">${title}</h2>${tabs}</div>
       ${content}${msg}
       <div class="modal-actions"><button type="button" class="primary" data-close>Back to the map</button></div>`;
   }
@@ -1116,6 +1163,38 @@ class UI {
       cols += `<section class="era${e === era ? ' now' : ''}${g.mode.timeGate && e > era ? ' future' : ''}"><h3>${ERAS[e].name} <span>${span}</span></h3>${cards}</section>`;
     }
     return `<p class="result-lede">${esc(lede)}</p><div class="tree">${cols}</div>`;
+  }
+
+  // Diplomacy: everyone's stance toward you, and how close you are to a peaceful victory.
+  diplHtml() {
+    const g = this.game, me = this.me, my = this.myId;
+    const nations = g.players.filter((p) => p && p.alive && p.spawned && !p.tribe && p.id !== my).sort((a, b) => b.tiles - a.tiles);
+    const friendly = nations.filter((p) => g.isFriendly(my, p.id)).length;
+    const largest = nations.every((p) => p.tiles <= me.tiles);
+    const atWar = new Set();
+    for (const a of g.attacks) {
+      if (a.dead) continue;
+      if (a.attacker === my) atWar.add(a.target);
+      if (a.target === my) atWar.add(a.attacker);
+    }
+    const rows = nations.map((p) => {
+      let st, cls, acts = '';
+      if (g.isAllied(my, p.id)) { st = 'Ally'; cls = 'st-ally'; }
+      else if (g.atPeace(my, p.id)) { st = 'At peace'; cls = 'st-peace'; acts = `<button type="button" class="ghost" data-dip="war" data-to="${p.id}">Declare war</button>`; }
+      else {
+        st = atWar.has(p.id) ? 'At war' : 'No treaty'; cls = atWar.has(p.id) ? 'st-war' : 'st-neutral';
+        acts = `<button type="button" class="ghost" data-dip="peace" data-to="${p.id}">Offer peace</button><button type="button" class="ghost" data-dip="ally" data-to="${p.id}">Ally</button>`;
+      }
+      const feel = p.human ? 'Player' : relLabel(g.getRel(p.id, my))[0];
+      return `<tr><td><span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}</td><td class="num">${(g.landShare(p) * 100).toFixed(1)}%</td><td class="${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
+    }).join('');
+    const need = nations.length - friendly;
+    const progress = need === 0 && largest
+      ? '<b>Every surviving nation is at peace or allied with you, and yours is the largest.</b> Victory is moments away.'
+      : `At peace or allied with <b>${friendly} of ${nations.length}</b> nations. To win in peace, make peace with the remaining ${need} and be the largest nation${largest ? ' (you are)' : ' (you are not yet)'}. Tribes don't count.`;
+    return `<p class="dipl-progress">${progress}</p>
+      <div class="modal-actions" style="justify-content:flex-start;margin:0 0 12px"><button type="button" class="primary" data-dip="peaceAll">Offer peace to everyone</button></div>
+      <table class="dipl-table"><thead><tr><th>Nation</th><th style="text-align:right">Land</th><th>Status</th><th>Feeling toward you</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="5">No other nations remain.</td></tr>'}</tbody></table>`;
   }
 
   govHtml() {
@@ -1233,7 +1312,7 @@ class UI {
     const o = this.mapOptions();
     return {
       mode: document.querySelector('input[name=mode]:checked').value, type: o.type, size: o.size, seedText: $('opt-seed').value,
-      numAI: Number($('opt-ai').value), difficulty: document.querySelector('input[name=diff]:checked').value,
+      numAI: Number($('opt-ai').value), numTribes: Number($('opt-tribes').value), difficulty: document.querySelector('input[name=diff]:checked').value,
     };
   }
 
@@ -1283,6 +1362,8 @@ class UI {
     $('opt-type').value = $('opt-type').querySelector(`option[value="${st.type}"]`) ? st.type : 'continents';
     if (!isFixedMap(st.type)) $('opt-size').value = st.size;
     $('opt-ai').value = st.numAI;
+    $('opt-tribes').value = st.numTribes || 0;
+    $('opt-tribes-out').textContent = st.numTribes || 0;
     $('opt-ai-out').textContent = st.numAI;
     $('opt-seed').value = st.seedText;
     this.updateMapFields();
@@ -1329,6 +1410,7 @@ class UI {
     let lede;
     if (won && o.reason === 'share') lede = `You hold ${Math.round(g.landShare(me) * 100)}% of the world. No one is left to challenge you.`;
     else if (won && o.reason === 'year') lede = `The year ${o.year} arrives and yours is the largest nation on earth, with ${Math.round(g.landShare(me) * 100)}% of the land.`;
+    else if (won && o.reason === 'peace') lede = 'Every surviving nation is at peace or allied with you, and yours is the largest. A peaceful victory.';
     else if (won) lede = 'Every rival is gone or sworn to you. The world is yours.';
     else if (me.alive && leader && o.reason === 'share') lede = `${leader.name} controls ${Math.round(g.landShare(leader) * 100)}% of the world and wins the game.`;
     else if (me.alive && leader) lede = `${leader.name} ends the age as the largest nation, with ${Math.round(g.landShare(leader) * 100)}% of the land. You hold ${Math.round(g.landShare(me) * 100)}%.`;

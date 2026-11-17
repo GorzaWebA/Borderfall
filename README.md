@@ -18,7 +18,7 @@ No install, no account. Works on desktop and mobile browsers. New players can st
 | Technology | Each tech waits for its year and for the techs it builds on | Only needs the techs it builds on |
 | Politics | Stability, administration, occupied land, revolts | None |
 | Growth | Slower; fronts crawl until railroads and engines | Fast and aggressive |
-| Ending | 70% of the land, or the largest nation in 2000 | 70% of the land, or the largest nation in 1700 |
+| Ending | 70% of the land, peace with every nation while largest, or the largest nation in 2000 | Same, with the time limit at 1700 |
 | Typical length | 30–40 minutes | About 15 minutes |
 
 ## Maps
@@ -41,14 +41,17 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 ## What you do
 
-- **Expand.** Click land to send troops into it. Settling empty land is quick, and your border grows toward the spot you click. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
+- **Expand.** Click land to send troops into it (10% of your troops by default). Settling empty land is steady and cheap, and your border grows toward the spot you click. Pulsing marks on the map show every front where you're attacking (gold) or being attacked (red).
+- **Encircle.** Completely surround a patch of land and it becomes yours, unless it belongs to an ally or a nation you're at peace with.
+- **Absorb tribes.** Small tribes hold scattered land at the start. They never build or research, so they're easy pickings. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
 - **Grow your people.** Population grows toward what your land and cities can feed. Only a share can serve as soldiers (8% in 1500, up to 23% by the World Wars); the rest work and pay taxes. Soldiers killed in battle are gone for good.
 - **Manage your treasury.** Money comes in dollars at a realistic scale: you start with $1.2 million, a city costs $2 million, and a missile $8 million.
-- **Research.** 28 technologies across six eras, from Military Drill and the Printing Press to Railroads, Machine Guns and Nuclear Fission. Click the year to open the tree and choose what comes next.
+- **Research.** Set a research budget: the share of your income spent on research each moment. 28 technologies across six eras, from Military Drill and the Printing Press to Railroads, Machine Guns and Nuclear Fission. Click the year to open the tree and choose what comes next.
 - **Keep order (Realistic).** Stability depends on your technology, how far you've outgrown your administration, occupied land, war losses, taxes and levies, and the size of your empire. Conquered land shows hatched until it integrates. Below 30 stability, restless regions break away as new nations. Declare martial law or hold a celebration when things get tense.
-- **Build.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos. Most unlock through technology.
+- **Build and stack.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos. Most unlock through technology. Build on top of one of your own buildings of the same type to stack it up to level 5; every level adds its full effect again.
 - **Sail.** Click land across the water and a fleet carries your troops there to open a beachhead.
-- **Strike.** Missiles wipe out troops and scorch land for a while. Air defense can shoot them down.
+- **Strike.** Missiles wipe out troops and scorch land for a while; the screen shakes when one hits you. Air defense can shoot them down.
+- **Make peace.** Offer peace to one nation or to everyone from the Peace button. Nations at peace can't attack each other. Be the largest nation while every surviving nation is at peace or allied with you, and you win without conquering the world.
 - **Negotiate.** Propose alliances, send money to win favor, reinforce allies, or betray them at a cost. Nations remember who attacked them and gang up on whoever grows too big.
 
 ## Features
@@ -68,6 +71,7 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 | Drag, mouse wheel, pinch | Move and zoom the map |
 | `1`–`9` | Choose a building to place (hold Shift to place several) |
 | `T` | Open the technology tree |
+| `P` | Open diplomacy: peace, war, alliances |
 | `G` | Open government: stability, administration, policies (Realistic) |
 | `M` | Aim a missile |
 | `Q` / `E` | Lower or raise the share of troops sent per attack |
