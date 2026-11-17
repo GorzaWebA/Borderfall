@@ -19,7 +19,7 @@
   <section id="menu" class="screen">
     <div class="menu-panel">
       <h1 class="wordmark">Borderfall</h1>
-      <p class="tagline">Found a nation in 1500 and carry it through five centuries. Take land, grow your people, research new technology, keep order at home and hold 70% of the world to win.</p>
+      <p class="tagline">Found a nation in 1500 and carry it through the centuries. Take land, grow your people, research new technology, keep order at home and hold 70% of the world to win.</p>
       <form id="setup" autocomplete="off">
         <div class="field">
           <span id="mode-label">Mode</span>
@@ -39,15 +39,33 @@
         </div>
         <div class="row2">
           <label class="field">
-            <span>World</span>
+            <span>Map</span>
             <select id="opt-type">
-              <option value="continents">Continents</option>
-              <option value="pangaea">Pangaea</option>
-              <option value="archipelago">Archipelago</option>
-              <option value="highlands">Highlands</option>
+              <optgroup label="Random worlds">
+                <option value="continents">Continents</option>
+                <option value="pangaea">Pangaea</option>
+                <option value="archipelago">Archipelago</option>
+                <option value="highlands">Highlands</option>
+              </optgroup>
+              <optgroup label="Real world">
+                <option value="world">World</option>
+                <option value="europe">Europe</option>
+                <option value="africa">Africa</option>
+                <option value="americas">The Americas</option>
+                <option value="namerica">North America</option>
+                <option value="samerica">South America</option>
+                <option value="oceania">Oceania</option>
+                <option value="cyprus">Cyprus</option>
+              </optgroup>
+              <optgroup label="Competitive">
+                <option value="duel">Mirror Strait</option>
+                <option value="quad">Four Kingdoms</option>
+                <option value="ring">Ring Sea</option>
+                <option value="isthmus">Twin Continents</option>
+              </optgroup>
             </select>
           </label>
-          <label class="field">
+          <label class="field" id="size-field">
             <span>Size</span>
             <select id="opt-size">
               <option value="small">Small</option>
@@ -56,6 +74,7 @@
             </select>
           </label>
         </div>
+        <p id="map-desc" class="field-note" hidden></p>
         <label class="field">
           <span>Rival nations <output id="opt-ai-out">14</output></span>
           <input type="range" id="opt-ai" min="3" max="40" value="14">
@@ -69,7 +88,7 @@
           </div>
         </div>
         <div class="field">
-          <span>World seed</span>
+          <span id="seed-label">World seed</span>
           <div class="seed-row">
             <input id="opt-seed" spellcheck="false" aria-label="World seed">
             <button type="button" id="btn-reroll" class="ghost">New world</button>
@@ -177,11 +196,15 @@
     <div class="help">
       <section>
         <h3>Goal</h3>
-        <p>Control 70% of the world's land, or leave only allies standing. In Realistic, if nobody manages that by the year 2000, the largest nation wins. If you lose every tile, your nation falls.</p>
+        <p>Control 70% of the world's land, or leave only allies standing. If nobody manages that before time runs out (2000 in Realistic, 1700 in Blitz), the largest nation wins. If you lose every tile, your nation falls.</p>
       </section>
       <section>
         <h3>Modes</h3>
-        <p><b>Realistic</b> starts in 1500 and moves one year every 4 seconds. Each technology waits for its year, and you have to keep your nation stable. <b>Blitz</b> lets you research anything as soon as you know what it builds on, has no stability or revolts, and grows faster.</p>
+        <p><b>Realistic</b> runs from 1500 to 2000, about 37 minutes at normal speed. Each technology waits for its year, and you have to keep your nation stable. <b>Blitz</b> runs from 1500 to 1700, about 15 minutes. You can research anything as soon as you know what it builds on, and there's no stability or revolts. The clock in the top bar shows how long is left.</p>
+      </section>
+      <section>
+        <h3>Maps</h3>
+        <p><b>Random worlds</b> are generated from the seed. <b>Real world</b> maps use real coastlines, mountains, deserts and forests. <b>Competitive</b> maps are built from mirrored or rotated copies of one region, so every start has an identical twin somewhere else.</p>
       </section>
       <section>
         <h3>Taking land</h3>

@@ -6,27 +6,33 @@ const START_YEAR = 1500;
 const MODES = {
   realistic: {
     label: 'Realistic',
-    secPerYear: 4,
+    secPerYear: 4.5,      // 1500 to 2000 takes about 37 minutes at 1x
     timeGate: true,       // technologies wait for their year
     politics: true,       // stability, control, administration, revolts
-    popGrowth: 0.022,
+    popGrowth: 0.02,
     research: 1,
-    attackSpeed: 0.45,    // pre-industrial fronts crawl; railroads and engines speed them up
-    defense: 1.4,
+    attackSpeed: 0.3,     // pre-industrial fronts crawl; railroads and engines speed them up
+    defense: 1.7,
+    attrition: 0.018,     // share of an offensive lost to supply each second
+    absorb: 0.22,         // share of a conquered region's people who join the conqueror
     endYear: 2000,        // if nobody holds 70% by then, the largest nation wins
-    desc: 'Starts in 1500. Technologies open up as the years pass. Grow your population, keep your people loyal and hold on to what you conquer. Longer games that reward planning.',
+    minutes: 37,
+    desc: 'About 35–40 minutes. Starts in 1500 and ends in 2000. Technologies open up as the years pass. Grow your population, keep your people loyal and hold on to what you conquer.',
   },
   blitz: {
     label: 'Blitz',
-    secPerYear: 4,
+    secPerYear: 4.5,      // 1500 to 1700 takes 15 minutes at 1x
     timeGate: false,
     politics: false,
-    popGrowth: 0.05,
-    research: 2.5,
-    attackSpeed: 1,
-    defense: 1,
-    endYear: 0,
-    desc: 'Research anything once you know what it builds on. No stability or revolts, faster growth. Quick, aggressive games.',
+    popGrowth: 0.036,
+    research: 1.7,
+    attackSpeed: 0.46,
+    defense: 1.3,
+    attrition: 0.006,
+    absorb: 0.5,
+    endYear: 1700,
+    minutes: 15,
+    desc: 'About 15 minutes. Research anything once you know what it builds on. No stability or revolts, faster growth. Ends in 1700 if nobody has won.',
   },
 };
 

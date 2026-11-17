@@ -59,7 +59,7 @@ class UI {
   initMenu() {
     const P = this.prefs;
     if (P.name) $('opt-name').value = P.name;
-    if (P.type) $('opt-type').value = P.type;
+    if (P.type && $('opt-type').querySelector(`option[value="${P.type}"]`)) $('opt-type').value = P.type;
     if (P.size) $('opt-size').value = P.size;
     if (P.numAI) $('opt-ai').value = P.numAI;
     if (P.diff) { const r = document.querySelector(`input[name=diff][value=${P.diff}]`); if (r) r.checked = true; }
@@ -86,7 +86,14 @@ class UI {
     }
 
     $('opt-ai').addEventListener('input', () => { $('opt-ai-out').textContent = $('opt-ai').value; });
-    for (const id of ['opt-type', 'opt-size']) $(id).addEventListener('change', () => this.queuePreview());
+    $('opt-size').addEventListener('change', () => this.queuePreview());
+    $('opt-type').addEventListener('change', () => {
+      const rec = recommendedRivals($('opt-type').value);
+      if (rec) { $('opt-ai').value = rec; $('opt-ai-out').textContent = rec; }
+      this.updateMapFields();
+      this.queuePreview(0);
+    });
+    this.updateMapFields();
     $('opt-seed').addEventListener('input', () => this.queuePreview());
     $('btn-reroll').addEventListener('click', () => {
       $('opt-seed').value = String(Math.floor(Math.random() * 900000) + 100000);
@@ -99,8 +106,25 @@ class UI {
   }
 
   mapOptions() {
-    return { seed: seedFromInput($('opt-seed').value), type: $('opt-type').value, size: $('opt-size').value };
+    const type = $('opt-type').value;
+    return { seed: seedFromInput($('opt-seed').value), type, size: isFixedMap(type) ? 'fixed' : $('opt-size').value };
   }
+
+  // Fixed maps (real world, competitive) have no size choice; the seed only places rivals.
+  updateMapFields() {
+    const type = $('opt-type').value;
+    const fixed = isFixedMap(type);
+    $('size-field').hidden = fixed;
+    $('size-field').parentElement.classList.toggle('single', fixed);
+    $('seed-label').textContent = fixed ? 'Rival placement seed' : 'World seed';
+    const desc = $('map-desc');
+    const comp = MAP_TYPES[type] && MAP_TYPES[type].competitive;
+    desc.hidden = !fixed;
+    desc.textContent = comp ? `${MAP_TYPES[type].desc} Every region has an identical twin.` :
+      isPremade(type) ? 'Real coastlines, mountains, deserts and forests.' : '';
+  }
+
+  mapKeyOf(o) { return `${o.seed}|${o.type}|${o.size}`; }
 
   queuePreview(delay = 250) {
     clearTimeout(this.genTimer);
@@ -113,18 +137,37 @@ class UI {
     clearTimeout(this.genTimer);
     this.genTimer = 0;
     const o = this.mapOptions();
-    this.map = generateMap(o);
-    this.mapKey = `${o.seed}|${o.type}|${o.size}`;
-    this.r.insetLeft = !$('menu').hidden && window.innerWidth > 640 ? $('menu').querySelector('.menu-panel').offsetWidth * 0.9 : 0;
-    this.r.setMap(this.map);
-    $('btn-start').disabled = false;
-    $('btn-start').textContent = 'Choose your homeland';
+    const key = this.mapKeyOf(o);
+    this.pendingKey = key;
+    const show = (map) => {
+      if (this.pendingKey !== key) return;
+      this.map = map;
+      this.mapKey = key;
+      this.r.insetLeft = !$('menu').hidden && window.innerWidth > 640 ? $('menu').querySelector('.menu-panel').offsetWidth * 0.9 : 0;
+      this.r.setMap(map);
+      $('btn-start').disabled = false;
+      $('btn-start').textContent = 'Choose your homeland';
+    };
+    if (isPremade(o.type)) {
+      $('btn-start').disabled = true;
+      $('btn-start').textContent = `Loading ${mapLabel(o.type)}…`;
+      loadPremadeMap(o.type).then(() => show(buildPremadeMap(o.type, o.seed))).catch(() => {
+        if (this.pendingKey !== key) return;
+        $('btn-start').disabled = false;
+        $('btn-start').textContent = 'Map failed to load. Tap to retry.';
+        this.mapKey = '';
+      });
+    } else {
+      show(generateMap(o));
+    }
   }
 
   startGame() {
     const o = this.mapOptions();
-    if (this.genTimer || this.mapKey !== `${o.seed}|${o.type}|${o.size}`) {
+    if (this.genTimer || this.mapKey !== this.mapKeyOf(o)) {
+      // Finish drawing the chosen map first; real-world maps load in the background.
       this.generatePreview();
+      if (this.mapKey !== this.mapKeyOf(o)) return;
     }
     const name = ($('opt-name').value.trim() || 'Your Nation').slice(0, 16);
     const diff = document.querySelector('input[name=diff]:checked').value;
@@ -165,14 +208,24 @@ class UI {
     for (let k = 0; k < 4000 && cand.length < 60; k++) {
       const i = Math.floor(Math.random() * g.N);
       if (!g.canSpawnAt(i) || g.map.terrain[i] === T_MOUNTAIN) continue;
-      // Prefer spots away from rivals.
+      // Prefer roomy land away from rivals over remote specks.
       const x = i % g.W, y = (i - x) / g.W;
       let near = 1e9;
       for (const p of g.players) {
         if (!p || p.human || !p.alive) continue;
         near = Math.min(near, Math.hypot(p.label.x - x, p.label.y - y));
       }
-      cand.push([near, i]);
+      let land = 0, seen = 0;
+      for (let dy = -14; dy <= 14; dy += 2) {
+        for (let dx = -14; dx <= 14; dx += 2) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= g.W || yy >= g.H) continue;
+          seen++;
+          const t = g.map.terrain[yy * g.W + xx];
+          if (t > T_SEA && t !== T_MOUNTAIN && !g.owner[yy * g.W + xx]) land++;
+        }
+      }
+      cand.push([Math.min(near, 45) + (land / Math.max(1, seen)) * 45, i]);
     }
     cand.sort((a, b) => b[0] - a[0]);
     if (cand.length) this.spawn(cand[Math.floor(Math.random() * Math.min(8, cand.length))][1]);
@@ -344,7 +397,9 @@ class UI {
     $('v-land').textContent = `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`;
     $('v-tiles').textContent = `${fmt(me.tiles)} tiles`;
     $('v-landbar').style.width = `${Math.min(100, share * 100)}%`;
-    $('v-time').textContent = fmtTime(g.time);
+    $('v-time').textContent = g.mode.endYear
+      ? `${fmtTime(Math.max(0, (g.mode.endYear - START_YEAR) * g.mode.secPerYear - g.time))} left`
+      : fmtTime(g.time);
     $('v-pop').textContent = fmt(me.pop);
     $('v-popcap').textContent = `/ ${fmt(me.popCap)}`;
     const pg = $('v-popgrowth');

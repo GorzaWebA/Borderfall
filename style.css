@@ -688,3 +688,5 @@ input[type=range]::-moz-range-thumb {
 @media (max-width: 760px) {
   .gov { grid-template-columns: 1fr; }
 }
+.row2.single { grid-template-columns: 1fr; }
+select optgroup { color: var(--muted); font-style: normal; }

@@ -203,6 +203,8 @@ class Game {
         const i = rng.int(this.N);
         const t = T[i];
         if (t <= T_SEA || t === T_MOUNTAIN || this.owner[i]) continue;
+        // Prefer fertile ground; accept harsher land only if nothing else fits.
+        if (attempt < 2400 && (t === T_TUNDRA || t === T_DESERT)) continue;
         const x = i % W, y = (i - x) / W;
         let ok = true;
         for (const q of placed) {
@@ -254,6 +256,9 @@ class Game {
     this.computeLabels();
     if (this.politics) this.computeAdmin();
     this.log(`The year is ${START_YEAR}. Your nation is founded. Expand into the wilds to grow.`, 'good');
+    if (this.mode.endYear) {
+      this.log(`The game ends in ${this.mode.endYear}, about ${this.mode.minutes} minutes from now. Hold 70% of the land before then, or be the largest nation when it ends.`, 'info');
+    }
     return true;
   }
 
@@ -524,7 +529,9 @@ class Game {
     const tt = this.map.terrain[t];
     if (!D) return NEUTRAL_COST * T_COST[tt];
     const traitor = D.traitorUntil > this.tick ? 0.8 : 1;
-    return (density * 1.1 + 5) * T_DEF[tt] * this.fortMult(t, D) * traitor * (1 + D.mods.def) * (1 - A.mods.atk) * this.mode.defense;
+    // Long-held, well-governed heartland resists harder than freshly taken land.
+    const core = this.politics && this.control[t] >= 90 ? 1.45 : 1;
+    return (density * 1.1 + 5) * T_DEF[tt] * this.fortMult(t, D) * traitor * core * (1 + D.mods.def) * (1 - A.mods.atk) * this.mode.defense;
   }
 
   // Taking a tile from a nation kills its garrison and moves some of its people.
@@ -535,7 +542,7 @@ class Game {
       this.casualties(D, kill);
       const civ = Math.max(0, (D.pop - D.troops - D.field) / Math.max(1, D.tiles));
       D.pop = Math.max(0, D.pop - civ);
-      A.pop += civ * 0.6;
+      A.pop += civ * this.mode.absorb;
     }
     this.setOwner(t, A.id);
   }
@@ -552,6 +559,12 @@ class Game {
       atk.refreshAt = this.tick + 10;
     }
     if (F.length === 0) { A.troops += atk.troops; atk.dead = true; return; }
+    // Offensives against nations bleed troops to supply problems; railroads and engines help.
+    if (D) {
+      const lost = atk.troops * this.mode.attrition * (1 - 0.6 * Math.min(0.5, A.mods.speed)) / TPS;
+      atk.troops -= lost;
+      this.casualties(A, lost);
+    }
 
     const own = this.owner, ter = this.map.terrain, W = this.W, H = this.H, rng = this.rng;
     let tries = Math.ceil(F.length * ATTACK_SPEED * this.mode.attackSpeed * (1 + A.mods.speed)) + 1;
@@ -1066,7 +1079,7 @@ class Game {
     const ctrl = (1 - p.avgControl / 100) * 28;
     const war = Math.min(25, (p.weariness / Math.max(5000, p.pop)) * 200 * Math.max(0.2, 1 + p.mods.weariness));
     const burden = Math.abs(p.focus - 0.5) * 20;
-    const size = Math.min(25, this.landShare(p) * 40);
+    const size = Math.min(36, this.landShare(p) * 56);
     const f = [['Base', 62]];
     if (p.mods.stability) f.push(['Technology', p.mods.stability]);
     if (p.martial) f.push(['Martial law', 15]);
@@ -1256,6 +1269,16 @@ class Game {
             p.autoResearch = true;
             this.log(`Now researching ${TECH_BY_ID[pick].name}. Open Technology to choose another.`, 'info');
           }
+        }
+      }
+    }
+    if (this.mode.endYear) {
+      const left = this.mode.endYear - this.year;
+      const warnAt = this.mode.endYear - START_YEAR > 300 ? [50, 10] : [25, 5];
+      for (const w of warnAt) {
+        if (left === w && !this.announced.has('end' + w)) {
+          this.announced.add('end' + w);
+          this.log(`${w} years remain. When ${this.mode.endYear} arrives, the largest nation wins.`, 'bad');
         }
       }
     }

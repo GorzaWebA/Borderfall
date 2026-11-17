@@ -14,12 +14,22 @@ No install, no account. Works on desktop and mobile browsers.
 
 | | Realistic | Blitz |
 | --- | --- | --- |
-| Calendar | Starts in 1500, one year every 4 seconds | Same calendar, for flavor |
+| Calendar | 1500 to 2000, one year every 4.5 seconds | 1500 to 1700 |
 | Technology | Each tech waits for its year and for the techs it builds on | Only needs the techs it builds on |
 | Politics | Stability, administration, occupied land, revolts | None |
 | Growth | Slower; fronts crawl until railroads and engines | Fast and aggressive |
-| Ending | 70% of the land, or the largest nation in the year 2000 | 70% of the land |
-| Typical length | 20–35 minutes | 5–10 minutes |
+| Ending | 70% of the land, or the largest nation in 2000 | 70% of the land, or the largest nation in 1700 |
+| Typical length | 30–40 minutes | About 15 minutes |
+
+## Maps
+
+- **Random worlds:** Continents, Pangaea, Archipelago and Highlands, in three sizes. The seed decides the world, so you can share one.
+- **Real world:** World, Europe, Africa, The Americas, North America, South America, Oceania and Cyprus. These use real coastlines, with mountains, deserts, forests and tundra where they really are.
+- **Competitive:** maps built from mirrored or rotated copies of one region, so every start has an identical twin.
+  - **Mirror Strait:** two continents facing each other across a strait.
+  - **Four Kingdoms:** four realms in two pairs around a contested island.
+  - **Ring Sea:** six matching sectors around an inner sea.
+  - **Twin Continents:** north and south joined by one mountainous isthmus.
 
 ## What you do
 
@@ -34,7 +44,6 @@ No install, no account. Works on desktop and mobile browsers.
 
 ## Features
 
-- Procedural worlds: Continents, Pangaea, Archipelago and Highlands, in three sizes. Share a seed to replay the same world.
 - 3 to 40 AI rivals with distinct personalities (warlords, merchants, guardians, opportunists) and three difficulty levels.
 - Six terrain types that change how fast fronts move, how costly land is, and how much it's worth.
 - Pause and 1×, 2×, 4× speed.
@@ -104,4 +113,15 @@ js/ai.js        AI nations
 js/render.js    canvas map renderer
 js/ui.js        menus, HUD, input, tooltips
 js/main.js      game loop
+maps/*.js       real-world maps, one character per tile, loaded only when picked
 ```
+
+## Map data
+
+The real-world maps were generated from public-domain sources:
+
+- Coastlines: [Natural Earth](https://www.naturalearthdata.com/), via the [world-atlas](https://github.com/topojson/world-atlas) package
+- Elevation: NOAA ETOPO1 global relief
+- Land cover: NASA Blue Marble imagery
+
+The ETOPO1 and Blue Marble images come from the [basemap-data](https://pypi.org/project/basemap-data/) package. The Kyrenia range on the Cyprus map was added by hand, because it's too narrow for the source data.
