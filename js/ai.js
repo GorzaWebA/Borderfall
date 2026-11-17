@@ -277,7 +277,7 @@ class AIController {
   useMissiles() {
     const g = this.g, p = this.p, D = this.diff;
     if (!D.missiles || p.counts.silo === 0 || g.tick < this.nextMissile) return;
-    if (p.gold < g.missileCost(p) + 300 || !g.readySilo(p)) return;
+    if (p.gold < g.missileCost(p) + 300 * MONEY || !g.readySilo(p)) return;
     let target = null, bestS = 0;
     for (const q of g.players) {
       if (!q || !q.alive || q.id === p.id || g.isAllied(p.id, q.id)) continue;

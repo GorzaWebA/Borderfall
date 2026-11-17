@@ -25,6 +25,7 @@ const MAP_SIZES = {
   small: { label: 'Small', w: 420, h: 260 },
   medium: { label: 'Medium', w: 560, h: 350 },
   large: { label: 'Large', w: 720, h: 450 },
+  huge: { label: 'Huge', w: 960, h: 600 },
 };
 
 // Random worlds. Competitive maps are mirrored or rotated copies of one region so

@@ -16,12 +16,14 @@ class Renderer {
     this.cam = { x: 0, y: 0, zoom: 1 };
     this.hoverTile = -1;
     this.insetLeft = 0;        // px hidden behind the start menu
+    this.myId = 1;             // the nation this screen plays as
+    this.quality = 'high';     // 'high' or 'low'
     this.mode = null;          // { kind: 'build', type } | { kind: 'missile' } | { kind: 'spawn' }
     this.resize();
   }
 
   resize() {
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.dpr = this.quality === 'low' ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     this.cw = window.innerWidth;
     this.ch = window.innerHeight;
     this.cv.width = Math.round(this.cw * this.dpr);
@@ -43,6 +45,11 @@ class Renderer {
     this.buildTerrain();
     this.redrawAll();
     this.fit();
+  }
+
+  setQuality(q) {
+    this.quality = q === 'low' ? 'low' : 'high';
+    this.resize();
   }
 
   setGame(game) {
@@ -232,13 +239,15 @@ class Renderer {
 
   drawBuildings(ox, oy, z) {
     const ctx = this.ctx, g = this.game;
+    const low = this.quality === 'low';
+    if (low && z < 1.6) return;
     const size = clamp(z * 2.4, 5, 26);
     for (const b of g.buildings) {
       if (!b.alive) continue;
       const sx = ox + (b.x + 0.5) * z, sy = oy + (b.y + 0.5) * z;
       if (!this.visible(sx, sy, size)) continue;
       const c = g.players[b.owner].color;
-      drawBuildingIcon(ctx, b.type, sx, sy, size, c, b.cooldown > 0 && (b.type === 'silo' || b.type === 'aa'));
+      drawBuildingIcon(ctx, b.type, sx, sy, low ? Math.min(size, 8.5) : size, c, b.cooldown > 0 && (b.type === 'silo' || b.type === 'aa'));
     }
   }
 
@@ -326,8 +335,7 @@ class Renderer {
       ctx.beginPath();
       ctx.arc(px, py, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = '#fff4d6';
-      ctx.shadowColor = '#ffb347';
-      ctx.shadowBlur = 12;
+      if (this.quality !== 'low') { ctx.shadowColor = '#ffb347'; ctx.shadowBlur = 12; }
       ctx.fill();
       ctx.shadowBlur = 0;
     }
@@ -342,6 +350,13 @@ class Renderer {
         const fadeOut = clamp(1 - (age - 0.4) / 2.2, 0, 1);
         if (fadeOut <= 0) continue;
         const sx = ox + e.x * z, sy = oy + e.y * z, r = e.r * z * (0.3 + grow * 1.0);
+        if (this.quality === 'low') {
+          ctx.beginPath();
+          ctx.arc(sx, sy, r, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,150,60,${0.6 * fadeOut})`;
+          ctx.fill();
+          continue;
+        }
         const grd = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
         grd.addColorStop(0, `rgba(255,248,220,${0.95 * fadeOut})`);
         grd.addColorStop(0.35, `rgba(255,170,70,${0.8 * fadeOut})`);
@@ -385,7 +400,7 @@ class Renderer {
       const L = p.label;
       const sx = ox + L.x * z, sy = oy + L.y * z;
       let fs = Math.min(L.size * z * 0.62, 46);
-      if (fs < 7.5) continue;
+      if (fs < (this.quality === 'low' ? 11 : 7.5)) continue;
       if (!this.visible(sx, sy, 200)) continue;
       ctx.font = `700 ${fs}px "Barlow Condensed", sans-serif`;
       const w = ctx.measureText(p.name).width;
@@ -398,14 +413,15 @@ class Renderer {
       const troopFs = fs * 0.78;
       ctx.lineWidth = Math.max(2, fs * 0.16);
       ctx.strokeStyle = 'rgba(10,20,30,0.75)';
-      ctx.fillStyle = p.human ? '#fff6d8' : '#f4efe2';
+      const mine = p.id === this.myId;
+      ctx.fillStyle = mine ? '#fff6d8' : '#f4efe2';
       ctx.strokeText(p.name, sx, sy - troopFs * 0.45);
       ctx.fillText(p.name, sx, sy - troopFs * 0.45);
       ctx.font = `600 ${troopFs}px "Barlow Condensed", sans-serif`;
       ctx.lineWidth = Math.max(2, troopFs * 0.16);
       const t = fmt(p.troops);
       ctx.strokeText(t, sx, sy + fs * 0.5);
-      ctx.fillStyle = g.human && g.isAllied(1, p.id) ? '#9fe0c9' : (p.human ? '#f1d58a' : '#e6dfcc');
+      ctx.fillStyle = g.isAllied(this.myId, p.id) ? '#9fe0c9' : (mine ? '#f1d58a' : '#e6dfcc');
       ctx.fillText(t, sx, sy + fs * 0.5);
     }
   }
@@ -419,16 +435,17 @@ class Renderer {
       const ok = g.canSpawnAt(t);
       ctx.beginPath();
       ctx.arc(sx, sy, (SPAWN_RADIUS + 0.5) * z, 0, Math.PI * 2);
-      ctx.fillStyle = ok ? rgbCss(g.human.color, 0.45) : 'rgba(224,83,61,0.3)';
+      ctx.fillStyle = ok ? rgbCss(g.players[this.myId].color, 0.45) : 'rgba(224,83,61,0.3)';
       ctx.fill();
       ctx.strokeStyle = ok ? '#f4efe2' : '#e0533d';
       ctx.lineWidth = 2;
       ctx.stroke();
     } else if (mode.kind === 'build') {
-      const err = g.canBuild(g.human, mode.type, t);
+      const me = g.players[this.myId];
+      const err = g.canBuild(me, mode.type, t);
       const def = BUILDINGS[mode.type];
       if (def.radius) {
-        const rad = def.radius + (mode.type === 'fort' ? g.human.mods.fortRadius : 0);
+        const rad = def.radius + (mode.type === 'fort' ? me.mods.fortRadius : 0);
         ctx.beginPath();
         ctx.arc(sx, sy, rad * z, 0, Math.PI * 2);
         ctx.fillStyle = err ? 'rgba(224,83,61,0.08)' : 'rgba(201,164,76,0.12)';
@@ -440,10 +457,10 @@ class Renderer {
         ctx.setLineDash([]);
       }
       ctx.globalAlpha = 0.85;
-      drawBuildingIcon(ctx, mode.type, sx, sy, clamp(z * 2.4, 12, 28), err ? [150, 60, 50] : g.human.color, false);
+      drawBuildingIcon(ctx, mode.type, sx, sy, clamp(z * 2.4, 12, 28), err ? [150, 60, 50] : me.color, false);
       ctx.globalAlpha = 1;
     } else if (mode.kind === 'missile') {
-      const [rIn, rOut] = g.missileRadii(g.human);
+      const [rIn, rOut] = g.missileRadii(g.players[this.myId]);
       ctx.beginPath();
       ctx.arc(sx, sy, rOut * z, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(224,83,61,0.12)';

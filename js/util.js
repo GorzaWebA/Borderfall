@@ -131,10 +131,15 @@ function colorDistance(a, b) {
 function fmt(n) {
   n = Math.floor(n);
   const abs = Math.abs(n);
+  if (abs >= 1e9) return (n / 1e9).toFixed(abs >= 1e10 ? 1 : 2).replace(/\.0+$/, '') + 'B';
   if (abs >= 1e6) return (n / 1e6).toFixed(abs >= 1e7 ? 1 : 2).replace(/\.0+$/, '') + 'M';
   if (abs >= 1e4) return (n / 1e3).toFixed(abs >= 1e5 ? 0 : 1).replace(/\.0$/, '') + 'K';
   if (abs >= 1e3) return (n / 1e3).toFixed(2).replace(/0$/, '').replace(/\.0$/, '') + 'K';
   return String(n);
+}
+
+function fmtMoney(n) {
+  return (n < 0 ? '−$' : '$') + fmt(Math.abs(n));
 }
 
 function fmtTime(sec) {
@@ -152,4 +157,9 @@ const NATION_NAMES = [
   'Obsidra', 'Pyrewatch', 'Ruskvald', 'Saltmarsh', 'Thornwick', 'Umbravia', 'Verdance', 'Wyvernhold',
   'Corsaria', 'Stormcrest', 'Goldmere', 'Tidegard', 'Vossberg', 'Sundara', 'Kharnak', 'Elmshire',
   'Brakken', 'Calderon', 'Mistral', 'Orlenne', 'Pallisade', 'Sevrin', 'Teshkent', 'Varnholt',
+  'Aquilonia', 'Barrowmere', 'Carthenne', 'Dunmarrow', 'Estrava', 'Falkreach', 'Galdoria', 'Hesperon',
+  'Ilvaria', 'Jorvik', 'Korrin', 'Lysandor', 'Meridia', 'Nordvik', 'Oakhaven', 'Parthis',
+  'Rhovanion', 'Sarnath', 'Tolvara', 'Uthmar', 'Vellmoor', 'Westmarch', 'Yarrowby', 'Zarovia',
+  'Ambervale', 'Blackmoor', 'Coralis', 'Drovenia', 'Elmaria', 'Fenwick', 'Greystone', 'Harrowgate',
+  'Isenmark', 'Kingsreach', 'Larkspur', 'Montclaire', 'Novaria', 'Ostmark', 'Pinecrest', 'Redcliff',
 ];
