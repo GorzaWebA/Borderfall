@@ -2,10 +2,10 @@
 // Computer-controlled nations.
 
 const PERSONALITIES = [
-  { key: 'warlord', label: 'Warlord', aggression: 1.35, expandAt: 0.32, expandRatio: 0.45, attackAt: 0.5, attackRatio: 0.45, build: 0.8, fortBias: 0.6, siloBias: 1.4, loyalty: 0.6, focus: 0.35 },
-  { key: 'merchant', label: 'Merchant', aggression: 0.75, expandAt: 0.38, expandRatio: 0.4, attackAt: 0.72, attackRatio: 0.35, build: 1.4, fortBias: 1.0, siloBias: 0.7, loyalty: 1.2, focus: 0.7 },
-  { key: 'guardian', label: 'Guardian', aggression: 0.85, expandAt: 0.42, expandRatio: 0.38, attackAt: 0.75, attackRatio: 0.32, build: 1.1, fortBias: 1.8, siloBias: 0.8, loyalty: 1.4, focus: 0.5 },
-  { key: 'opportunist', label: 'Opportunist', aggression: 1.1, expandAt: 0.34, expandRatio: 0.5, attackAt: 0.6, attackRatio: 0.4, build: 1.0, fortBias: 0.8, siloBias: 1.0, loyalty: 0.8, focus: 0.5 },
+  { key: 'warlord', label: 'Warlord', aggression: 1.35, expandAt: 0.32, expandRatio: 0.45, attackAt: 0.5, attackRatio: 0.45, build: 0.8, fortBias: 0.6, siloBias: 1.4, loyalty: 0.6, focus: 0.35, techs: { mil: 3, eco: 1, sci: 1, gov: 1 } },
+  { key: 'merchant', label: 'Merchant', aggression: 0.75, expandAt: 0.38, expandRatio: 0.4, attackAt: 0.72, attackRatio: 0.35, build: 1.4, fortBias: 1.0, siloBias: 0.7, loyalty: 1.2, focus: 0.7, techs: { mil: 1, eco: 3, sci: 2, gov: 1.5 } },
+  { key: 'guardian', label: 'Guardian', aggression: 0.85, expandAt: 0.42, expandRatio: 0.38, attackAt: 0.75, attackRatio: 0.32, build: 1.1, fortBias: 1.8, siloBias: 0.8, loyalty: 1.4, focus: 0.5, techs: { mil: 2, eco: 1, sci: 1, gov: 2.5 } },
+  { key: 'opportunist', label: 'Opportunist', aggression: 1.1, expandAt: 0.34, expandRatio: 0.5, attackAt: 0.6, attackRatio: 0.4, build: 1.0, fortBias: 0.8, siloBias: 1.0, loyalty: 0.8, focus: 0.5, techs: { mil: 1.5, eco: 1.5, sci: 1.5, gov: 1.5 } },
 ];
 
 const DIFFICULTY = {
@@ -51,6 +51,9 @@ class AIController {
       if (a.target === p.id) underAttack = true;
     }
     p.focus = underAttack || landWars ? Math.min(P.focus, 0.35) : P.focus;
+    const unstable = g.politics && p.stability < 38;
+    const overextended = g.politics && p.tiles > p.adminCap * 1.1;
+    if (g.politics) this.managePolitics();
 
     // Answer incoming attacks when we can.
     for (const a of g.attacks) {
@@ -61,13 +64,13 @@ class AIController {
       }
     }
 
-    if (neutral > 0 && !expanding && ratio > P.expandAt) {
+    if (neutral > 0 && !expanding && ratio > P.expandAt * (overextended ? 2 : 1)) {
       g.launchAttack(p.id, 0, p.troops * P.expandRatio * (0.85 + rng() * 0.3));
     }
 
     const boxed = neutral === 0;
     const attackAt = (boxed ? P.attackAt - 0.12 : P.attackAt + 0.12) / D.aggression;
-    if (g.time > 30 && ratio > attackAt && landWars < 2) {
+    if (g.time > 30 && ratio > attackAt && landWars < 2 && !unstable) {
       const t = this.pickTarget(nb, boxed);
       if (t) g.launchAttack(p.id, t, p.troops * P.attackRatio * (0.8 + rng() * 0.4));
     }
@@ -133,6 +136,30 @@ class AIController {
     }
   }
 
+  pickResearch() {
+    const g = this.g, p = this.p, W = this.pers.techs;
+    const av = g.availableTechs(p);
+    if (!av.length) return null;
+    let best = null, bestS = -1;
+    for (const t of av) {
+      let w = W[t.kind] || 1;
+      if (g.politics && t.kind === 'gov' && p.stability < 50) w *= 2;
+      if (t.unlock && t.unlock.includes('courthouse') && g.politics && p.tiles > p.adminCap * 0.8) w *= 3;
+      const s = w / (t.cost - (p.progress[t.id] || 0) + 200) * (0.7 + g.rng() * 0.6);
+      if (s > bestS) { bestS = s; best = t.id; }
+    }
+    return best;
+  }
+
+  managePolitics() {
+    const g = this.g, p = this.p;
+    if (!p.martial && p.stability < 36) g.setMartial(p.id, true);
+    else if (p.martial && p.stability > 62) g.setMartial(p.id, false);
+    if (p.stability < 34 && p.gold > g.celebrateCost(p) * 1.5) g.celebrate(p.id);
+    // Calm down taxes and levies when things get shaky.
+    if (p.stability < 45) p.focus = 0.5;
+  }
+
   threatLevel() {
     const g = this.g, p = this.p;
     let t = 0;
@@ -155,12 +182,17 @@ class AIController {
   chooseBuilding() {
     const g = this.g, p = this.p, c = p.counts, P = this.pers, D = this.diff;
     const opts = [];
-    opts.push(['city', c.city < 1 + p.tiles / 200 ? 3 * P.build : 0.4]);
-    if (c.barracks < c.city * 0.7) opts.push(['barracks', 1.4]);
+    const ok = (t) => g.buildingUnlocked(p, t);
+    const overextended = g.politics && p.tiles > p.adminCap * 0.9;
+    opts.push(['city', c.city < 1 + p.tiles / 200 ? 3 * P.build : overextended ? 2.5 : 0.4]);
+    if (ok('courthouse') && overextended) opts.push(['courthouse', 3.5]);
+    if (ok('barracks') && c.barracks < c.city * 0.7) opts.push(['barracks', 1.4]);
+    if (ok('university') && c.university < 1 + c.city * 0.4) opts.push(['university', 1.3 * (P.techs.sci / 1.5)]);
+    if (ok('factory') && c.factory < 1 + c.city * 0.5) opts.push(['factory', 1.6]);
     if (this.threatLevel() > 0.8 && c.fort < 1 + c.city * 0.5 * P.fortBias) opts.push(['fort', 2.2 * P.fortBias]);
     if (p.coastal > 0 && c.harbor < 1 + p.tiles / 450) opts.push(['harbor', 1.5]);
-    if (D.missiles && p.tiles > 600 && c.city >= 3 && c.silo < (p.tiles > 2500 ? 2 : 1)) opts.push(['silo', P.siloBias]);
-    if (this.enemySilos() && c.aa < Math.ceil(c.city / 3)) opts.push(['aa', 2.0]);
+    if (ok('silo') && D.missiles && p.tiles > 600 && c.city >= 3 && c.silo < (p.tiles > 2500 ? 2 : 1)) opts.push(['silo', P.siloBias]);
+    if (ok('aa') && this.enemySilos() && c.aa < Math.ceil(c.city / 3)) opts.push(['aa', 2.0]);
     let total = 0;
     for (const o of opts) total += o[1];
     let r = g.rng() * total;
@@ -197,6 +229,7 @@ class AIController {
       if (type === 'fort') s = -Math.abs(d - 5) + this.threatNear(x, y) * 0.5;
       else if (type === 'harbor') s = rng();
       else if (type === 'aa') s = -this.nearestCity(x, y) + d * 0.2;
+      else if (type === 'courthouse' || (type === 'city' && g.politics)) s = -g.control[t] + d * 0.5 + rng() * 4;
       else s = d + rng() * 3;
       if (s > bestS) { bestS = s; best = t; }
     }
