@@ -25,6 +25,7 @@ function relLabel(v) {
   return ['Hostile', 'rel-bad'];
 }
 
+const PREFS_VERSION = 2;
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem('borderfall.prefs') || '{}') || {}; } catch (e) { return {}; }
 }
@@ -95,7 +96,9 @@ class UI {
     $('opt-name').value = P.name && P.name !== 'Your Nation' ? P.name : this.suggestName();
     if (P.type && $('opt-type').querySelector(`option[value="${P.type}"]`)) $('opt-type').value = P.type;
     if (P.size) $('opt-size').value = P.size;
-    if (P.numAI) $('opt-ai').value = P.numAI;
+    // Counts saved before the defaults were raised are ignored.
+    if (P.v === PREFS_VERSION && P.numAI) $('opt-ai').value = P.numAI;
+    else $('opt-ai').value = recommendedRivals($('opt-type').value, $('opt-size').value) || 20;
     if (P.diff) { const r = document.querySelector(`input[name=diff][value=${P.diff}]`); if (r) r.checked = true; }
     if (P.mode && MODES[P.mode]) { const r = document.querySelector(`input[name=mode][value=${P.mode}]`); if (r) r.checked = true; }
     const modeDesc = () => { $('mode-desc').textContent = MODES[document.querySelector('input[name=mode]:checked').value].desc; };
@@ -124,16 +127,20 @@ class UI {
     $('setup').addEventListener('change', () => this.updateWorldSummary());
 
     $('opt-ai').addEventListener('input', () => { $('opt-ai-out').textContent = $('opt-ai').value; });
-    if (P.numTribes !== undefined) $('opt-tribes').value = P.numTribes;
+    if (P.v === PREFS_VERSION && P.numTribes !== undefined) $('opt-tribes').value = P.numTribes;
     $('opt-tribes-out').textContent = $('opt-tribes').value;
     $('opt-tribes').addEventListener('input', () => { $('opt-tribes-out').textContent = $('opt-tribes').value; });
-    $('opt-size').addEventListener('change', () => this.queuePreview());
+    $('opt-size').addEventListener('change', () => {
+      const rec = recommendedRivals($('opt-type').value, $('opt-size').value);
+      if (rec) { $('opt-ai').value = rec; $('opt-ai-out').textContent = rec; this.updateWorldSummary(); }
+      this.queuePreview();
+    });
     $('opt-type').addEventListener('change', () => {
       if ($('opt-type').value === 'random') {
         this.rollRandomType();
         $('opt-seed').value = String(Math.floor(Math.random() * 900000) + 100000);
       }
-      const rec = recommendedRivals($('opt-type').value);
+      const rec = recommendedRivals($('opt-type').value, $('opt-size').value);
       if (rec) { $('opt-ai').value = rec; $('opt-ai-out').textContent = rec; }
       this.updateMapFields();
       this.queuePreview(0);
@@ -254,7 +261,7 @@ class UI {
     const mode = document.querySelector('input[name=mode]:checked').value;
     const numAI = Number($('opt-ai').value);
     if (!this.tutorialPending) {
-      this.prefs = { ...this.prefs, name, type: $('opt-type').value, size: $('opt-size').value, numAI, numTribes: Number($('opt-tribes').value), diff, mode, color: this.color };
+      this.prefs = { ...this.prefs, name, type: $('opt-type').value, size: $('opt-size').value, numAI, numTribes: Number($('opt-tribes').value), diff, mode, color: this.color, v: PREFS_VERSION };
       savePrefs(this.prefs);
     }
     if (this.isClient()) return;
@@ -484,7 +491,7 @@ class UI {
     const v = Number($('science').value);
     $('sci-out').textContent = `${v}%`;
     const me = this.game && this.me;
-    $('sci-cost').textContent = me && me.grossIncome ? `${fmtMoney(me.grossIncome * v / 100)}/s` : '';
+    $('sci-cost').textContent = me && me.grossIncome ? `${fmtMoney(me.grossIncome * v / 100 * 60)}/min` : '';
   }
 
   // Missile hits on us shake the screen and flash; an incoming missile pulses the screen edge.
@@ -532,10 +539,10 @@ class UI {
     $('v-troops').textContent = fmt(me.troops);
     $('v-cap').textContent = `/ ${fmt(cap)}`;
     const gr = $('v-growth');
-    gr.textContent = `${me.growth >= 0 ? '+' : ''}${fmt(me.growth)}/s`;
+    gr.textContent = `${me.growth >= 0 ? '+' : ''}${fmt(me.growth * 60)}/min`;
     gr.classList.toggle('neg', me.growth < 0);
     $('v-gold').textContent = fmtMoney(me.gold);
-    $('v-income').textContent = `+${fmtMoney(me.income)}/s`;
+    $('v-income').textContent = `${me.income >= 0 ? '+' : ''}${fmtMoney(me.income * 60)}/min`;
     const share = g.landShare(me);
     $('v-land').textContent = `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`;
     $('v-tiles').textContent = `${fmt(me.tiles)} tiles`;
@@ -546,7 +553,7 @@ class UI {
     $('v-pop').textContent = fmt(me.pop);
     $('v-popcap').textContent = `/ ${fmt(me.popCap)}`;
     const pg = $('v-popgrowth');
-    pg.textContent = `${me.popGrowth >= 0 ? '+' : ''}${fmt(me.popGrowth)}/s`;
+    pg.textContent = `${me.popGrowth >= 0 ? '+' : ''}${fmt(me.popGrowth * 60)}/min`;
     pg.classList.toggle('neg', me.popGrowth < 0);
     if (g.politics) {
       const st = Math.round(me.stability), tg = Math.round(me.stabTarget);
@@ -560,7 +567,7 @@ class UI {
     $('v-era').textContent = ERAS[eraIndex(g.year)].name;
     if (me.research) {
       const t = TECH_BY_ID[me.research];
-      const f = clamp((me.progress[t.id] || 0) / t.cost, 0, 1);
+      const f = clamp((me.progress[t.id] || 0) / g.techCost(me, t), 0, 1);
       $('v-research').textContent = `${t.name} ${Math.floor(f * 100)}%`;
       $('v-resbar').style.width = `${f * 100}%`;
     } else {
@@ -870,6 +877,8 @@ class UI {
       rows.push(['Troops', fmt(p.troops)]);
       rows.push(['People', fmt(p.pop)]);
       rows.push(['Land', `${(g.landShare(p) * 100).toFixed(1)}%`]);
+      if (p.tribe) rows.push(['Stores', `<span class="rel-good">${fmtMoney(p.gold)}</span>`]);
+      else if (p.ideology) rows.push(['Ideology', IDEOLOGY_BY_ID[p.ideology].name]);
       if (g.politics) {
         const c = g.control[tile];
         rows.push(['Control here', `<span class="${c < 50 ? 'rel-bad' : ''}">${c}%${c < 50 ? (c <= 20 ? ' (occupied)' : ' (restless)') : ''}</span>`]);
@@ -900,6 +909,7 @@ class UI {
       else if (g.isAllied(this.myId, o)) hint = 'Right-click to reinforce or send money';
       else if (o === 0 && g.fallout[tile]) hint = 'Scorched. Wait for it to clear.';
       else hint = (g.neighbors[this.myId].has(o) ? (o ? 'Click to attack' : 'Click to expand toward here') : 'Click to send a fleet') + ', right-click for more';
+      if (o && g.players[o].tribe && !g.isFriendly(this.myId, o)) hint = `Absorb this tribe to take its stores. ${hint}`;
     }
     tt.innerHTML = `<div class="tt-head">${head}</div>${rows.map(([k, v]) => `<div class="tt-row"><span>${k}</span><b>${v}</b></div>`).join('')}${hint ? `<div class="tt-hint">${esc(hint)}</div>` : ''}`;
     tt.hidden = false;
@@ -1033,7 +1043,7 @@ class UI {
       if (k === 'h' && g.started) { const L = this.me.label; this.r.centerOn(L.x, L.y, Math.max(this.r.cam.zoom, 3)); return; }
       if (k === 'm') { this.toggleMissile(); return; }
       if (k === 't' && g.started) { this.openNation('tech'); return; }
-      if (k === 'g' && g.started && g.politics) { this.openNation('gov'); return; }
+      if (k === 'g' && g.started) { this.openNation('gov'); return; }
       if (k === 'p' && g.started) { this.openNation('dipl'); return; }
       const bt = BUILD_ORDER.find((t) => BUILDINGS[t].key === k);
       if (bt) this.toggleBuild(bt);
@@ -1090,7 +1100,7 @@ class UI {
   openNation(tab) {
     const g = this.game;
     if (!g || !g.started) return;
-    this.nationTab = tab === 'gov' && g.politics ? 'gov' : tab === 'dipl' ? 'dipl' : 'tech';
+    this.nationTab = tab === 'gov' ? 'gov' : tab === 'dipl' ? 'dipl' : 'tech';
     this.nationMsg = '';
     this.openModal(this.nationHtml(), { wide: true, onClick: (e) => this.onNationClick(e) });
   }
@@ -1125,6 +1135,22 @@ class UI {
       this.renderNation();
       return;
     }
+    const ideo = e.target.closest('[data-ideo]');
+    if (ideo && me.alive) {
+      const res = this.cmd('ideology', { id: ideo.dataset.ideo }, true);
+      this.nationMsg = res ? res.msg : 'Order sent.';
+      this.nationMsgBad = !!(res && res.bad);
+      this.renderNation();
+      return;
+    }
+    const doc = e.target.closest('[data-doc]');
+    if (doc && me.alive) {
+      const res = this.cmd('doctrine', { id: doc.dataset.doc }, true);
+      this.nationMsg = res ? res.msg : 'Order sent.';
+      this.nationMsgBad = !!(res && res.bad);
+      this.renderNation();
+      return;
+    }
     const act = e.target.closest('[data-gov]');
     if (act && me.alive) {
       const res = act.dataset.gov === 'martial' ? this.cmd('martial', { on: !me.martial }, true) : this.cmd('celebrate', {}, true);
@@ -1137,7 +1163,7 @@ class UI {
   nationHtml() {
     const g = this.game;
     const tab = (id, label) => `<button type="button" role="tab" data-tab="${id}" aria-selected="${this.nationTab === id}">${label}</button>`;
-    const tabs = `<div class="tabs" role="tablist">${tab('tech', 'Technology')}${g.politics ? tab('gov', 'Government') : ''}${tab('dipl', 'Diplomacy')}</div>`;
+    const tabs = `<div class="tabs" role="tablist">${tab('tech', 'Technology')}${tab('gov', 'Government')}${tab('dipl', 'Diplomacy')}</div>`;
     const msg = this.nationMsg ? `<p class="nation-msg${this.nationMsgBad ? ' bad' : ''}" role="status">${esc(this.nationMsg)}</p>` : '';
     const content = this.nationTab === 'gov' ? this.govHtml() : this.nationTab === 'dipl' ? this.diplHtml() : this.techHtml();
     const title = { gov: 'Government', dipl: 'Diplomacy', tech: 'Technology' }[this.nationTab];
@@ -1151,7 +1177,7 @@ class UI {
     const cur = me.research ? TECH_BY_ID[me.research] : null;
     const rate = me.rpRate;
     const eta = (t) => {
-      const left = t.cost - (me.progress[t.id] || 0);
+      const left = g.techCost(me, t) - (me.progress[t.id] || 0);
       return rate > 0 ? Math.ceil(left / rate) : Infinity;
     };
     const lede = `It is ${g.year}, the ${ERAS[era].name.toLowerCase()} era. You produce ${rate.toFixed(1)} research per second from your people and universities.` +
@@ -1167,11 +1193,11 @@ class UI {
         const prog = me.progress[t.id] || 0;
         let foot;
         if (st === 'done') foot = 'Known';
-        else if (isCur) foot = `Researching, ${Math.floor(prog / t.cost * 100)}%`;
-        else if (st === 'avail') foot = `${fmt(t.cost)} research, about ${fmtDuration(eta(t))}`;
+        else if (isCur) foot = `Researching, ${Math.floor(prog / g.techCost(me, t) * 100)}%`;
+        else if (st === 'avail') foot = `${fmt(g.techCost(me, t))} research, about ${fmtDuration(eta(t))}`;
         else if (st === 'year') foot = `Opens in ${t.year}`;
         else foot = `Needs ${t.req.filter((r) => !me.techs.has(r)).map((r) => TECH_BY_ID[r].name).join(', ')}`;
-        const bar = (isCur || (prog > 0 && st !== 'done')) ? `<span class="tp"><i style="width:${Math.min(100, prog / t.cost * 100)}%"></i></span>` : '';
+        const bar = (isCur || (prog > 0 && st !== 'done')) ? `<span class="tp"><i style="width:${Math.min(100, prog / g.techCost(me, t) * 100)}%"></i></span>` : '';
         cards += `<button type="button" class="tech s-${st}${isCur ? ' cur' : ''}" data-tech="${t.id}"${st === 'done' ? ' disabled' : ''} aria-pressed="${isCur}">
           <span class="th"><span class="tn">${esc(t.name)}</span>${g.mode.timeGate ? `<span class="ty">${t.year}</span>` : ''}</span>
           <span class="td">${esc(t.desc)}${!g.politics && t.kind === 'gov' ? ' Stability and administration don\'t apply in Blitz.' : ''}</span>
@@ -1205,7 +1231,8 @@ class UI {
         acts = `<button type="button" class="ghost" data-dip="peace" data-to="${p.id}">Offer peace</button><button type="button" class="ghost" data-dip="ally" data-to="${p.id}">Ally</button>`;
       }
       const feel = p.human ? 'Player' : relLabel(g.getRel(p.id, my))[0];
-      return `<tr><td><span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}</td><td class="num">${(g.landShare(p) * 100).toFixed(1)}%</td><td class="${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
+      const ideo = p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : '<span class="st-neutral">None yet</span>';
+      return `<tr><td><span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}</td><td class="num">${(g.landShare(p) * 100).toFixed(1)}%</td><td>${ideo}</td><td class="${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
     }).join('');
     const need = nations.length - friendly;
     const progress = need === 0 && largest
@@ -1213,10 +1240,76 @@ class UI {
       : `At peace or allied with <b>${friendly} of ${nations.length}</b> nations. To win in peace, make peace with the remaining ${need} and be the largest nation${largest ? ' (you are)' : ' (you are not yet)'}. Tribes don't count.`;
     return `<p class="dipl-progress">${progress}</p>
       <div class="modal-actions" style="justify-content:flex-start;margin:0 0 12px"><button type="button" class="primary" data-dip="peaceAll">Offer peace to everyone</button></div>
-      <table class="dipl-table"><thead><tr><th>Nation</th><th style="text-align:right">Land</th><th>Status</th><th>Feeling toward you</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="5">No other nations remain.</td></tr>'}</tbody></table>`;
+      <table class="dipl-table"><thead><tr><th>Nation</th><th style="text-align:right">Land</th><th>Ideology</th><th>Status</th><th>Feeling toward you</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="6">No other nations remain.</td></tr>'}</tbody></table>`;
   }
 
   govHtml() {
+    if (!this.game.politics) {
+      return `<p class="ideo-note">Blitz has no stability or administration, so effects on them do nothing here. Everything else applies.</p>${this.ideologyHtml()}`;
+    }
+    return this.stateHtml() + this.ideologyHtml();
+  }
+
+  ideologyCard(I, current, action) {
+    const { pros, cons } = fxSplit(I.fx);
+    const fx = pros.map((x) => `<li class="pro">${esc(x)}</li>`).join('') + cons.map((x) => `<li class="con">${esc(x)}</li>`).join('') +
+      (I.balanced ? '<li class="even">No drawbacks</li>' : '');
+    return `<article class="ideo-card${current ? ' on' : ''}">
+      <h4>${esc(I.name)}</h4><p class="motto">${esc(I.motto)}</p>
+      <ul class="fx">${fx}</ul>
+      ${action || ''}
+    </article>`;
+  }
+
+  // Ideology: choose one, then buy its doctrines. The tree is drawn as four tiers, with the
+  // first doctrine opening two branches that meet again at the capstone.
+  ideologyHtml() {
+    const g = this.game, me = this.me;
+    const cur = me.ideology ? IDEOLOGY_BY_ID[me.ideology] : null;
+    if (!cur) {
+      const cards = IDEOLOGIES.map((I) => this.ideologyCard(I, false,
+        `<button type="button" class="ghost" data-ideo="${I.id}">Adopt ${esc(I.name)}</button>`)).join('');
+      return `<section class="ideo">
+        <h3>Ideology</h3>
+        <p class="ideo-lede">Choose what your nation believes. Each ideology has strengths and weaknesses, and a tree of doctrines you can buy to strengthen it. Moderation has no drawbacks but smaller bonuses.</p>
+        <div class="ideo-grid">${cards}</div>
+      </section>`;
+    }
+    const place = ['root', 'up', 'down', 'mid-a', 'mid-b', 'cap'];
+    const nodes = cur.tree.map((d, k) => {
+      const st = g.doctrineState(me, d), cost = g.doctrineCost(d);
+      const fx = fxSplit(d.fx), text = fx.pros.concat(fx.cons).join('. ') + '.';
+      let foot;
+      if (st === 'done') foot = 'Adopted';
+      else if (st === 'req') foot = `Needs ${d.req.filter((r) => !me.doctrines.has(r)).map((r) => DOCTRINE_BY_ID[r].name).join(' and ')}`;
+      else foot = fmtMoney(cost);
+      const poor = st === 'avail' && me.gold < cost;
+      return `<button type="button" class="dn ${place[k]} s-${st}${poor ? ' poor' : ''}" data-doc="${d.key}"${st !== 'avail' ? ' aria-disabled="true"' : ''}>
+        <span class="dn-name">${esc(d.name)}</span><span class="dn-fx">${esc(text)}</span><span class="dn-foot">${esc(foot)}</span>
+      </button>`;
+    }).join('');
+    const since = g.time - me.ideologyAt;
+    const others = IDEOLOGIES.filter((I) => I.id !== cur.id).map((I) => this.ideologyCard(I, false,
+      `<button type="button" class="ghost" data-ideo="${I.id}"${since < 60 ? ' disabled' : ''}>Switch to ${esc(I.name)}</button>`)).join('');
+    const owned = me.doctrines.size;
+    return `<section class="ideo">
+      <h3>Ideology</h3>
+      <div class="ideo-now">
+        ${this.ideologyCard(cur, true, '')}
+        <div class="ideo-tree">
+          <p class="ideo-lede">Doctrines strengthen ${esc(cur.name)}. Buy the first to open both branches; the last needs both. You have ${owned} of ${cur.tree.length}.</p>
+          <div class="doctrines">${nodes}</div>
+        </div>
+      </div>
+      <details class="ideo-change">
+        <summary>Change ideology</summary>
+        <p class="ideo-lede">Changing loses every doctrine you've bought${g.politics ? ` and costs ${IDEOLOGY_CHANGE_SHOCK} stability for a while` : ''}.${since < 60 ? ` You can change again in ${Math.ceil(60 - since)}s.` : ''}</p>
+        <div class="ideo-grid">${others}</div>
+      </details>
+    </section>`;
+  }
+
+  stateHtml() {
     const g = this.game, me = this.me;
     const s = Math.round(me.stability), tg = Math.round(me.stabTarget);
     const sf = g.stabFactor(me);

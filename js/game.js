@@ -7,7 +7,8 @@ const ATTACK_SPEED = 0.22;      // share of a front that tries to advance each t
 const NEUTRAL_COST = 3;         // troops per plains tile of unclaimed land
 const NEUTRAL_SPEED = 0.75;     // settling is steady, so troops last instead of vanishing in a burst
 const MAX_LEVEL = 5;            // buildings stack up to this level
-const RP_PRICE = 3000;          // dollars of research budget per research point
+const RP_PRICE = 6000;          // dollars of research budget per research point
+const TECH_KNOWN_COST = 0.065;  // each known technology raises the cost of the next by 6.5%
 const TRIBE_NAMES = ['Ash Clan', 'Bramble Folk', 'Cinder Kin', 'Dune Riders', 'Elk Clan', 'Fen Dwellers', 'Grey Wolves',
   'Hearth Clan', 'Iron Hills', 'Juniper Folk', 'Kestrel Clan', 'Lake People', 'Moss Clan', 'Night Herders', 'Oak Clan',
   'Pine Folk', 'Quarry Clan', 'River Clan', 'Salt Clan', 'Thorn Clan', 'Umber Folk', 'Vale Clan', 'Willow Folk', 'Yew Clan',
@@ -33,13 +34,13 @@ const ADMIN_RADIUS = { capital: 30, city: 18, courthouse: 34 };
 const REVOLT_BELOW = 30;
 
 const BUILDINGS = {
-  city: { name: 'City', base: 1000 * MONEY, step: 650 * MONEY, key: '1', desc: 'Houses 20K people, earns $20K/s and extends your administration.' },
+  city: { name: 'City', base: 1000 * MONEY, step: 650 * MONEY, key: '1', desc: 'Houses 20K people, earns $1.2M/min and extends your administration.' },
   barracks: { name: 'Barracks', base: 900 * MONEY, step: 500 * MONEY, key: '2', tech: 'drill', desc: 'Recruiting +25%. 0.5% more of your people can serve.' },
   fort: { name: 'Fortress', base: 700 * MONEY, step: 350 * MONEY, key: '3', radius: 9, desc: 'Land within 9 tiles costs attackers double and falls half as fast.' },
   harbor: { name: 'Harbor', base: 900 * MONEY, step: 450 * MONEY, key: '4', coastal: true, desc: 'Coast only. Earns trade income from every harbor in the world. +2 fleets.' },
-  university: { name: 'University', base: 1100 * MONEY, step: 600 * MONEY, key: '5', tech: 'printing', desc: '+4 research per second.' },
+  university: { name: 'University', base: 1100 * MONEY, step: 600 * MONEY, key: '5', tech: 'printing', desc: '+2 research per second.' },
   courthouse: { name: 'Courthouse', base: 1200 * MONEY, step: 700 * MONEY, key: '6', tech: 'bureaucracy', politics: true, desc: 'Administers 350 more tiles and brings land within 34 tiles under full control.' },
-  factory: { name: 'Factory', base: 2500 * MONEY, step: 1200 * MONEY, key: '7', tech: 'steam', desc: 'Earns $50K/s. Recruiting +15%.' },
+  factory: { name: 'Factory', base: 2500 * MONEY, step: 1200 * MONEY, key: '7', tech: 'steam', desc: 'Earns $3M/min. Recruiting +15%.' },
   aa: { name: 'Air Defense', base: 2500 * MONEY, step: 1250 * MONEY, key: '8', tech: 'radar', radius: 22, desc: 'Shoots down one enemy missile aimed within 22 tiles every 12s.' },
   silo: { name: 'Missile Silo', base: 5000 * MONEY, step: 2500 * MONEY, key: '9', tech: 'rocketry', desc: 'Launches missiles that wipe out troops and scorch land. 20s reload.' },
 };
@@ -107,6 +108,11 @@ class Player {
     this.tribe = false;
     this.science = 0.2;            // share of income spent on research
     this.researchSpend = 0;
+    // Ideology
+    this.ideology = null;          // IDEOLOGIES id
+    this.ideologyAt = -1e9;        // game time of the last change
+    this.doctrines = new Set();    // DOCTRINE_BY_ID keys
+    this.ideoStab = 0;             // stability from ideology and doctrines, shown on its own line
   }
 }
 
@@ -210,7 +216,7 @@ class Game {
       const hue = rng() * 360;
       const p = new Player(this.players.length, tribeNames[k % tribeNames.length], hslToRgb(hue, 0.22 + rng() * 0.1, 0.45 + rng() * 0.1), false);
       p.tribe = true;
-      p.diffMult = 0.75;
+      p.diffMult = 0.6;
       p.science = 0;
       p.ai = new TribeAI(this, p);
       this.players.push(p);
@@ -281,9 +287,10 @@ class Game {
         }
       }
     }
-    p.troops = p.tribe ? 900 : START_TROOPS;
-    p.gold = p.tribe ? 0 : START_GOLD + (p.tutorialBonus ? 1500 * MONEY : 0);
-    p.pop = p.tribe ? 12000 : START_POP;
+    // Tribes are weak but sit on a store of treasure that goes to whoever absorbs them.
+    p.troops = p.tribe ? 550 : START_TROOPS;
+    p.gold = p.tribe ? (900 + this.rng.int(1300)) * MONEY : START_GOLD + (p.tutorialBonus ? 1500 * MONEY : 0);
+    p.pop = p.tribe ? 9000 : START_POP;
     p.spawned = true;
     p.capital = i;
     p.label = { x: x0 + 0.5, y: y0 + 0.5, size: 3, tile: i };
@@ -371,7 +378,7 @@ class Game {
   }
   stabFactor(p) { return this.politics ? 0.6 + 0.8 * p.stability / 100 : 1; }
   troopCap(p) {
-    return 500 + p.pop * (p.mods.mobil + 0.005 * Math.min(p.counts.barracks, 6));
+    return (500 + p.pop * (p.mods.mobil + 0.005 * Math.min(p.counts.barracks, 6))) * Math.max(0.5, 1 + p.mods.troopCap);
   }
   popCapOf(p) {
     const capitalOk = p.capital >= 0 && this.owner[p.capital] === p.id;
@@ -392,7 +399,7 @@ class Game {
   }
   buildCost(p, type) {
     const b = BUILDINGS[type];
-    return b.base + b.step * p.counts[type];
+    return Math.round((b.base + b.step * p.counts[type]) * Math.max(0.5, 1 + p.mods.buildCost));
   }
   buildingAvailable(type) { return !BUILDINGS[type].politics || this.politics; }
   buildingUnlocked(p, type) {
@@ -412,6 +419,8 @@ class Game {
     if (this.mode.timeGate && this.year < t.year) return 'year';
     return 'avail';
   }
+  // Every technology you already know makes the next one dearer, so leaders can't sweep the tree.
+  techCost(p, t) { return Math.round(t.cost * (1 + TECH_KNOWN_COST * p.techs.size)); }
   availableTechs(p) { return TECHS.filter((t) => this.techState(p, t) === 'avail'); }
   setResearch(pid, id) {
     const p = this.players[pid], t = TECH_BY_ID[id];
@@ -424,6 +433,55 @@ class Game {
     p.autoResearch = false;
     return '';
   }
+  // ---------- ideology ----------
+  addFx(p, fx, sign) {
+    for (const k in fx) {
+      p.mods[k] += sign * fx[k];
+      if (k === 'stability') p.ideoStab += sign * fx[k];
+    }
+  }
+  doctrineCost(d) { return DOCTRINE_COST[d.tier] * MONEY; }
+  doctrineState(p, d) {
+    if (p.doctrines.has(d.key)) return 'done';
+    if (p.ideology !== d.ideology) return 'other';
+    if (d.req.some((r) => !p.doctrines.has(r))) return 'req';
+    return 'avail';
+  }
+  setIdeology(pid, id) {
+    const p = this.players[pid], I = IDEOLOGY_BY_ID[id];
+    if (!I) return 'Unknown ideology.';
+    if (p.tribe) return 'Tribes have no ideology.';
+    if (p.ideology === id) return `${I.name} is already your ideology.`;
+    if (p.ideology && this.time - p.ideologyAt < 60) return 'Your government only just changed. Wait a minute before changing it again.';
+    const prev = p.ideology ? IDEOLOGY_BY_ID[p.ideology] : null;
+    if (prev) {
+      this.addFx(p, prev.fx, -1);
+      for (const key of p.doctrines) this.addFx(p, DOCTRINE_BY_ID[key].fx, -1);
+      p.doctrines.clear();
+      if (this.politics) p.shock += IDEOLOGY_CHANGE_SHOCK;
+    }
+    p.ideology = id;
+    p.ideologyAt = this.time;
+    this.addFx(p, I.fx, 1);
+    if (p.human) this.log(prev ? `Your nation turned from ${prev.name} to ${I.name}. Its old doctrines are gone.` : `Your nation embraced ${I.name}.`, 'good', p.id);
+    return '';
+  }
+  adoptDoctrine(pid, key) {
+    const p = this.players[pid], d = DOCTRINE_BY_ID[key];
+    if (!d) return 'Unknown doctrine.';
+    const st = this.doctrineState(p, d);
+    if (st === 'done') return `${d.name} is already adopted.`;
+    if (st === 'other') return `${d.name} belongs to ${IDEOLOGY_BY_ID[d.ideology].name}.`;
+    if (st === 'req') return `${d.name} needs ${d.req.filter((r) => !p.doctrines.has(r)).map((r) => DOCTRINE_BY_ID[r].name).join(' and ')} first.`;
+    const cost = this.doctrineCost(d);
+    if (p.gold < cost) return `${d.name} costs ${fmtMoney(cost)}. You have ${fmtMoney(p.gold)}.`;
+    p.gold -= cost;
+    p.doctrines.add(key);
+    this.addFx(p, d.fx, 1);
+    if (p.human) this.log(`Adopted ${d.name}. ${fxSplit(d.fx).pros.concat(fxSplit(d.fx).cons).join('. ')}.`, 'good', p.id);
+    return '';
+  }
+
   completeTech(p, t) {
     p.techs.add(t.id);
     delete p.progress[t.id];
@@ -495,13 +553,14 @@ class Game {
     for (const q of this.players) if (q) { q.allies.delete(p.id); q.peace.delete(p.id); }
     p.allies.clear();
     p.peace.clear();
+    const loot = p.gold;
     if (by) { by.gold += p.gold; by.kills++; }
     p.gold = 0;
     p.troops = 0;
     p.pop = 0;
     if (p.human) this.log(`Your nation has fallen${by ? ' to ' + by.name : ''}.`, 'bad', p.id);
-    if (p.tribe) { if (by && by.human) this.log(`You absorbed the ${p.name}.`, 'good', by.id); return; }
-    if (by && by.human) this.log(`You conquered ${p.name} and seized its treasury.`, 'good', by.id);
+    if (p.tribe) { if (by && by.human) this.log(`You absorbed the ${p.name} and took ${fmtMoney(loot)} from its stores.`, 'good', by.id); return; }
+    if (by && by.human) this.log(`You conquered ${p.name} and seized ${fmtMoney(loot)} from its treasury.`, 'good', by.id);
     this.log(`${p.name} was destroyed${by ? ' by ' + by.name : ''}.`, 'info', 0, [p.id, by ? by.id : 0]);
   }
 
@@ -600,11 +659,11 @@ class Game {
 
   tileCost(t, A, D, density) {
     const tt = this.map.terrain[t];
-    if (!D) return NEUTRAL_COST * T_COST[tt];
+    if (!D) return NEUTRAL_COST * T_COST[tt] * Math.max(0.4, 1 + A.mods.neutral);
     const traitor = D.traitorUntil > this.tick ? 0.8 : 1;
     // Long-held, well-governed heartland resists harder than freshly taken land.
     const core = this.politics && this.control[t] >= 90 ? 1.6 : 1;
-    return (density * 1.1 + 5) * T_DEF[tt] * this.fortMult(t, D) * traitor * core * (1 + D.mods.def) * (1 - A.mods.atk) * this.mode.defense;
+    return (density * 1.1 + 5) * T_DEF[tt] * this.fortMult(t, D) * traitor * core * Math.max(0.3, 1 + D.mods.def) * (1 - Math.min(0.5, A.mods.atk)) * this.mode.defense;
   }
 
   // Taking a tile from a nation kills its garrison and moves some of its people.
@@ -634,7 +693,7 @@ class Game {
     if (F.length === 0) { A.troops += atk.troops; atk.dead = true; return; }
     // Offensives against nations bleed troops to supply problems; railroads and engines help.
     if (D) {
-      const lost = atk.troops * this.mode.attrition * (1 - 0.6 * Math.min(0.5, A.mods.speed)) / TPS;
+      const lost = atk.troops * this.mode.attrition * (1 - 0.6 * Math.min(0.5, A.mods.speed)) * Math.max(0.25, 1 + A.mods.attrition) / TPS;
       atk.troops -= lost;
       this.casualties(A, lost);
     }
@@ -778,6 +837,14 @@ class Game {
         return r(err, TECH_BY_ID[a.id] ? `Researching ${TECH_BY_ID[a.id].name}.` : '');
       }
       case 'martial': return r(this.setMartial(pid, !!a.on));
+      case 'ideology': {
+        const err = this.setIdeology(pid, a.id);
+        return r(err, IDEOLOGY_BY_ID[a.id] ? `${IDEOLOGY_BY_ID[a.id].name} adopted.` : '');
+      }
+      case 'doctrine': {
+        const err = this.adoptDoctrine(pid, a.id);
+        return r(err, DOCTRINE_BY_ID[a.id] ? `${DOCTRINE_BY_ID[a.id].name} adopted.` : '');
+      }
       case 'celebrate': return r(this.celebrate(pid));
       case 'focus': p.focus = clamp(Number(a.v) || 0, 0, 1); return r('');
       case 'science': p.science = clamp(Number(a.v) || 0, 0, 0.8); return r('');
@@ -1356,9 +1423,12 @@ class Game {
     const war = Math.min(25, (p.weariness / Math.max(5000, p.pop)) * 200 * Math.max(0.2, 1 + p.mods.weariness));
     const burden = Math.abs(p.focus - 0.5) * 20;
     const share = this.landShare(p);
-    const size = Math.min(45, share * 56 + Math.max(0, share - 0.45) * 80);
+    // Strain climbs steeply past half the world, so runaway empires stall short of 70%.
+    const size = Math.min(55, share * 56 + Math.max(0, share - 0.45) * 80 + Math.max(0, share - 0.55) * 100);
     const f = [['Base', 62]];
-    if (p.mods.stability) f.push(['Technology', p.mods.stability]);
+    const techStab = p.mods.stability - p.ideoStab;
+    if (Math.abs(techStab) >= 0.5) f.push(['Technology', techStab]);
+    if (Math.abs(p.ideoStab) >= 0.5) f.push([p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : 'Ideology', p.ideoStab]);
     if (p.martial) f.push(['Martial law', 15]);
     if (p.boost >= 0.5) f.push(['Celebrations', p.boost]);
     if (over >= 0.5) f.push(['Overextension', -over]);
@@ -1537,13 +1607,13 @@ class Game {
       p.grossIncome = inc;
       p.researchSpend = spend;
       // Research: a base from people and universities, plus whatever the budget buys.
-      const rp = ((1 + Math.sqrt(p.pop) * 0.008 + p.counts.university * 4) * p.diffMult + spend / RP_PRICE) *
+      const rp = ((0.6 + Math.sqrt(p.pop) * 0.0045 + p.counts.university * 2) * p.diffMult + spend / RP_PRICE) *
         (1 + p.mods.research) * sf * M.research;
       p.rpRate = rp;
       if (p.research) {
         const t = TECH_BY_ID[p.research];
         const v = (p.progress[t.id] || 0) + rp * dt;
-        if (v >= t.cost) this.completeTech(p, t);
+        if (v >= this.techCost(p, t)) this.completeTech(p, t);
         else p.progress[t.id] = v;
       }
     }
@@ -1594,6 +1664,10 @@ class Game {
       const p = this.players[k];
       if (!p.alive || !p.spawned) continue;
       if (p.capital < 0 || this.owner[p.capital] !== p.id) this.relocateCapital(p);
+      if (p.human && !p.ideology && !p.ideologyHinted && this.time > 45) {
+        p.ideologyHinted = true;
+        this.log('Your nation has no ideology yet. Press G or open Government to choose one.', 'info', p.id);
+      }
       if (!p.research) {
         const pick = p.ai ? p.ai.pickResearch() : this.autoPickResearch(p);
         if (pick) {
