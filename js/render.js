@@ -12,6 +12,33 @@ const PAPER = '#f3ead6';
 const FONT_LABEL = '"Alegreya SC", Georgia, serif';
 const FONT_BOOK = 'Alegreya, Georgia, serif';
 const FONT_NUM = '"Alegreya Sans", system-ui, sans-serif';
+const POPUP_SECONDS = 8;        // each money building shows its earnings this often
+const POPUP_MS = 1500;          // how long a popup floats
+
+// Pixel art, facing right. F flag, M mast, S sail, H/h hull in the owner's colour;
+// t tan sail, W/w wooden hull for merchant ships.
+const SHIP_ART = {
+  fleet: [
+    '..FFM......',
+    '....M......',
+    '...SMSS....',
+    '..SSMSSS...',
+    '..SSMSSS...',
+    'HH..M......',
+    'HHHHHHHHHHH',
+    '.HHHHHHHHH.',
+    '..hhhhhhh..',
+  ],
+  trade: [
+    '....M....',
+    '..ttMt...',
+    '.tttMtt..',
+    '.tttMtt..',
+    'W...M...W',
+    'WWWWWWWWW',
+    '.wwwwwww.',
+  ],
+};
 
 class Renderer {
   constructor(canvas) {
@@ -27,6 +54,9 @@ class Renderer {
     this.myId = 1;             // the nation this screen plays as
     this.quality = 'high';     // 'high' or 'low'
     this.mode = null;          // { kind: 'build', type } | { kind: 'missile' } | { kind: 'spawn' }
+    this.timeScale = 0;        // game speed this frame, 0 while paused; drives merchant ships
+    this.sprites = new Map();  // cached pixel-art ship sprites
+    this.resetTrade();
     this.resize();
     // Canvas text only uses a web font once it has loaded, so ask for the map faces up front.
     if (document.fonts && document.fonts.load) {
@@ -54,6 +84,12 @@ class Renderer {
     this.octx = this.off.getContext('2d');
     this.img = this.octx.createImageData(W, H);
     this.terrainRGB = new Uint8ClampedArray(N * 3);
+    // Scratch arrays for the merchant-route search, kept apart from the simulation's own.
+    this.rStamp = new Uint32Array(N);
+    this.rParent = new Int32Array(N);
+    this.rQueue = new Int32Array(N);
+    this.rSt = 0;
+    this.resetTrade();
     this.buildTerrain();
     this.redrawAll();
     this.fit();
@@ -66,6 +102,7 @@ class Renderer {
 
   setGame(game) {
     this.game = game;
+    this.resetTrade();
     this.redrawAll();
   }
 
@@ -177,6 +214,7 @@ class Renderer {
   viewW() { return Math.max(100, this.cw - this.insetLeft); }
   minZoom() { return Math.min(this.viewW() / this.map.W, this.ch / this.map.H) * 0.92; }
   fit() {
+    this.zoomGlide = this.panGlide = null;
     this.cam.zoom = this.minZoom();
     this.cam.x = this.map.W / 2;
     this.cam.y = this.map.H / 2;
@@ -205,23 +243,55 @@ class Renderer {
     if (x < 0 || y < 0 || x >= this.map.W || y >= this.map.H) return -1;
     return y * this.map.W + x;
   }
-  zoomAt(sx, sy, factor) {
+  // Zoom about a screen point. With smooth set (the mouse wheel), the zoom eases toward its
+  // target over a few frames while the point under the cursor stays put.
+  zoomAt(sx, sy, factor, smooth) {
     const [wx, wy] = this.screenToWorld(sx, sy);
+    if (smooth) {
+      const from = this.zoomGlide ? this.zoomGlide.zoom : this.cam.zoom;
+      this.zoomGlide = { zoom: clamp(from * factor, this.minZoom(), 40), sx, sy, wx, wy };
+      this.panGlide = null;
+      return;
+    }
+    this.zoomGlide = null;
+    this.setZoomAbout(clamp(this.cam.zoom * factor, this.minZoom(), 40), sx, sy, wx, wy);
+  }
+  setZoomAbout(zoom, sx, sy, wx, wy) {
     const [cx, cy] = this.viewCenter();
-    this.cam.zoom = clamp(this.cam.zoom * factor, this.minZoom(), 40);
-    this.cam.x = wx - (sx - cx) / this.cam.zoom;
-    this.cam.y = wy - (sy - cy) / this.cam.zoom;
+    this.cam.zoom = zoom;
+    this.cam.x = wx - (sx - cx) / zoom;
+    this.cam.y = wy - (sy - cy) / zoom;
     this.clampCam();
   }
   pan(dx, dy) {
+    this.panGlide = null;
     this.cam.x -= dx / this.cam.zoom;
     this.cam.y -= dy / this.cam.zoom;
     this.clampCam();
   }
+  // Glide to a spot (and at least the given zoom) instead of jumping there.
   centerOn(x, y, zoom) {
-    this.cam.x = x; this.cam.y = y;
-    if (zoom) this.cam.zoom = Math.max(this.cam.zoom, zoom);
-    this.clampCam();
+    this.zoomGlide = null;
+    this.panGlide = { x, y, zoom: zoom ? Math.max(this.cam.zoom, zoom) : this.cam.zoom };
+  }
+  // Advance any camera glide; k is the share of the remaining distance covered this frame.
+  stepCamera(dt) {
+    const k = 1 - Math.exp(-dt * 11);
+    const Z = this.zoomGlide;
+    if (Z) {
+      const z = this.cam.zoom + (Z.zoom - this.cam.zoom) * k;
+      const done = Math.abs(Z.zoom - z) / Z.zoom < 0.002;
+      this.setZoomAbout(done ? Z.zoom : z, Z.sx, Z.sy, Z.wx, Z.wy);
+      if (done) this.zoomGlide = null;
+    }
+    const P = this.panGlide;
+    if (P) {
+      const c = this.cam;
+      c.x += (P.x - c.x) * k; c.y += (P.y - c.y) * k; c.zoom += (P.zoom - c.zoom) * k;
+      const done = Math.hypot(P.x - c.x, P.y - c.y) * c.zoom < 0.5 && Math.abs(P.zoom - c.zoom) / P.zoom < 0.002;
+      if (done) { c.x = P.x; c.y = P.y; c.zoom = P.zoom; this.panGlide = null; }
+      this.clampCam();
+    }
   }
 
   // ---------- drawing ----------
@@ -232,6 +302,9 @@ class Renderer {
     ctx.fillRect(0, 0, this.cw, this.ch);
     if (!this.map) return;
     this.flush();
+    const t = performance.now();
+    this.stepCamera(this.lastDraw ? Math.min(0.1, (t - this.lastDraw) / 1000) : 0);
+    this.lastDraw = t;
     let [ox, oy] = this.origin();
     // Screen shake after a missile hits us; it eases out over its duration.
     const now = performance.now();
@@ -245,10 +318,13 @@ class Renderer {
     ctx.drawImage(this.off, ox, oy, this.map.W * z, this.map.H * z);
     const g = this.game;
     if (!g) return;
+    this.updateTrade(now);
+    this.drawTrade(ox, oy, z);
     this.drawFronts(ox, oy, z, now);
     this.drawBuildings(ox, oy, z);
     this.drawCapitals(ox, oy, z);
     this.drawShips(ox, oy, z, alpha);
+    this.drawPopups(ox, oy, z, now);
     this.drawMissiles(ox, oy, z, alpha);
     this.drawEffects(ox, oy, z);
     this.drawLabels(ox, oy, z);
@@ -330,51 +406,227 @@ class Renderer {
     }
   }
 
-  shipPos(s, alpha) {
-    const W = this.map.W, path = s.path;
-    const pos = Math.min(path.length - 1, s.pos + (s.dead ? 0 : alpha * SHIP_SPEED));
-    const k = Math.floor(pos), f = pos - k;
-    const a = path[k], b = path[Math.min(path.length - 1, k + 1)];
+  // Position along a tile path at a fractional index, in tile coordinates, plus heading.
+  pathPoint(path, pos) {
+    const W = this.map.W;
+    pos = clamp(pos, 0, path.length - 1);
+    const k = Math.min(path.length - 2, Math.floor(pos)), f = pos - Math.max(0, k);
+    const a = path[Math.max(0, k)], b = path[Math.min(path.length - 1, Math.max(0, k) + 1)];
     const ax = a % W, ay = (a - ax) / W, bx = b % W, by = (b - bx) / W;
-    return [lerp(ax, bx, f) + 0.5, lerp(ay, by, f) + 0.5, Math.atan2(by - ay, bx - ax)];
+    return [lerp(ax, bx, f) + 0.5, lerp(ay, by, f) + 0.5, bx - ax, by - ay];
   }
 
+  shipPos(s, alpha) {
+    const end = s.path.length - 1;
+    const pos = s.dead ? s.pos : Math.min(end, s.pos + alpha * (s.speed || SHIP_SPEED));
+    return this.pathPoint(s.path, pos).concat(pos);
+  }
+
+  // Pixel-art sprite for a ship, drawn once per kind, colour and heading and then scaled up
+  // with crisp pixels like the map itself.
+  sprite(kind, color, left) {
+    const key = `${kind}|${color.join(',')}|${left ? 1 : 0}`;
+    let cv = this.sprites.get(key);
+    if (cv) return cv;
+    const rows = SHIP_ART[kind];
+    const w = rows[0].length, h = rows.length;
+    const shade = (k) => rgbCss(color.map((v) => Math.round(v * k)));
+    const pal = {
+      F: rgbCss(color), H: shade(0.82), h: shade(0.56), S: PAPER, M: '#2a2018',
+      t: '#d8c08a', W: '#7c5434', w: '#553822',
+    };
+    cv = document.createElement('canvas');
+    cv.width = w + 2; cv.height = h + 2;
+    const c = cv.getContext('2d');
+    const at = (x, y) => y >= 0 && y < h && x >= 0 && x < w && rows[y][x] !== '.';
+    c.fillStyle = '#1c140e';
+    for (let y = -1; y <= h; y++) {
+      for (let x = -1; x <= w; x++) {
+        if (at(x, y)) continue;
+        if (at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1)) c.fillRect((left ? w - 1 - x : x) + 1, y + 1, 1, 1);
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const ch = rows[y][x];
+        if (ch === '.') continue;
+        c.fillStyle = pal[ch];
+        c.fillRect((left ? w - 1 - x : x) + 1, y + 1, 1, 1);
+      }
+    }
+    this.sprites.set(key, cv);
+    return cv;
+  }
+
+  shipUnit(z) { return clamp(Math.round(z * 0.45), 2, 8); }
+
+  // Draws a ship sprite with its waterline on (sx, sy).
+  blitShip(kind, color, left, sx, sy, u) {
+    const cv = this.sprite(kind, color, left);
+    const water = SHIP_ART[kind].length - 1;   // padded row of the lower hull
+    const x = Math.round(sx - (cv.width * u) / 2), y = Math.round(sy - water * u);
+    this.ctx.drawImage(cv, x, y, cv.width * u, cv.height * u);
+    return y;
+  }
+
+  // Fleets: the nation's colours, a flag at the masthead and a pixel wake spreading behind them.
   drawShips(ox, oy, z, alpha) {
-    const ctx = this.ctx, g = this.game;
-    const size = clamp(z * 2.2, 6, 20);
+    const ctx = this.ctx, g = this.game, u = this.shipUnit(z);
     for (const s of g.ships) {
       if (s.dead) continue;
-      const [wx, wy, ang] = this.shipPos(s, alpha);
+      const [wx, wy, dx, , pos] = this.shipPos(s, alpha);
       const sx = ox + wx * z, sy = oy + wy * z;
-      if (!this.visible(sx, sy, 40)) continue;
-      const c = g.players[s.owner].color;
-      ctx.save();
-      ctx.translate(sx, sy);
-      ctx.rotate(ang);
-      ctx.beginPath();
-      ctx.moveTo(size * 0.75, 0);
-      ctx.lineTo(size * 0.2, -size * 0.38);
-      ctx.lineTo(-size * 0.6, -size * 0.32);
-      ctx.lineTo(-size * 0.6, size * 0.32);
-      ctx.lineTo(size * 0.2, size * 0.38);
-      ctx.closePath();
-      ctx.fillStyle = rgbCss(c);
-      ctx.strokeStyle = PAPER;
-      ctx.lineWidth = Math.max(1, size * 0.1);
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-      if (z >= 2.5) {
-        ctx.font = `700 ${Math.round(clamp(z * 2.2, 10, 15))}px ${FONT_NUM}`;
+      if (!this.visible(sx, sy, 80)) continue;
+      if (dx) s.face = dx < 0 ? -1 : 1;
+      const moving = pos < s.path.length - 1;
+      if (moving && this.quality !== 'low') {
+        for (let k = 1; k <= 8; k++) {
+          const [bx, by, ddx, ddy] = this.pathPoint(s.path, pos - k * 0.55);
+          if (pos - k * 0.55 < 0) break;
+          const len = Math.hypot(ddx, ddy) || 1, px = -ddy / len, py = ddx / len;
+          const spread = u * (0.6 + k * 0.45);
+          const cx = ox + bx * z, cy = oy + by * z;
+          ctx.fillStyle = `rgba(226,240,246,${(0.8 * (1 - k / 9)).toFixed(2)})`;
+          for (const side of [-1, 1]) {
+            const fx = Math.round((cx + px * spread * side) / u) * u, fy = Math.round((cy + py * spread * side) / u) * u;
+            ctx.fillRect(fx, fy, u, u);
+          }
+          if (k <= 2) ctx.fillRect(Math.round(cx / u) * u, Math.round(cy / u) * u, u, u);
+        }
+      }
+      const top = this.blitShip('fleet', g.players[s.owner].color, s.face === -1, sx, sy, u);
+      if (z >= 2.2) {
+        ctx.font = `700 ${Math.round(clamp(z * 2, 11, 15))}px ${FONT_NUM}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(243,234,214,0.9)';
-        ctx.strokeText(fmt(s.troops), sx, sy - size * 0.5);
+        const label = moving ? fmt(s.troops) : `${fmt(s.troops)} landing`;
+        ctx.strokeText(label, sx, top - 2);
         ctx.fillStyle = INK;
-        ctx.fillText(fmt(s.troops), sx, sy - size * 0.5);
+        ctx.fillText(label, sx, top - 2);
       }
     }
+  }
+
+  // ---------- merchant shipping ----------
+  // Harbors trade with every other harbor in the world. Merchant ships make that visible: small
+  // brown cogs with tan sails and no flag or wake, sailing real sea routes between harbors.
+  // They are decoration only and never touch the simulation.
+  resetTrade() { this.trade = { ships: [], routes: new Map(), next: new Map(), last: 0, budget: 0 }; this.popups = []; this.popNext = new Map(); }
+
+  seaRoute(a, b) {
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    if (this.trade.routes.has(key)) {
+      const r = this.trade.routes.get(key);
+      return r && a > b ? r.slice().reverse() : r;
+    }
+    if (this.trade.budget <= 0) return undefined;
+    this.trade.budget--;
+    const g = this.game, W = this.map.W, H = this.map.H, Q = this.rQueue, P = this.rParent, S = this.rStamp;
+    if (++this.rSt >= 0xfffffff0) { S.fill(0); this.rSt = 1; }
+    const st = this.rSt, lo = Math.min(a, b), hi = Math.max(a, b);
+    const goal = new Set();
+    const around = (t, fn) => {
+      const x0 = t % W, y0 = (t - x0) / W;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const x = x0 + dx, y = y0 + dy;
+        if ((dx || dy) && x >= 0 && y >= 0 && x < W && y < H) fn(y * W + x);
+      }
+    };
+    around(hi, (n) => { if (g.isWater(n)) goal.add(n); });
+    let qh = 0, qt = 0, found = -1;
+    around(lo, (n) => { if (g.isWater(n) && S[n] !== st) { S[n] = st; P[n] = -1; Q[qt++] = n; } });
+    while (qh < qt && qt < 260000) {
+      const i = Q[qh++];
+      if (goal.has(i)) { found = i; break; }
+      around(i, (n) => { if (S[n] !== st && g.isWater(n)) { S[n] = st; P[n] = i; Q[qt++] = n; } });
+    }
+    let route = null;
+    if (found >= 0) {
+      route = [];
+      for (let c = found; c !== -1; c = P[c]) route.push(c);
+      route.reverse();
+      if (route.length < 6) route = null;
+    }
+    this.trade.routes.set(key, route);
+    return route && a > b ? route.slice().reverse() : route;
+  }
+
+  updateTrade(now) {
+    const T = this.trade, g = this.game;
+    const dt = T.last ? Math.min(0.25, (now - T.last) / 1000) * this.timeScale : 0;
+    T.last = now;
+    if (!g || !g.started) return;
+    T.budget = 1;   // at most one new route search per frame
+    for (const s of T.ships) s.pos += s.speed * dt;
+    T.ships = T.ships.filter((s) => s.pos < s.path.length - 1);
+    if (!dt) return;
+    const harbors = g.buildings.filter((b) => b.alive && b.type === 'harbor');
+    if (harbors.length < 2) return;
+    const cap = this.quality === 'low' ? 10 : 30;
+    const nowS = now / 1000;
+    for (const h of harbors) {
+      if (T.ships.length >= cap) break;
+      const due = T.next.get(h.id);
+      if (due === undefined) { T.next.set(h.id, nowS + 2 + Math.random() * 12); continue; }
+      if (nowS < due) continue;
+      const partners = harbors.filter((x) => x !== h && x.owner !== h.owner);
+      const pool = partners.length ? partners : harbors.filter((x) => x !== h);
+      const to = pool[Math.floor(Math.random() * pool.length)];
+      const route = this.seaRoute(h.tile, to.tile);
+      if (route === undefined) { T.next.set(h.id, nowS + 0.3); continue; }
+      T.next.set(h.id, nowS + (16 + Math.random() * 16) / Math.max(0.5, Math.sqrt(h.level || 1)));
+      if (route) T.ships.push({ path: route, pos: 0, speed: 1.6 + Math.random() * 0.6, face: 1 });
+    }
+  }
+
+  drawTrade(ox, oy, z) {
+    const u = this.shipUnit(z) - (z > 6 ? 1 : 0);
+    for (const s of this.trade.ships) {
+      const [wx, wy, dx] = this.pathPoint(s.path, s.pos);
+      const sx = ox + wx * z, sy = oy + wy * z;
+      if (!this.visible(sx, sy, 40)) continue;
+      if (dx) s.face = dx < 0 ? -1 : 1;
+      this.blitShip('trade', [0, 0, 0], s.face === -1, sx, sy, Math.max(2, u));
+    }
+  }
+
+  // ---------- income popups ----------
+  // Every few seconds each of your cities, harbors and factories shows what it just earned.
+  drawPopups(ox, oy, z, now) {
+    const ctx = this.ctx, g = this.game, me = g.players[this.myId];
+    if (me && me.alive && g.started) {
+      for (const b of me.blds) {
+        if (!b.alive || b.owner !== this.myId || !(b.type === 'harbor' || BLD_EARN[b.type])) continue;
+        const due = this.popNext.get(b.id);
+        if (due === undefined) { this.popNext.set(b.id, g.tick + Math.floor(Math.random() * 8 * TPS)); continue; }
+        if (g.tick < due) continue;
+        this.popNext.set(b.id, g.tick + POPUP_SECONDS * TPS);
+        const amount = g.buildingIncome(me, b) * POPUP_SECONDS;
+        const sx = ox + (b.x + 0.5) * z, sy = oy + (b.y + 0.5) * z;
+        if (amount >= 1 && this.visible(sx, sy, 20) && this.popups.length < 40) this.popups.push({ b, text: `+${fmtMoney(amount)}`, t0: now });
+      }
+    }
+    if (!this.popups.length) return;
+    const size = clamp(z * 3, 13, 120);
+    ctx.font = `800 ${Math.round(clamp(z * 2.2, 12, 18))}px ${FONT_NUM}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.lineJoin = 'round';
+    this.popups = this.popups.filter((p) => now - p.t0 < POPUP_MS);
+    for (const p of this.popups) {
+      const t = (now - p.t0) / POPUP_MS;
+      const ease = 1 - (1 - t) * (1 - t);
+      const sx = ox + (p.b.x + 0.5) * z, sy = oy + (p.b.y + 0.5) * z - size * 0.6 - 4 - ease * 22;
+      ctx.globalAlpha = t < 0.15 ? t / 0.15 : 1 - Math.max(0, (t - 0.55) / 0.45);
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = 'rgba(28,20,14,0.9)';
+      ctx.strokeText(p.text, sx, sy);
+      ctx.fillStyle = '#f1d27f';
+      ctx.fillText(p.text, sx, sy);
+    }
+    ctx.globalAlpha = 1;
   }
 
   missilePoint(m, f) {

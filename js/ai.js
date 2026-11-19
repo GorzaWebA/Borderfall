@@ -31,6 +31,8 @@ class AIController {
     p.focus = pers.focus;
     p.science = pers.science;
     this.ideologyAt = 40 + r.int(90);   // seconds into the game before choosing an ideology
+    this.reactLand = (3 + r.int(4)) * TPS;
+    this.reactSea = (8 + r.int(6)) * TPS;
   }
 
   update() {
@@ -58,9 +60,11 @@ class AIController {
     if (g.politics) this.managePolitics();
     this.manageIdeology();
 
-    // Answer incoming attacks when we can.
+    // Answer incoming attacks when we can, once word has reached the capital and the army has
+    // mustered: a few seconds for a border attack, longer for troops landed from the sea.
     for (const a of g.attacks) {
       if (a.dead || a.target !== p.id) continue;
+      if (g.tick - (a.startedAt || 0) < (a.seeded ? this.reactSea : this.reactLand)) continue;
       if (p.troops > a.troops * 1.3 && ratio > 0.2 &&
           !g.attacks.some((x) => !x.dead && x.attacker === p.id && x.target === a.attacker)) {
         if (g.launchAttack(p.id, a.attacker, Math.min(p.troops * 0.45, a.troops * 1.6))) return;
@@ -342,20 +346,6 @@ class AIController {
         return;
       }
     }
-    for (const [o, since] of p.peace) {
-      const q = g.players[o];
-      if (!q || q.tribe) continue;
-      if (this.pers.aggression > 1 && g.tick - since > 150 * TPS && p.troops > q.troops * 2.5 && g.neighbors[p.id].has(o) && rng() < 0.12) {
-        g.breakPeace(p.id, o);
-        return;
-      }
-    }
-    // Losing a war against a stronger player? Offer them peace.
-    for (const a of g.attacks) {
-      if (a.dead || a.target !== p.id) continue;
-      const q = g.players[a.attacker];
-      if (q.human && q.troops > p.troops * 1.3 && rng() < 0.35) { g.requestPeace(p.id, q.id); return; }
-    }
     if (p.allies.size >= 3) return;
     const leader = this.findLeader();
     const cands = [];
@@ -380,21 +370,6 @@ class AIController {
       if (s > share) { share = s; best = q; }
     }
     return best;
-  }
-
-  // Peace: easier than an alliance. Weaker or war-weary nations accept; runaway leaders and
-  // traitors get turned down; aggressive nations with a big edge keep fighting.
-  considerPeace(from) {
-    const g = this.g, p = this.p, P = this.pers;
-    const q = g.players[from];
-    let want = g.getRel(p.id, from) + 25;
-    if (q.troops > p.troops * 1.5) want += 25;
-    if (p.troops > q.troops * 2 && P.aggression > 1) want -= 35;
-    if (g.attacks.some((a) => !a.dead && a.attacker === from && a.target === p.id)) want += 10;
-    if (g.politics && p.stability < 40) want += 15;
-    if (g.landShare(q) > 0.4) want -= 25;
-    if (q.traitorUntil > g.tick) want -= 30;
-    return want > 25;
   }
 
   considerAlliance(from) {
@@ -428,14 +403,13 @@ class TribeAI {
   }
   pickResearch() { return null; }
   considerAlliance() { return false; }
-  considerPeace(from) { return this.g.players[from].troops > this.p.troops * 0.8 || this.g.getRel(this.p.id, from) > -20; }
   think() {
     const g = this.g, p = this.p, rng = g.rng;
     if (!p.alive || !p.spawned || !g.started) return;
     const ratio = p.troops / g.troopCap(p);
     const nb = g.neighbors[p.id];
     for (const a of g.attacks) {
-      if (a.dead || a.target !== p.id) continue;
+      if (a.dead || a.target !== p.id || g.tick - (a.startedAt || 0) < 6 * TPS) continue;
       if (p.troops > a.troops * 1.2 && ratio > 0.3) { g.launchAttack(p.id, a.attacker, Math.min(p.troops * 0.4, a.troops * 1.4)); return; }
     }
     if ((nb.get(0) || 0) > 0 && p.tiles < 160 && ratio > 0.6 && !g.attacks.some((a) => !a.dead && a.attacker === p.id)) {
