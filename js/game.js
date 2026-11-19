@@ -187,10 +187,11 @@ class Game {
   setupPlayers(opts) {
     const rng = this.rng;
     // opts.humans: [{name, color, peer}] for multiplayer; otherwise a single local human.
-    const humans = opts.humans || [{ name: opts.playerName || 'You', color: opts.playerColor }];
+    const humans = opts.humans || [{ name: opts.playerName || 'You', color: opts.playerColor, skin: opts.playerSkin }];
     for (const h of humans) {
       const p = new Player(this.players.length, h.name, h.color, true);
       p.peer = h.peer || null;
+      p.skin = h.skin || 'plain';   // land pattern from the shop
       this.players.push(p);
     }
     const human = this.players[1];

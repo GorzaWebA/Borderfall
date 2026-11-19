@@ -51,6 +51,7 @@ class UI {
     this.toastEls = new Map();
     this.noticeTimer = 0;
     this.prefs = loadPrefs();
+    this.shop = loadShop();
     this.color = PLAYER_COLORS.some((c) => c.hex === this.prefs.color) ? this.prefs.color : PLAYER_COLORS[0].hex;
     this.genTimer = 0;
     this.myId = 1;
@@ -119,10 +120,13 @@ class UI {
       b.addEventListener('click', () => {
         this.color = hex;
         for (const x of sw.children) x.setAttribute('aria-checked', String(x === b));
+        this.renderPatternRow();
       });
       sw.appendChild(b);
     }
     $('btn-rename').addEventListener('click', () => { $('opt-name').value = this.suggestName(); });
+    $('btn-shop').addEventListener('click', () => this.showShop());
+    this.renderPatternRow();
     $('setup').addEventListener('input', () => this.updateWorldSummary());
     $('setup').addEventListener('change', () => this.updateWorldSummary());
 
@@ -173,6 +177,80 @@ class UI {
     this.generatePreview();
     // First visit: offer the tutorials, unless the visitor came to join a friend's lobby.
     if (!tutDone && !welcomed && !new URLSearchParams(location.search).has('join')) this.showTutorials(true);
+  }
+
+  // ---------- shop ----------
+  renderPatternRow() {
+    const skin = SKIN_BY_ID[this.shop.equipped] || SKINS[0];
+    paintSkinPreview($('pattern-preview'), skin.id, hexToRgb(this.color));
+    $('pattern-name').textContent = skin.name;
+    $('shop-crowns').textContent = `${this.shop.crowns} crowns`;
+  }
+
+  // Crowns for the game in progress, once per game.
+  awardGame() {
+    const g = this.game;
+    if (!g || g.crownsAwarded || !this.me) return 0;
+    g.crownsAwarded = true;
+    return this.addCrowns(crownsForGame(g, this.me));
+  }
+  addCrowns(n) {
+    if (!(n > 0)) return 0;
+    this.shop.crowns += n;
+    saveShop(this.shop);
+    const note = $('crowns-note');
+    note.textContent = `You earned ${n} crowns last game. Spend them in the shop.`;
+    note.hidden = false;
+    this.renderPatternRow();
+    return n;
+  }
+  // One-off rewards, such as finishing a tutorial for the first time.
+  claimReward(id, n) {
+    if (this.shop.claimed.includes(id)) return 0;
+    this.shop.claimed.push(id);
+    return this.addCrowns(n);
+  }
+
+  // Patterns for your nation's land, bought with crowns and shown to every player.
+  showShop() {
+    const S = this.shop;
+    const cards = SKINS.map((k) => {
+      const owned = S.owned.includes(k.id), on = S.equipped === k.id;
+      let btn;
+      if (on) btn = '<button type="button" class="ghost" disabled>Equipped</button>';
+      else if (owned) btn = `<button type="button" class="ghost" data-equip="${k.id}">Equip</button>`;
+      else if (S.crowns >= k.price) btn = `<button type="button" class="primary" data-buy="${k.id}">Buy for ${k.price} crowns</button>`;
+      else btn = `<button type="button" class="ghost" disabled>${k.price} crowns, ${k.price - S.crowns} more needed</button>`;
+      const tag = on ? '<em>Equipped</em>' : owned ? '<em>Owned</em>' : k.price ? '' : '<em>Free</em>';
+      return `<article class="skin-card${on ? ' on' : ''}"><canvas data-skin="${k.id}" width="36" height="20"></canvas>
+        <div class="skin-name"><b>${k.name}</b>${tag}</div><p>${k.desc}</p>${btn}</article>`;
+    }).join('');
+    this.openModal(`<div class="shop-top"><h2 id="modal-title">Shop</h2><p class="shop-bal"><b>${S.crowns}</b> crowns</p></div>
+      <p class="result-lede">Patterns for your nation's land. They are drawn into the map tile by tile, and other players see yours in multiplayer.</p>
+      <div class="shop-grid">${cards}</div>
+      <p class="fine">Earn crowns by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning (120 in Realistic, 60 in Blitz). The controls lesson pays 50 and the guided game 100, the first time.</p>
+      <div class="modal-actions"><button type="button" class="primary" data-close>Done</button></div>`, {
+      wide: true,
+      onClick: (e) => {
+        const buy = e.target.closest('[data-buy]'), equip = e.target.closest('[data-equip]');
+        if (buy) {
+          const k = SKIN_BY_ID[buy.dataset.buy];
+          if (!k || S.owned.includes(k.id) || S.crowns < k.price) return;
+          S.crowns -= k.price;
+          S.owned.push(k.id);
+          S.equipped = k.id;
+        } else if (equip && S.owned.includes(equip.dataset.equip)) {
+          S.equipped = equip.dataset.equip;
+        } else return;
+        saveShop(S);
+        this.renderPatternRow();
+        const scroll = $('modal').querySelector('.modal-card').scrollTop;
+        this.showShop();
+        $('modal').querySelector('.modal-card').scrollTop = scroll;
+      },
+    });
+    const color = hexToRgb(this.color);
+    for (const cv of $('modal-body').querySelectorAll('canvas[data-skin]')) paintSkinPreview(cv, cv.dataset.skin, color);
   }
 
   rollRandomType() {
@@ -270,11 +348,11 @@ class UI {
     if (this.isClient()) return;
     const game = new Game(this.map, { difficulty: diff, mode, multiplayer: !!this.net });
     if (this.net) {
-      const humans = this.net.lobby.players.map((p) => ({ name: p.name, color: hexToRgb(p.color), peer: p.id }));
+      const humans = this.net.lobby.players.map((p) => ({ name: p.name, color: hexToRgb(p.color), peer: p.id, skin: p.skin }));
       game.setupPlayers({ humans, numAI, numTribes: Number($('opt-tribes').value), difficulty: diff });
       this.net.startMatch(game, this.map);
     } else {
-      game.setupPlayers({ playerName: name, playerColor: hexToRgb(this.color), numAI, numTribes: Number($('opt-tribes').value), difficulty: diff });
+      game.setupPlayers({ playerName: name, playerColor: hexToRgb(this.color), playerSkin: this.shop.equipped, numAI, numTribes: Number($('opt-tribes').value), difficulty: diff });
     }
     this.enterGame(game, 1);
   }
@@ -368,6 +446,9 @@ class UI {
   }
 
   backToMenu() {
+    // Leaving a game you have played for a few minutes still earns crowns for what you held.
+    const g = this.game;
+    if (g && g.started && !g.over && g.time >= 180) this.awardGame();
     this.closeModal();
     this.closeCtx();
     if (this.net) { this.net.leave(); this.net = null; this.leaveLobby(true); }
@@ -1552,7 +1633,7 @@ class UI {
     const S = TUTORIAL_SPOTS;
     // Blitz rules keep stability and revolts out of the way while you learn the controls.
     const game = new Game(map, { difficulty: 'easy', mode: 'blitz' });
-    game.setupPlayers({ playerName: this.playerName(), playerColor: hexToRgb(this.color), numAI: 1, numTribes: 2, difficulty: 'easy',
+    game.setupPlayers({ playerName: this.playerName(), playerColor: hexToRgb(this.color), playerSkin: this.shop.equipped, numAI: 1, numTribes: 2, difficulty: 'easy',
       spawns: [at(S.rival), at(S.tribe), at(S.islandTribe)] });
     const [rival, tribe, island] = game.players.slice(2);
     rival.tutSpot = 'rival'; tribe.tutSpot = 'tribe'; island.tutSpot = 'islandTribe';
@@ -1575,7 +1656,7 @@ class UI {
     this.map = map;
     this.mapKey = '';
     const game = new Game(map, { difficulty: 'easy', mode: 'realistic' });
-    game.setupPlayers({ playerName: this.playerName(), playerColor: hexToRgb(this.color), numAI: 12, numTribes: 16, difficulty: 'easy' });
+    game.setupPlayers({ playerName: this.playerName(), playerColor: hexToRgb(this.color), playerSkin: this.shop.equipped, numAI: 12, numTribes: 16, difficulty: 'easy' });
     for (const p of game.players) if (p && p.ai && !p.tribe) p.ai.diff = { ...p.ai.diff, graceVsHuman: 300 };
     this.enterGame(game, 1);
     this.tutorial = new Coach(this, GUIDE);
@@ -1725,8 +1806,10 @@ class UI {
     else if (me.alive && leader && o.reason === 'treaty') lede = `A general peace is signed in ${o.year}. ${leader.name} leaves the table as the largest nation, with ${Math.round(g.landShare(leader) * 100)}% of the land. You hold ${Math.round(g.landShare(me) * 100)}%.`;
     else if (me.alive && leader) lede = `${leader.name} ends the age as the largest nation, with ${Math.round(g.landShare(leader) * 100)}% of the land. You hold ${Math.round(g.landShare(me) * 100)}%.`;
     else lede = 'Your last province was taken. You can keep watching how the war ends, or start again.';
+    const crowns = this.awardGame();
     this.openModal(`<h2 id="modal-title">${title}</h2>
       <p class="result-lede">${lede}</p>
+      ${crowns ? `<p class="crowns-earned">You earned <b>${crowns} crowns</b>. Spend them on patterns in the shop on the main menu.</p>` : ''}
       <div class="result-stats">
         <div><span>Year</span><b>${o.year}</b></div>
         <div><span>Time</span><b>${fmtTime(o.time)}</b></div>

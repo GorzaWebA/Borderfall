@@ -38,6 +38,12 @@
             <button type="button" id="btn-rename" class="ghost">Another name</button>
           </div>
           <div id="opt-colors" class="swatches" role="radiogroup" aria-label="Colour"></div>
+          <div class="pattern-row">
+            <canvas id="pattern-preview" width="36" height="20" aria-hidden="true"></canvas>
+            <span>Pattern <b id="pattern-name">Plain</b></span>
+            <button type="button" class="ghost" id="btn-shop">Shop <em id="shop-crowns"></em></button>
+          </div>
+          <p id="crowns-note" class="field-note" hidden></p>
         </div>
         <div class="row2">
           <label class="field">
@@ -303,6 +309,10 @@
         <p>Your treasury fills from your workers' taxes, cities, harbors and factories; each building shows what it earns as it comes in. A city costs about $2 million, and each extra building of a kind costs more. Build on top of one of your own buildings of the same type to stack it, up to level 5; each level adds the building's full effect again. The national priority in Government trades troop recruiting for income, and the research budget in Technology sets how much of your income goes to research.</p>
       </section>
       <section>
+        <h3>Shop</h3>
+        <p>Under Your nation on the start screen, the Shop sells patterns for your land, bought with crowns. You earn crowns by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning. Other players see your pattern in multiplayer.</p>
+      </section>
+      <section>
         <h3>Multiplayer</h3>
         <p>Create a lobby and share its 5-letter code or invite link, join a friend's code, or use Quick match to join an open public game. Up to 8 people play together, with computer nations filling the rest. The host's browser runs the match, so the game ends if the host leaves; if anyone else drops out, the computer takes over their nation.</p>
       </section>
@@ -333,6 +343,7 @@
 
   <script src="js/util.js"></script>
   <script src="js/mapgen.js"></script>
+  <script src="js/shop.js"></script>
   <script src="js/tech.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/game.js"></script>

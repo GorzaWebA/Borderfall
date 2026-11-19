@@ -12,6 +12,8 @@ const tutShare = (c) => c.ui.game.landShare(c.me);
 const pctText = (x) => `${Math.round(x * 100)}%`;
 
 const LESSON = {
+  id: 'lesson',
+  reward: 50,
   label: (i, n) => `Lesson, step ${i} of ${n}`,
   quit: 'Leave the lesson',
   steps: [
@@ -130,6 +132,8 @@ function tutShore() {
 }
 
 const GUIDE = {
+  id: 'guide',
+  reward: 100,
   label: (i, n) => `Guided game, objective ${i} of ${n}`,
   quit: 'Dismiss the advisor',
   steps: [
@@ -426,7 +430,8 @@ class Coach {
   finish(message) {
     try { localStorage.setItem(TUT_DONE_KEY, '1'); } catch (e) { /* storage unavailable */ }
     this.end();
-    if (message) this.ui.notice(message);
+    const crowns = this.plan.reward ? this.ui.claimReward(this.plan.id, this.plan.reward) : 0;
+    if (message || crowns) this.ui.notice([message, crowns ? `You earned ${crowns} crowns for the shop.` : ''].filter(Boolean).join(' '));
   }
 
   end() {

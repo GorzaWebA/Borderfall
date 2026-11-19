@@ -31,6 +31,10 @@ No install, no account. Works on desktop and mobile browsers. On your first visi
   - **Ring Sea:** six matching sectors around an inner sea.
   - **Twin Continents:** north and south joined by one mountainous isthmus.
 
+## Shop
+
+Give your nation's land a pattern: 13 heraldic designs, from Barry (bands) and Chequy (checks) to Lozengy, Masoned brickwork, Tartan, Semé of stars and Ermine. They are drawn into the map tile by tile, and other players see yours in multiplayer. Patterns cost crowns, which you earn by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning. You start with 100, and the two tutorials pay 50 and 100 the first time. Open the shop from Your nation on the start screen. Crowns are saved in your browser; no real money is involved.
+
 ## Multiplayer
 
 - **Create lobby** gives you a 5-letter code and an invite link to share. Friends join with the code or by opening the link.
@@ -132,7 +136,8 @@ js/ai.js        AI nations
 js/render.js    canvas map renderer
 js/ui.js        menus, HUD, input, tooltips
 js/net.js       multiplayer: lobbies, quick match, host-run games
-js/tutorial.js  guided first game
+js/tutorial.js  controls lesson and guided game
+js/shop.js      land patterns, crowns and the shop
 js/main.js      game loop
 vendor/         bundled Trystero peer-to-peer library (MIT)
 maps/*.js       real-world maps, one character per tile, loaded only when picked
