@@ -130,7 +130,7 @@ class Net {
     this.lastSend = 0;
   }
 
-  me() { return { name: this.ui.playerName(), color: this.ui.color }; }
+  me() { return { name: this.ui.playerName(), color: this.ui.color, skin: this.ui.shop.equipped }; }
 
   // ----- hosting -----
   async host(isPublic, settings) {
@@ -161,7 +161,8 @@ class Net {
     if (!p) { p = { id: from }; L.players.push(p); }
     p.name = String(d.name || 'Player').slice(0, 16);
     const used = new Set(L.players.filter((x) => x !== p).map((x) => x.color));
-    p.color = used.has(d.color) ? (PLAYER_COLORS.find((c) => !used.has(c)) || d.color) : d.color;
+    p.color = used.has(d.color) ? (PLAYER_COLORS.map((c) => c.hex).find((c) => !used.has(c)) || d.color) : d.color;
+    p.skin = SKIN_BY_ID[d.skin] ? d.skin : 'plain';
     this.broadcastLobby();
   }
 
@@ -266,7 +267,7 @@ class Net {
     const base = {
       settings: L.settings, seed: map.seed,
       terrain: isPremade(L.settings.type) ? null : rleEncode(map.terrain),
-      players: game.players.slice(1).map((p) => ({ id: p.id, name: p.name, color: p.color, human: p.human, tribe: p.tribe })),
+      players: game.players.slice(1).map((p) => ({ id: p.id, name: p.name, color: p.color, human: p.human, tribe: p.tribe, skin: p.skin || 'plain' })),
       owner: rleEncode(game.owner), spawnLeft: SPAWN_PHASE_SECONDS, diff: L.settings.difficulty,
     };
     for (const [peer, pid] of this.pidByPeer) {
@@ -408,6 +409,7 @@ class Net {
     while (g.players.length <= q.id) g.players.push(null);
     const p = new Player(q.id, q.name, q.color, q.human);
     p.tribe = !!q.tribe;
+    p.skin = SKIN_BY_ID[q.skin] ? q.skin : 'plain';
     g.initPlayer(p);
     g.players[q.id] = p;
     return p;

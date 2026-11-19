@@ -813,6 +813,37 @@ input[type=range]::-moz-range-thumb {
 .st-war { color: var(--vermilion-hi); font-weight: 700; }
 .st-neutral { color: var(--sepia); }
 
+/* ---------- Shop ---------- */
+.pattern-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; color: var(--sepia); font-weight: 600; font-size: 14px; }
+.pattern-row b { color: var(--paper); margin-left: 4px; }
+.pattern-row canvas, .skin-card canvas { image-rendering: pixelated; border-radius: 2px; box-shadow: 0 0 0 1px rgba(10, 7, 4, 0.6); }
+.pattern-row canvas { width: 54px; height: 30px; flex: none; }
+.pattern-row button { margin-left: auto; padding: 5px 10px; font-size: 14px; }
+.pattern-row em { font-style: normal; color: var(--brass-hi); margin-left: 4px; }
+.shop-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.shop-bal { margin: 0; color: var(--sepia); font-size: 16px; }
+.shop-bal b { font-family: var(--font-book); font-weight: 800; font-size: 28px; color: var(--brass-hi); }
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 4px; }
+.skin-card { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--rule-strong); border-radius: var(--r-ctl); background: rgba(239, 229, 207, 0.03); }
+.skin-card.on { border-color: var(--brass); background: rgba(201, 162, 79, 0.1); }
+.skin-card canvas { width: 100%; height: auto; aspect-ratio: 36 / 20; }
+.skin-name { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.skin-name b { font-family: var(--font-display); font-size: 18px; }
+.skin-name em { font-family: var(--font-book); font-size: 13.5px; color: var(--verdigris-hi); }
+.skin-card p { margin: 0; color: var(--paper-2); font-size: 14px; flex: 1; }
+.skin-card button { padding: 6px 10px; font-size: 14px; }
+.skin-card button:disabled { opacity: 0.6; cursor: default; }
+@media (max-width: 640px) {
+  .shop-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .skin-card { padding: 8px; gap: 4px; }
+  .skin-card p { display: none; }
+  .skin-name b { font-size: 15px; }
+  .skin-card button { padding: 5px 6px; font-size: 13px; }
+  .pattern-row button { padding: 5px 8px; }
+}
+.crowns-earned { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--brass); border-radius: var(--r-ctl); background: rgba(201, 162, 79, 0.1); color: var(--paper-2); }
+.crowns-earned b { color: var(--brass-hi); }
+
 /* ---------- Research budget and national priority ---------- */
 .budget { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); gap: 4px 20px; align-items: center; padding: 10px 14px; margin: 0 0 12px; border: 1px solid var(--rule-strong); border-radius: var(--r-ctl); }
 .budget label { display: flex; flex-direction: column; gap: 2px; }

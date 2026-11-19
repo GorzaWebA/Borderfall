@@ -168,6 +168,12 @@ class Renderer {
           own[i - W - 1] !== o || own[i - W + 1] !== o || own[i + W - 1] !== o || own[i + W + 1] !== o;
         const mix = band ? BAND_MIX : TERRITORY_MIX;
         r = lerp(r, c[0], mix); gg = lerp(gg, c[1], mix); b = lerp(b, c[2], mix);
+        // The nation's pattern from the shop, if it has one.
+        const skin = g.players[o].skin;
+        if (skin && skin !== 'plain' && SKIN_BY_ID[skin]) {
+          const t = applySkinTone([r, gg, b], SKIN_BY_ID[skin].tone(x, (i - x) / W));
+          r = t[0]; gg = t[1]; b = t[2];
+        }
         // Occupied or poorly governed land shows diagonal hatching.
         if (g.politics && g.control[i] < 50 && ((x + ((i - x) / W)) % 4) === 0) {
           r *= 0.72; gg *= 0.72; b *= 0.72;
