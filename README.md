@@ -47,7 +47,7 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 - **Expand.** Click land to send troops into it (10% of your troops by default). Settling empty land is steady and cheap, and your border grows toward the spot you click. Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with the troops fighting there on a tag.
 - **Encircle.** Completely surround a patch of land and it becomes yours, unless it belongs to an ally.
-- **Absorb tribes.** Weak tribes hold scattered land at the start, each sitting on a store of treasure shown under its name. They never build or research, so they're easy pickings, and whoever absorbs one takes its stores. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
+- **Absorb tribes.** Weak grey tribes hold scattered land at the start; their troops and treasure show under their name. They never build or research, so they're easy pickings, and whoever absorbs one takes its stores. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
 - **Grow your people.** Population grows toward what your land and cities can feed. Only a share can serve as soldiers (8% in 1500, up to 23% by the World Wars); the rest work and pay taxes. Soldiers killed in battle are gone for good.
 - **Manage your treasury.** Money comes in dollars at a realistic scale: you start with $1.2 million, a city costs $2 million, and a missile $8 million.
 - **Watch the money come in.** Your cities, harbors and factories show what they earn above them as it arrives. In Government, set your national priority: lean toward the army and troops refill faster, toward the economy and money comes in faster.
@@ -62,7 +62,7 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 ## Features
 
-- 3 to 60 AI rivals (20 by default on a medium world) with distinct personalities (warlords, merchants, guardians, opportunists) and three difficulty levels.
+- 3 to 60 AI rivals (20 by default on a medium world) with distinct personalities, each tagged with an icon beside its name: crossed swords for warlords, scales for merchants, a shield for guardians and an eye for opportunists. Three difficulty levels.
 - Six terrain types that change how fast fronts move, how costly land is, and how much it's worth.
 - A guided tutorial for your first game.
 - High and Low graphics. Low draws at 30 fps and native resolution with simpler effects, for phones and older computers.

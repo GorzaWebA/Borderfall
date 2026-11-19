@@ -10,6 +10,18 @@ const PLAYER_COLORS = [
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// A computer nation's personality ('warlord', 'merchant', ...), on the host or a guest.
+function persOf(p) {
+  if (!p || p.human || p.tribe) return '';
+  return p.ai && p.ai.pers ? p.ai.pers.key : p.persKey || '';
+}
+// The icon tag shown beside a computer nation's name, with its personality as the tooltip.
+function persTag(p) {
+  const k = persOf(p), I = PERSONALITY_ICON[k];
+  if (!I) return '';
+  return `<span class="pi" title="Computer nation, ${I.label.toLowerCase()}: ${I.desc}" aria-label="Computer nation, ${I.label.toLowerCase()}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="${I.path}"/></svg></span>`;
+}
+
 function fmtDuration(sec) {
   if (!isFinite(sec)) return 'a long time';
   if (sec < 60) return `${Math.max(1, sec)}s`;
@@ -714,7 +726,7 @@ class UI {
     $('board-count').textContent = tribes ? `${alive.length} left, ${tribes} tribes` : `${alive.length} left`;
     const rows = [];
     const row = (p, rank) => {
-      const ally = g.isAllied(this.myId, p.id) ? '<span class="ally">Ally</span>' : p.human && p.id !== this.myId ? '<span class="ally pl">Player</span>' : '';
+      const ally = (g.isAllied(this.myId, p.id) ? '<span class="ally">Ally</span>' : p.human && p.id !== this.myId ? '<span class="ally pl">Player</span>' : '') + persTag(p);
       const share = g.landShare(p) * 100;
       return `<li data-pid="${p.id}" class="${p.id === this.myId ? 'me' : ''}" style="--c:${rgbCss(p.color)}"><span class="rk">${rank}</span><span class="nm">${esc(p.name)}${ally}</span><span class="ld">${fmtPct(share)}</span><span class="tr">${fmt(p.troops)}</span></li>`;
     };
@@ -975,7 +987,10 @@ class UI {
         items.push({ label: `Send ${fmtMoney(gold)}`, title: 'Gifts improve how they feel about you.', disabled: gold < 1,
           act: () => this.cmd('gold', { to: o, ratio: 0.25 }) });
         if (p.human) sub += ', a player';
-        else { const [rl] = relLabel(g.getRel(o, my)); sub += `, ${rl.toLowerCase()} toward you`; }
+        else {
+          const [rl] = relLabel(g.getRel(o, my));
+          sub += `${persOf(p) ? `, ${PERSONALITY_ICON[persOf(p)].label.toLowerCase()}` : ''}, ${rl.toLowerCase()} toward you`;
+        }
       }
     }
     if (!items.length) return;
@@ -1016,7 +1031,9 @@ class UI {
     let head;
     if (o) {
       const p = g.players[o];
-      head = `<span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}${o === this.myId ? ' (you)' : p.human ? ' (player)' : ''}`;
+      head = `<span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}${o === this.myId ? ' (you)' : p.human ? ' (player)' : ''}${persTag(p)}`;
+      if (persOf(p)) rows.push(['Led by', `Computer, ${PERSONALITY_ICON[persOf(p)].label.toLowerCase()}`]);
+      else if (p.tribe) rows.push(['Led by', 'A tribe']);
       rows.push(['Troops', fmt(p.troops)]);
       rows.push(['People', fmt(p.pop)]);
       rows.push(['Land', fmtPct(g.landShare(p) * 100)]);
@@ -1463,7 +1480,7 @@ class UI {
       }
       const feel = p.human ? 'Player' : relLabel(g.getRel(p.id, my))[0];
       const ideo = p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : '<span class="st-neutral">None yet</span>';
-      return `<tr><td><span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}</td><td class="num">${fmtPct(g.landShare(p) * 100)}</td><td>${ideo}</td><td class="${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
+      return `<tr><td><span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}${persTag(p)}</td><td class="num">${fmtPct(g.landShare(p) * 100)}</td><td>${ideo}</td><td class="${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
     }).join('');
     const lede = `${nations.length} ${nations.length === 1 ? 'nation remains' : 'nations remain'}${allies ? `, ${allies} of them allied with you` : ''}. Allies can't attack each other, and nations that like you are more willing to ally. Gifts of money warm them; attacking them, or breaking an alliance, does the opposite.`;
     return `<p class="dipl-progress">${esc(lede)}</p>

@@ -220,7 +220,8 @@ class Game {
     const tribeNames = rng.shuffle(TRIBE_NAMES.slice());
     for (let k = 0; k < (opts.numTribes || 0); k++) {
       const hue = rng() * 360;
-      const p = new Player(this.players.length, tribeNames[k % tribeNames.length], hslToRgb(hue, 0.22 + rng() * 0.1, 0.45 + rng() * 0.1), false);
+      // Tribes are grey, a shade lighter or darker each, so they never pass for nations.
+      const p = new Player(this.players.length, tribeNames[k % tribeNames.length], hslToRgb(hue, 0.05, 0.4 + rng() * 0.2), false);
       p.tribe = true;
       p.diffMult = 0.6;
       p.science = 0;

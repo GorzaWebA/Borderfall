@@ -439,6 +439,10 @@ input[type=range]::-moz-range-thumb {
 #board-list .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 #board-list .ally { color: var(--verdigris-hi); font-family: var(--font-book); font-style: italic; font-size: 13px; margin-left: 5px; }
 #board-list .ally.pl { color: var(--brass-hi); }
+/* The personality icon that tags a computer nation. */
+.pi { display: inline-flex; vertical-align: -2px; margin-left: 6px; color: var(--brass-hi); }
+.pi svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#tooltip .tt-head .pi, .dipl-table .pi { color: var(--sepia); }
 #board-list .ld, #board-list .tr { font-size: 14px; text-align: right; }
 #board-list .tr { color: var(--sepia); min-width: 40px; }
 #board-list li.sep { display: block; padding: 0; height: 1px; background: var(--rule); margin: 4px 0; cursor: default; }
