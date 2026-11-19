@@ -8,6 +8,15 @@ const PERSONALITIES = [
   { key: 'opportunist', label: 'Opportunist', aggression: 1.1, expandAt: 0.34, expandRatio: 0.5, attackAt: 0.6, attackRatio: 0.4, build: 1.0, fortBias: 0.8, siloBias: 1.0, loyalty: 0.8, focus: 0.5, science: 0.2, techs: { mil: 1.5, eco: 1.5, sci: 1.5, gov: 1.5 }, ideologies: ['moderation', 'frontier', 'reason'] },
 ];
 
+// The tag shown beside a computer nation's name: an icon for its personality, drawn as a
+// 16-unit stroked path so the same shape works in the page (SVG) and on the map (Path2D).
+const PERSONALITY_ICON = {
+  warlord: { label: 'Warlord', desc: 'attacks often and builds for war', path: 'M3 3L13 13M13 3L3 13M1.5 9.5L6.5 14.5M9.5 14.5L14.5 9.5' },
+  merchant: { label: 'Merchant', desc: 'trades and builds, slow to start wars', path: 'M8 2V14M4.5 14H11.5M2.5 4.5H13.5M2.5 4.5L1 9H4ZM13.5 4.5L12 9H15Z' },
+  guardian: { label: 'Guardian', desc: 'fortifies and defends, loyal to allies', path: 'M8 1.5L13.5 3.5V8C13.5 11 11 13.5 8 14.5C5 13.5 2.5 11 2.5 8V3.5Z' },
+  opportunist: { label: 'Opportunist', desc: 'strikes whoever looks weak', path: 'M1 8C3.5 3.5 12.5 3.5 15 8C12.5 12.5 3.5 12.5 1 8ZM8 6A2 2 0 1 0 8 10A2 2 0 1 0 8 6Z' },
+};
+
 const DIFFICULTY = {
   easy: { label: 'Easy', econ: 0.85, think: 24, aggression: 0.75, humanBias: 0.6, missiles: false, graceVsHuman: 150 },
   normal: { label: 'Normal', econ: 1.0, think: 16, aggression: 1.0, humanBias: 1.0, missiles: true, graceVsHuman: 75 },

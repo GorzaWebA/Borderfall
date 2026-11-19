@@ -259,6 +259,7 @@ class Net {
     this.sendAd();
     clearInterval(this.lobbyTimer);
     this.game = game;
+    this.startCount = game.players.length;   // players created after this are sent as they appear
     this.pidByPeer = new Map();
     for (const p of game.players) if (p && p.peer) this.pidByPeer.set(p.peer, p.id);
     game.enableNetLog();
@@ -267,7 +268,7 @@ class Net {
     const base = {
       settings: L.settings, seed: map.seed,
       terrain: isPremade(L.settings.type) ? null : rleEncode(map.terrain),
-      players: game.players.slice(1).map((p) => ({ id: p.id, name: p.name, color: p.color, human: p.human, tribe: p.tribe, skin: p.skin || 'plain' })),
+      players: game.players.slice(1).map((p) => this.playerInfo(p)),
       owner: rleEncode(game.owner), spawnLeft: SPAWN_PHASE_SECONDS, diff: L.settings.difficulty,
     };
     for (const [peer, pid] of this.pidByPeer) {
@@ -339,7 +340,10 @@ class Net {
       a: g.attacks.filter((a) => !a.dead).map((a) => [a.id, a.attacker, a.target, Math.round(a.troops), a.seeded ? 1 : 0]),
       p: g.players.slice(1).map((p) => [p.id, p.alive ? 1 : 0, p.spawned ? 1 : 0, Math.round(p.troops), p.tiles, Math.round(p.pop),
         Math.round(p.label.x * 10) / 10, Math.round(p.label.y * 10) / 10, Math.round(p.label.size * 10) / 10, p.label.tile, p.capital,
-        [...p.allies], p.human ? 1 : 0, p.peakTiles, p.kills, p.tribe ? Math.round(p.gold) : 0, p.ideology || '']),
+        [...p.allies], p.human ? 1 : 0, p.peakTiles, p.kills, p.tribe ? Math.round(p.gold) : 0, p.ideology || '',
+        p.ai && p.ai.pers ? p.ai.pers.key : '']),
+      // Nations that appeared mid-game (breakaway rebels), so guests can draw and list them.
+      xp: g.players.length > this.startCount ? g.players.slice(this.startCount).map((p) => this.playerInfo(p)) : null,
       tr: g.treaty && g.treaty.open ? [g.treaty.id, g.treaty.closesAt, [...g.treaty.votes]] : null,
     };
     N.own.length = 0; N.ctl.length = 0; N.fo.length = 0; N.bld.clear(); N.ships.length = 0; N.missiles.length = 0; N.fx = [];
@@ -405,6 +409,10 @@ class Net {
     this.ui.spawnCountdown(d.spawnLeft);
   }
 
+  playerInfo(p) {
+    return { id: p.id, name: p.name, color: p.color, human: p.human, tribe: p.tribe, skin: p.skin || 'plain' };
+  }
+
   addMirrorPlayer(g, q) {
     while (g.players.length <= q.id) g.players.push(null);
     const p = new Player(q.id, q.name, q.color, q.human);
@@ -449,8 +457,9 @@ class Net {
     g.effects = g.effects.filter((e) => g.time - e.at < 4);
     g.attacks = u.a.map(([id, attacker, target, troops, seeded]) => ({ id, attacker, target, troops, seeded: !!seeded, dead: false }));
     if (u.fr) for (const [id, ...tiles] of u.fr) { const a = g.attacks.find((x) => x.id === id); if (a) a.fs = tiles; }
+    if (u.xp) for (const q of u.xp) if (!g.players[q.id]) this.addMirrorPlayer(g, q);
     for (const row of u.p) {
-      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, stash, ideo] = row;
+      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, stash, ideo, pers] = row;
       const p = g.players[id];
       if (!p) continue;
       p.alive = !!alive; p.spawned = !!spawned; p.troops = troops; p.tiles = tiles; p.pop = pop;
@@ -458,6 +467,7 @@ class Net {
       p.capital = cap; p.allies = new Set(allies); p.human = !!human; p.peakTiles = peak; p.kills = kills;
       if (p.tribe) p.gold = stash || 0;
       if (id !== ui.myId) p.ideology = ideo || null;
+      p.persKey = pers || '';
     }
     Object.assign(me, u.me);
     me.techs = new Set(u.me.techs);

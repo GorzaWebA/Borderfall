@@ -784,8 +784,8 @@ class Renderer {
       if (fs < (this.quality === 'low' ? 11 : 8)) continue;
       if (!this.visible(sx, sy, 220)) continue;
       const name = p.name;
-      // Tribes are peoples rather than states: italic like a map names a people, with the
-      // treasure they hold underneath instead of their (small) army.
+      // Tribes are peoples rather than states: italic like a map names a people, with their
+      // troops and, in gold, the treasure they hold underneath.
       const tribe = p.tribe;
       const setName = () => {
         ctx.font = tribe ? `italic 600 ${fs}px ${FONT_BOOK}` : `700 ${fs}px ${FONT_LABEL}`;
@@ -809,13 +809,26 @@ class Renderer {
       ctx.fillStyle = INK;
       ctx.fillText(name, sx + shift, ny);
       if (spacingOk) ctx.letterSpacing = '0px';
+      // Computer nations carry their personality icon in front of the name.
+      const pers = !p.human && !tribe && p.ai ? p.ai.pers && p.ai.pers.key : p.persKey;
+      if (PERSONALITY_ICON[pers] && fs >= 12 && !p.human) {
+        const u = fs * 0.62;
+        drawPersIcon(ctx, PERSONALITY_ICON[pers].path, sx - w / 2 - u * 0.95 + shift, ny - u / 2 - fs * 0.04, u);
+      }
       const troopFs = Math.max(8, fs * 0.72);
       ctx.font = `italic 500 ${troopFs}px ${FONT_BOOK}`;
       ctx.lineWidth = Math.max(2.5, troopFs * 0.2);
-      const t = tribe ? fmtMoney(nicePrice(p.gold)) : fmt(p.troops), ty = sy + fs * 0.55;
-      ctx.strokeText(t, sx, ty);
-      ctx.fillStyle = tribe ? '#7a5512' : g.isAllied(this.myId, p.id) ? '#1f5e4a' : (mine ? '#6b4a0e' : '#3a2f25');
-      ctx.fillText(t, sx, ty);
+      const ty = sy + fs * 0.55;
+      ctx.strokeText(fmt(p.troops), sx, ty);
+      ctx.fillStyle = g.isAllied(this.myId, p.id) ? '#1f5e4a' : (mine ? '#6b4a0e' : '#3a2f25');
+      ctx.fillText(fmt(p.troops), sx, ty);
+      if (tribe) {
+        const gold = fmtMoney(nicePrice(p.gold)), gy = ty + troopFs * 0.95;
+        ctx.font = `italic 600 ${troopFs * 0.9}px ${FONT_BOOK}`;
+        ctx.strokeText(gold, sx, gy);
+        ctx.fillStyle = '#7a5512';
+        ctx.fillText(gold, sx, gy);
+      }
     }
   }
 
@@ -1074,5 +1087,24 @@ function drawFrontTag(ctx, x, y, label, edge, incoming) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(label, x, y + 0.5);
+  ctx.restore();
+}
+
+// A personality icon on the map: the stroked path in ink over a paper halo, u pixels square.
+const PERS_PATHS = new Map();
+function drawPersIcon(ctx, d, x, y, u) {
+  let path = PERS_PATHS.get(d);
+  if (!path) { path = new Path2D(d); PERS_PATHS.set(d, path); }
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(u / 16, u / 16);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 5.2;
+  ctx.strokeStyle = 'rgba(243,234,214,0.85)';
+  ctx.stroke(path);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = INK;
+  ctx.stroke(path);
   ctx.restore();
 }
