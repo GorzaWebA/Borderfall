@@ -318,3 +318,54 @@ function cleanupComponents(W, H, terrain) {
     id++;
   }
 }
+
+// ---------- tutorial map ----------
+// A small hand-laid world for the controls lesson. Your home island has room to settle and a
+// tribe to the east; across a narrow strait a second tribe holds a smaller island (reachable
+// only by fleet); a rival nation sits far off to the south-east.
+const TUTORIAL_SPOTS = {
+  home: [100, 86],        // where the player founds their nation
+  tribe: [128, 72],       // a tribe on the home island, between home and the eastern shore
+  islandTribe: [194, 58], // a tribe across the strait
+  rival: [196, 124],      // a distant nation
+};
+
+function buildTutorialMap() {
+  const W = 240, H = 150, N = W * H;
+  const terrain = new Uint8Array(N), heights = new Float32Array(N);
+  const nz = new Noise2D(makeRng(hashString('borderfall-tutorial')));
+  const lands = [
+    { cx: 82, cy: 78, rx: 66, ry: 48 },    // home island
+    { cx: 192, cy: 58, rx: 28, ry: 22 },   // eastern island
+    { cx: 196, cy: 124, rx: 38, ry: 19 },  // rival's land
+  ];
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      let land = -1, depth = 0;
+      for (let k = 0; k < lands.length; k++) {
+        const L = lands[k];
+        const d = ((x - L.cx) / L.rx) ** 2 + ((y - L.cy) / L.ry) ** 2 + nz.fbm(x / 22 + k * 7, y / 22, 3) * 0.55;
+        if (d < 1 && 1 - d > depth) { land = k; depth = 1 - d; }
+      }
+      // keep the strait open between the home island and the eastern island
+      if (land === 0 && x > 146) land = -1;
+      if (land < 0) { terrain[i] = T_SEA; continue; }
+      const n = nz.fbm(x / 13 + 40, y / 13 + 40, 3);
+      let t = T_PLAINS;
+      if (land === 0 && y < 52 && n > 0.08) t = depth > 0.45 ? T_MOUNTAIN : T_HILLS;   // northern highlands
+      else if (n > 0.16) t = T_FOREST;
+      else if (land === 2 && n < -0.2) t = T_HILLS;
+      terrain[i] = t;
+      heights[i] = clamp(0.18 + depth * 0.35 + (t === T_MOUNTAIN ? 0.3 : t === T_HILLS ? 0.15 : 0) + n * 0.08, 0, 1);
+    }
+  }
+  // Clear ground at the spots the lesson points to.
+  for (const [sx, sy] of Object.values(TUTORIAL_SPOTS)) {
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      const i = (sy + dy) * W + sx + dx;
+      if (terrain[i] > T_SEA) terrain[i] = T_PLAINS;
+    }
+  }
+  return finalizeMap(W, H, terrain, heights, { seed: 1500, type: 'tutorial', size: 'fixed', name: 'Tutorial' });
+}

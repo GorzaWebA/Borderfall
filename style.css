@@ -449,14 +449,14 @@ input[type=range]::-moz-range-thumb {
 #side-left {
   position: absolute;
   left: 12px;
-  top: calc(22px + var(--top-h, 104px));
+  top: calc(22px + var(--top-h, 104px) + var(--tut-h, 0px));
   bottom: calc(24px + var(--dock-h, 110px));
   width: 300px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-#fronts { padding: 6px 12px 8px; max-height: 45%; overflow-y: auto; }
+#fronts { padding: 6px 12px 8px; max-height: 45%; overflow-y: auto; flex: none; }
 #fronts h3 { margin: 4px 0 2px; font-family: var(--font-book); font-style: italic; font-size: 14px; font-weight: 500; color: var(--sepia); }
 .front {
   display: grid;
@@ -488,9 +488,13 @@ input[type=range]::-moz-range-thumb {
   padding: 0;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: 3px;
+  min-height: 0;
+  overflow: hidden;      /* when space is short the oldest entries give way, never the dock */
   pointer-events: none;
 }
+#log li { flex: none; }
 #log li {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -937,20 +941,61 @@ input[type=range]::-moz-range-thumb {
 }
 
 /* ---------- Tutorial ---------- */
+/* The lesson and advisor card: top left under your figures, above the wars panel. */
 #tutorial {
   position: fixed;
   z-index: 35;
-  right: 12px;
-  top: 380px;
-  width: 316px;
-  padding: 14px 16px 12px;
+  left: 12px;
+  top: calc(22px + var(--top-h, 104px));
+  width: 300px;
+  max-height: calc(100vh - var(--top-h, 104px) - var(--dock-h, 110px) - 60px);
+  overflow-y: auto;
+  padding: 12px 14px 12px;
   background: var(--umber);
   border-color: var(--brass);
+  border-left: 3px solid var(--brass);
 }
 #tutorial h3 { margin: 2px 0 6px; font-family: var(--font-display); font-size: 22px; font-weight: 700; }
 #tutorial p { margin: 0 0 8px; color: var(--paper-2); }
 #tutorial .tut-step { font-family: var(--font-book); font-style: italic; font-size: 13.5px; color: var(--sepia); margin: 0; }
 #tutorial .tut-progress { color: var(--brass-hi); font-weight: 700; font-size: 16px; }
+#tutorial h3 { font-size: 20px; }
+#tutorial .tut-actions { flex-wrap: wrap; }
+#tutorial .tut-actions .ghost { padding: 5px 10px; font-size: 14px; }
+.tut-tip { margin-top: 10px; padding: 9px 10px 10px; border: 1px solid var(--rule-strong); border-radius: var(--r-ctl); background: rgba(239, 229, 207, 0.05); animation: slideIn 0.3s ease-out; }
+.tut-tip b { font-family: var(--font-book); font-style: italic; font-weight: 500; color: var(--brass-hi); }
+.tut-tip p { margin: 2px 0 8px !important; color: var(--paper) !important; font-size: 14px; }
+.tut-tip button { padding: 4px 12px; font-size: 14px; }
+
+/* The tutorial chooser: two large choices in order, controls first. */
+.tut-choices { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 10px; counter-reset: tut; }
+.tut-choices li { counter-increment: tut; }
+.tut-choices button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  text-align: left;
+  padding: 12px 14px;
+  background: rgba(239, 229, 207, 0.04);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-ctl);
+  color: var(--paper);
+}
+.tut-choices button::before {
+  content: counter(tut);
+  grid-row: 1 / 3;
+  align-self: center;
+  font-family: var(--font-book);
+  font-weight: 800;
+  font-size: 30px;
+  color: var(--brass-hi);
+  text-align: center;
+}
+.tut-choices button:hover { border-color: var(--brass); background: rgba(201, 162, 79, 0.1); }
+.tut-choices b { font-family: var(--font-display); font-size: 20px; }
+.tut-choices span { color: var(--paper-2); font-size: 14.5px; }
 .tut-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 6px; }
 .tut-actions .primary { padding: 8px 14px; font-size: 16px; margin-left: auto; }
 .tut-wait { margin-left: auto; color: var(--sepia); font-family: var(--font-book); font-style: italic; font-size: 14px; }

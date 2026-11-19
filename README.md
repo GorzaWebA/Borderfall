@@ -6,7 +6,7 @@
 
 A real-time world conquest strategy game that runs in your browser, alone or with friends. Found a nation in the year 1500, carry it through the centuries with technology, population growth and politics, and hold 70% of the land to win.
 
-No install, no account. Works on desktop and mobile browsers. New players can start with the built-in tutorial.
+No install, no account. Works on desktop and mobile browsers. On your first visit the game offers its two-part tutorial: a three-minute lesson on the controls on a small practice island, then a guided game in which an advisor sets objectives for most of a real match before handing over.
 
 ![Europe in 1633: your figures and wars on the left, time, screens and nations on the right, merchant ships and war fleets at sea, money rising from your buildings, and the build dock below](docs/screenshot.jpg)
 

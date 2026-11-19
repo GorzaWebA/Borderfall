@@ -226,6 +226,7 @@ class Game {
       p.ai = new TribeAI(this, p);
       this.players.push(p);
     }
+    this.fixedSpawns = opts.spawns || null;   // tiles for the computer players, nations first (the tutorial)
     this.spareNames = names.slice(opts.numAI);
     this.spareColors = colors.slice(opts.numAI);
     this.P = this.players.length + REBEL_SLOTS;
@@ -246,6 +247,10 @@ class Game {
     const rng = this.rng, W = this.W, T = this.map.terrain;
     // Nations first so they get the roomiest spots; tribes fill the gaps.
     const ais = this.players.filter((p) => p && !p.human).sort((a, b) => a.tribe - b.tribe);
+    if (this.fixedSpawns) {
+      ais.forEach((p, k) => { const t = this.fixedSpawns[k]; if (t !== undefined && this.canSpawnAt(t)) this.claimSpawn(p, t); else p.alive = false; });
+      return;
+    }
     let minDist = Math.sqrt(this.map.landCount / (ais.length + 1)) * 0.75;
     const placed = [];
     for (const p of ais) {
@@ -409,7 +414,7 @@ class Game {
   landShare(p) { return p.tiles / this.map.landCount; }
   fleetCap(p) { return 3 + p.counts.harbor * 2 + p.mods.fleetCap; }
   fleetsOf(pid) { let n = 0; for (const s of this.ships) if (!s.dead && s.owner === pid) n++; return n; }
-  missileCost(p) { return Math.min(MISSILE_BASE_COST + p.missilesLaunched * 400 * MONEY, 9000 * MONEY); }
+  missileCost(p) { return nicePrice(Math.min(MISSILE_BASE_COST + p.missilesLaunched * 400 * MONEY, 9000 * MONEY)); }
   missileRadii(p) { const m = 1 + p.mods.missile; return [Math.round(MISSILE_R_IN * m), Math.round(MISSILE_R_OUT * m)]; }
   readySilo(p) {
     for (const b of p.blds) if (b.type === 'silo' && b.cooldown <= 0) return b;
@@ -417,7 +422,7 @@ class Game {
   }
   buildCost(p, type) {
     const b = BUILDINGS[type];
-    return Math.round((b.base + b.step * p.counts[type]) * Math.max(0.5, 1 + p.mods.buildCost));
+    return nicePrice((b.base + b.step * p.counts[type]) * Math.max(0.5, 1 + p.mods.buildCost));
   }
   buildingAvailable(type) { return !BUILDINGS[type].politics || this.politics; }
   buildingUnlocked(p, type) {
@@ -458,7 +463,7 @@ class Game {
       if (k === 'stability') p.ideoStab += sign * fx[k];
     }
   }
-  doctrineCost(d) { return DOCTRINE_COST[d.tier] * MONEY; }
+  doctrineCost(d) { return nicePrice(DOCTRINE_COST[d.tier] * MONEY); }
   doctrineState(p, d) {
     if (p.doctrines.has(d.key)) return 'done';
     if (p.ideology !== d.ideology) return 'other';
@@ -576,8 +581,8 @@ class Game {
     p.troops = 0;
     p.pop = 0;
     if (p.human) this.log(`Your nation has fallen${by ? ' to ' + by.name : ''}.`, 'bad', p.id);
-    if (p.tribe) { if (by && by.human) this.log(`You absorbed the ${p.name} and took ${fmtMoney(loot)} from its stores.`, 'good', by.id); return; }
-    if (by && by.human) this.log(`You conquered ${p.name} and seized ${fmtMoney(loot)} from its treasury.`, 'good', by.id);
+    if (p.tribe) { if (by && by.human) this.log(`You absorbed the ${p.name} and took ${fmtMoney(nicePrice(loot))} from its stores.`, 'good', by.id); return; }
+    if (by && by.human) this.log(`You conquered ${p.name} and seized ${fmtMoney(nicePrice(loot))} from its treasury.`, 'good', by.id);
     this.log(`${p.name} was destroyed${by ? ' by ' + by.name : ''}.`, 'info', 0, [p.id, by ? by.id : 0]);
   }
 
@@ -785,7 +790,9 @@ class Game {
 
   // ---------- player commands ----------
   // Is the clicked region connected over land to pid's border?
-  landReachable(pid, tile) {
+  // Whether the owner of a tile borders pid over land, searching through that owner's land
+  // (and, with viaEmpty, through unclaimed land as well).
+  landReachable(pid, tile, viaEmpty) {
     const W = this.W, H = this.H, own = this.owner;
     const t = own[tile];
     const st = this.nextStamp(), S = this.bfsStamp, Q = this.bfsQueue;
@@ -799,7 +806,7 @@ class Game {
       for (const n of nb) {
         if (n < 0) continue;
         if (own[n] === pid) return true;
-        if (S[n] === st || !this.isTarget(n, t)) continue;
+        if (S[n] === st || !(this.isTarget(n, t) || (viaEmpty && this.isTarget(n, 0)))) continue;
         S[n] = st; Q[qt++] = n;
       }
     }
@@ -821,6 +828,10 @@ class Game {
     const x = tile % this.W, focus = [x, (tile - x) / this.W];
     if (this.landReachable(pid, tile) && this.launchAttack(pid, o, amount, { focus })) {
       return { msg: o ? `Attacking ${who} with ${fmt(amount)} troops.` : `Settling toward that spot with ${fmt(amount)} troops.` };
+    }
+    // A nation beyond empty land on your own landmass: settle the land in between, toward them.
+    if (o && this.landReachable(pid, tile, true) && this.launchAttack(pid, 0, amount, { focus })) {
+      return { msg: `Settling toward ${who} with ${fmt(amount)} troops. Attack them once your borders meet.` };
     }
     const err = this.launchNaval(pid, tile, amount);
     return err ? { msg: err, bad: true } : { msg: `Fleet sailing to ${who} with ${fmt(amount)} troops.` };
@@ -990,6 +1001,7 @@ class Game {
     const route = this.findSeaRoute(landing, aId);
     if (!route) return 'No sea route from your coast to there.';
     A.troops -= amount;
+    A.fleetsLaunched = (A.fleetsLaunched || 0) + 1;
     const ship = {
       id: this.idSeq++, owner: aId, troops: amount, path: route.path, pos: 0, landing, target: tOwner, dead: false,
       speed: SHIP_SPEED * (1 + A.mods.fleetSpeed),
@@ -1330,7 +1342,7 @@ class Game {
     if (p.human) this.log(on ? 'Martial law declared. Order improves, but trade and growth suffer.' : 'Martial law lifted.', 'info', pid);
     return '';
   }
-  celebrateCost(p) { return Math.round(Math.max(400 * MONEY, p.income * 25)); }
+  celebrateCost(p) { return nicePrice(Math.max(400 * MONEY, p.income * 25)); }
   celebrate(pid) {
     const p = this.players[pid];
     if (!this.politics) return 'There are no politics in Blitz.';
