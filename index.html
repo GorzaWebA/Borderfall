@@ -191,7 +191,10 @@
         <span class="sub"><span id="v-research">Choose research</span></span>
         <div class="goal research" aria-hidden="true"><div id="v-resbar"></div></div>
       </button>
-      <div class="clock">
+    </header>
+
+    <nav id="command" class="panel" aria-label="Game controls">
+      <div class="cmd-time">
         <span id="v-time">0:00</span>
         <div class="speed" role="group" aria-label="Game speed">
           <button type="button" data-speed="0" title="Pause (Space)">Pause</button>
@@ -199,12 +202,14 @@
           <button type="button" data-speed="2">2×</button>
           <button type="button" data-speed="4">4×</button>
         </div>
-        <div class="clock-btns">
-          <button type="button" id="btn-peace" class="icon-btn" title="Diplomacy: offer peace, declare war, track a peaceful victory (P)">Peace</button>
-          <button type="button" id="btn-menu" class="icon-btn" title="Menu">Menu</button>
-        </div>
       </div>
-    </header>
+      <div class="cmd-nav">
+        <button type="button" data-open="tech" title="Research and the research budget (T)">Technology <kbd>T</kbd></button>
+        <button type="button" data-open="gov" title="Ideology, national priority and, in Realistic, stability (G)">Government <kbd>G</kbd></button>
+        <button type="button" data-open="dipl" title="Every nation, its stance toward you, alliances (P)">Diplomacy <kbd>P</kbd></button>
+        <button type="button" id="btn-menu" title="Pause, graphics, help, quit (Esc)">Menu <kbd>Esc</kbd></button>
+      </div>
+    </nav>
 
     <aside id="board" class="panel">
       <h2>Nations <span id="board-count"></span></h2>
@@ -218,17 +223,9 @@
 
     <footer id="dock" class="panel">
       <div class="dock-sliders">
-        <label class="slider">
-          <span class="slider-head"><span>Attack</span> <output id="ratio-out">10%</output> <em id="ratio-troops"></em></span>
+        <label class="slider" title="Share of your troops each click sends. Q and E change it.">
+          <span class="slider-head"><span>Attack with</span> <output id="ratio-out">10%</output> <em id="ratio-troops"></em></span>
           <input type="range" id="ratio" min="1" max="100" value="10">
-        </label>
-        <label class="slider" title="Army focus grows troops faster. Economy focus earns more money.">
-          <span class="slider-head"><span>Army</span><output id="focus-out">Balanced</output><span>Economy</span></span>
-          <input type="range" id="focus" min="0" max="100" value="50">
-        </label>
-        <label class="slider" title="Share of your income spent on research each moment. More money means faster technology but less to build with.">
-          <span class="slider-head"><span>Research</span> <output id="sci-out">20%</output> <em id="sci-cost"></em></span>
-          <input type="range" id="science" min="0" max="80" value="20">
         </label>
       </div>
       <div class="builds" id="builds"></div>
@@ -236,6 +233,7 @@
 
     <div id="notice" role="status"></div>
     <div id="toasts"></div>
+    <section id="treaty" class="panel" hidden aria-live="polite"></section>
   </div>
 
   <aside id="tutorial" class="panel" hidden aria-live="polite"></aside>
@@ -254,11 +252,11 @@
     <div class="help">
       <section>
         <h3>Goal</h3>
-        <p>Control 70% of the world's land, or win in peace: be the largest nation while every other surviving nation is at peace or allied with you. If nobody manages that before time runs out (2000 in Realistic, 1700 in Blitz), the largest nation wins. If you lose every tile, your nation falls.</p>
+        <p>Control 70% of the world's land. If nobody manages that before time runs out (2000 in Realistic, 1700 in Blitz), the largest nation wins. Near the end, the great powers twice propose a general peace: if every player signs, the game ends there and the largest nation wins. If you lose every tile, your nation falls.</p>
       </section>
       <section>
         <h3>Modes</h3>
-        <p><b>Realistic</b> runs from 1500 to 2000, about 37 minutes at normal speed. Each technology waits for its year, and you have to keep your nation stable. <b>Blitz</b> runs from 1500 to 1700, about 15 minutes. You can research anything as soon as you know what it builds on, and there's no stability or revolts. The clock in the top bar shows how long is left.</p>
+        <p><b>Realistic</b> runs from 1500 to 2000, about 37 minutes at normal speed. Each technology waits for its year, and you have to keep your nation stable. <b>Blitz</b> runs from 1500 to 1700, about 15 minutes. You can research anything as soon as you know what it builds on, and there's no stability or revolts. The command bar at the top right shows how long is left.</p>
       </section>
       <section>
         <h3>Maps</h3>
@@ -266,7 +264,7 @@
       </section>
       <section>
         <h3>Taking land</h3>
-        <p>Click land to send the share of troops set on the <b>Attack</b> slider. Settling empty land is quick, and your border grows toward the spot you click. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead.</p>
+        <p>Click land to send the share of troops set on the <b>Attack</b> slider. Settling empty land is quick, and your border grows toward the spot you click. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first, faster with naval technology, and ride at anchor briefly before their troops go ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors.</p>
         <p>Troops at home defend you. Troops sent out don't, so don't empty your barracks while a neighbor is watching. Troops regrow fastest when you're well under your cap.</p>
       </section>
       <section>
@@ -275,11 +273,12 @@
       </section>
       <section>
         <h3>Technology</h3>
-        <p>Click the year in the top bar to open the technology tree: 51 technologies across six eras. Pick what to research next. Research comes from your people and universities, plus whatever the Research slider spends. Most technologies need earlier ones first, and in Realistic none can start before its year. Each technology you know makes the next one cost more, so no nation learns everything. If you don't pick, the cheapest available one is chosen for you.</p>
+        <p>Click the year in the top bar to open the technology tree: 51 technologies across six eras. Pick what to research next. Research comes from your people and universities, plus whatever your research budget spends; set the budget at the top of the Technology screen. Most technologies need earlier ones first, and in Realistic none can start before its year. Each technology you know makes the next one cost more, so no nation learns everything. If you don't pick, the cheapest available one is chosen for you.</p>
       </section>
       <section>
         <h3>Ideology</h3>
         <p>Press G or open Government to choose an ideology: Crown, Commerce, Militarism, Reason, Frontier, or Moderation, the balanced one with small bonuses and no drawbacks. Each has strengths and weaknesses. Every ideology has a tree of six doctrines you buy with money: the first opens two branches, and the last needs both. Changing ideology loses your doctrines and, in Realistic, shakes your stability.</p>
+        <p>Government also holds your national priority: lean toward the army and troops refill faster, toward the economy and money comes in faster.</p>
       </section>
       <section>
         <h3>Stability and control (Realistic)</h3>
@@ -297,15 +296,11 @@
       </section>
       <section>
         <h3>Borders, tribes and encirclement</h3>
-        <p>Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with a tag giving the troops fighting there. Tribes, labelled in italics with the treasure they hold, are scattered across the map at the start. They never build or research, their armies are small, and whoever absorbs one takes its stores. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally or a nation you're at peace with. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
-      </section>
-      <section>
-        <h3>Peace</h3>
-        <p>Click Peace in the top bar (or right-click a nation) to offer peace. Nations at peace can't attack each other until one declares war, which other nations remember. Weaker or war-weary nations accept more readily; a nation that's losing to you may ask for peace itself.</p>
+        <p>Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with a tag giving the troops fighting there. Tribes, labelled in italics with the treasure they hold, are scattered across the map at the start. They never build or research, their armies are small, and whoever absorbs one takes its stores. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
       </section>
       <section>
         <h3>Money</h3>
-        <p>Your treasury fills from your workers' taxes, cities, harbors and factories. A city costs about $2 million, and each extra building of a kind costs more. Build on top of one of your own buildings of the same type to stack it, up to level 5; each level adds the building's full effect again. The Army–Economy slider trades troop recruiting for income, and the Research slider sets how much of your income goes to research.</p>
+        <p>Your treasury fills from your workers' taxes, cities, harbors and factories; each building shows what it earns as it comes in. A city costs about $2 million, and each extra building of a kind costs more. Build on top of one of your own buildings of the same type to stack it, up to level 5; each level adds the building's full effect again. The national priority in Government trades troop recruiting for income, and the research budget in Technology sets how much of your income goes to research.</p>
       </section>
       <section>
         <h3>Multiplayer</h3>
@@ -313,7 +308,7 @@
       </section>
       <section>
         <h3>Diplomacy</h3>
-        <p>Right-click a nation to propose an alliance, send money, or reinforce an ally. Nations warm to peaceful neighbors and remember who attacked them. Breaking an alliance makes everyone trust you less. When one nation grows too large, others band together against it.</p>
+        <p>Right-click a nation to propose an alliance, send money, or reinforce an ally. Nations warm to quiet neighbors and remember who attacked them. Breaking an alliance makes everyone trust you less. When one nation grows too large, others band together against it.</p>
       </section>
       <section>
         <h3>Controls</h3>
@@ -323,13 +318,13 @@
           <dt>Drag, wheel, pinch</dt><dd>Move and zoom the map</dd>
           <dt>1 – 9</dt><dd>Choose a building to place</dd>
           <dt>T</dt><dd>Open the technology tree</dd>
-          <dt>P</dt><dd>Open diplomacy and peace</dd>
+          <dt>P</dt><dd>Open diplomacy</dd>
           <dt>G</dt><dd>Open government and ideology</dd>
           <dt>M</dt><dd>Aim a missile</dd>
           <dt>Q / E</dt><dd>Lower or raise the attack share</dd>
           <dt>Space</dt><dd>Pause</dd>
           <dt>H</dt><dd>Jump to your nation</dd>
-          <dt>Esc</dt><dd>Cancel</dd>
+          <dt>Esc</dt><dd>Cancel, or open the menu</dd>
         </dl>
       </section>
     </div>

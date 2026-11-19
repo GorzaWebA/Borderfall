@@ -27,7 +27,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'People and money',
-    text: 'Your people grow toward what your land can feed. Workers pay taxes into your treasury, and your soldiers are drawn from your people. More land means more of both.',
+    text: 'Your people grow toward what your land can feed. Workers pay taxes into your treasury, and your soldiers are drawn from your people. More land means more of both. Later, the Government screen lets you lean your nation toward its army or its economy.',
     target: () => document.getElementById('topbar'),
     next: 'Next',
   },
@@ -39,7 +39,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Research technology',
-    text: 'Click the year at the top to open the technology tree, then pick something to research. New technologies open up as the years pass, so check back often.',
+    text: 'Click the year at the top, or Technology in the top right, to open the technology tree, then pick something to research. The research budget at the top of that screen sets how much of your income goes to research.',
     target: () => document.getElementById('st-year'),
     done: (ui) => !!ui.me.research && !ui.me.autoResearch,
   },
@@ -51,7 +51,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Rivals and diplomacy',
-    text: 'When your border meets a rival, click their land to attack it, or right-click it to propose an alliance or send money. Click land across water and a fleet sails there. Hold 70% of the world, or be the largest nation in 2000, to win.',
+    text: 'When your border meets a rival, click their land to attack it, or right-click it to propose an alliance or send money. Right-click near a coast to send a fleet. Hold 70% of the world, or be the largest nation in 2000, to win.',
     next: 'Start playing',
   },
 ];

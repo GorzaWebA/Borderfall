@@ -8,7 +8,7 @@ A real-time world conquest strategy game that runs in your browser, alone or wit
 
 No install, no account. Works on desktop and mobile browsers. New players can start with the built-in tutorial.
 
-![Europe in 1633: nations as atlas colour washes, building symbols, a campaign arrow pushing into a neighbour, the dated chronicle on the left and the build dock below](docs/screenshot.jpg)
+![Europe in 1633: your figures and wars on the left, time, screens and nations on the right, merchant ships and war fleets at sea, money rising from your buildings, and the build dock below](docs/screenshot.jpg)
 
 ## Two ways to play
 
@@ -18,7 +18,7 @@ No install, no account. Works on desktop and mobile browsers. New players can st
 | Technology | Each tech waits for its year and for the techs it builds on | Only needs the techs it builds on |
 | Politics | Stability, administration, occupied land, revolts | None |
 | Growth | Slower; fronts crawl until railroads and engines | Fast and aggressive |
-| Ending | 70% of the land, peace with every nation while largest, or the largest nation in 2000 | Same, with the time limit at 1700 |
+| Ending | 70% of the land, a general peace signed near the end, or the largest nation in 2000 | Same, with the time limit at 1700 |
 | Typical length | 30–40 minutes | About 15 minutes |
 
 ## Maps
@@ -42,17 +42,18 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 ## What you do
 
 - **Expand.** Click land to send troops into it (10% of your troops by default). Settling empty land is steady and cheap, and your border grows toward the spot you click. Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with the troops fighting there on a tag.
-- **Encircle.** Completely surround a patch of land and it becomes yours, unless it belongs to an ally or a nation you're at peace with.
+- **Encircle.** Completely surround a patch of land and it becomes yours, unless it belongs to an ally.
 - **Absorb tribes.** Weak tribes hold scattered land at the start, each sitting on a store of treasure shown under its name. They never build or research, so they're easy pickings, and whoever absorbs one takes its stores. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
 - **Grow your people.** Population grows toward what your land and cities can feed. Only a share can serve as soldiers (8% in 1500, up to 23% by the World Wars); the rest work and pay taxes. Soldiers killed in battle are gone for good.
 - **Manage your treasury.** Money comes in dollars at a realistic scale: you start with $1.2 million, a city costs $2 million, and a missile $8 million.
-- **Research.** Set a research budget: the share of your income spent on research each moment. 51 technologies across six eras, from Military Drill and Craft Guilds to Railroads, the Telegraph, Machine Guns and Nuclear Fission. Click the year to open the tree and choose what comes next.
+- **Watch the money come in.** Your cities, harbors and factories show what they earn above them as it arrives. In Government, set your national priority: lean toward the army and troops refill faster, toward the economy and money comes in faster.
+- **Research.** Set a research budget at the top of the Technology screen: the share of your income spent on research. 51 technologies across six eras, from Military Drill and Craft Guilds to Railroads, the Telegraph, Machine Guns and Nuclear Fission. Click the year to open the tree and choose what comes next.
 - **Keep order (Realistic).** Stability depends on your technology, how far you've outgrown your administration, occupied land, war losses, taxes and levies, and the size of your empire. Conquered land shows hatched until it integrates. Below 30 stability, restless regions break away as new nations. Declare martial law or hold a celebration when things get tense.
 - **Choose an ideology.** Crown, Commerce, Militarism, Reason or Frontier, each with strengths and weaknesses, or Moderation, the balanced one. Each has a tree of six doctrines bought with money; the first opens two branches and the last needs both.
 - **Build and stack.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos. Most unlock through technology. Build on top of one of your own buildings of the same type to stack it up to level 5; every level adds its full effect again.
-- **Sail.** Click land across the water and a fleet carries your troops there to open a beachhead.
+- **Sail.** Click land across the water, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first (faster with naval technology), ride at anchor briefly, then put their troops ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors.
 - **Strike.** Missiles wipe out troops and scorch land for a while; the screen shakes when one hits you. Air defense can shoot them down.
-- **Make peace.** Offer peace to one nation or to everyone from the Peace button. Nations at peace can't attack each other. Be the largest nation while every surviving nation is at peace or allied with you, and you win without conquering the world.
+- **End the war.** Near the end of the game the great powers twice propose a general peace. If every player signs, the game ends and the largest nation wins; otherwise the war goes on.
 - **Negotiate.** Propose alliances, send money to win favor, reinforce allies, or betray them at a cost. Nations remember who attacked them and gang up on whoever grows too big.
 
 ## Features
@@ -72,14 +73,14 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 | Drag, mouse wheel, pinch | Move and zoom the map |
 | `1`–`9` | Choose a building to place (hold Shift to place several) |
 | `T` | Open the technology tree |
-| `P` | Open diplomacy: peace, war, alliances |
+| `P` | Open diplomacy: alliances and how every nation feels about you |
 | `G` | Open government: ideology and doctrines, plus stability, administration and policies in Realistic |
 | `M` | Aim a missile |
 | `Q` / `E` | Lower or raise the share of troops sent per attack |
 | `W` `A` `S` `D` / arrows | Pan the map |
 | `Space` | Pause |
 | `H` | Jump to your nation |
-| `Esc` | Cancel |
+| `Esc` | Cancel, or open the menu |
 
 ## Buildings
 

@@ -338,7 +338,8 @@ class Net {
       a: g.attacks.filter((a) => !a.dead).map((a) => [a.id, a.attacker, a.target, Math.round(a.troops), a.seeded ? 1 : 0]),
       p: g.players.slice(1).map((p) => [p.id, p.alive ? 1 : 0, p.spawned ? 1 : 0, Math.round(p.troops), p.tiles, Math.round(p.pop),
         Math.round(p.label.x * 10) / 10, Math.round(p.label.y * 10) / 10, Math.round(p.label.size * 10) / 10, p.label.tile, p.capital,
-        [...p.allies], p.human ? 1 : 0, p.peakTiles, p.kills, [...p.peace.keys()], p.tribe ? Math.round(p.gold) : 0, p.ideology || '']),
+        [...p.allies], p.human ? 1 : 0, p.peakTiles, p.kills, p.tribe ? Math.round(p.gold) : 0, p.ideology || '']),
+      tr: g.treaty && g.treaty.open ? [g.treaty.id, g.treaty.closesAt, [...g.treaty.votes]] : null,
     };
     N.own.length = 0; N.ctl.length = 0; N.fo.length = 0; N.bld.clear(); N.ships.length = 0; N.missiles.length = 0; N.fx = [];
     for (const [peer, c] of this.clients) {
@@ -423,6 +424,7 @@ class Net {
     if (u.c) unpackPairs(u.c, (t, c) => { g.control[t] = c; g.markDirty(t); });
     if (u.f) unpackPairs(u.f, (t, v) => { g.fallout[t] = v ? FALLOUT_SECONDS : 0; g.markDirty(t); });
     for (const [id, type, tile, owner, alive, cd, level] of u.b) this.mirrorBuilding(g, id, type, tile, owner, alive, cd, level);
+    if (u.b.length) g.totalHarbors = g.buildings.reduce((n, b) => n + (b.alive && b.type === 'harbor' ? b.level || 1 : 0), 0);
     for (const [id, owner, target, troops, speed, landing, path] of u.ns) {
       g.ships.push({ id, owner, target, troops, speed, landing, path, pos: 0, dead: false });
     }
@@ -446,13 +448,12 @@ class Net {
     g.attacks = u.a.map(([id, attacker, target, troops, seeded]) => ({ id, attacker, target, troops, seeded: !!seeded, dead: false }));
     if (u.fr) for (const [id, ...tiles] of u.fr) { const a = g.attacks.find((x) => x.id === id); if (a) a.fs = tiles; }
     for (const row of u.p) {
-      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, peace, stash, ideo] = row;
+      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, stash, ideo] = row;
       const p = g.players[id];
       if (!p) continue;
       p.alive = !!alive; p.spawned = !!spawned; p.troops = troops; p.tiles = tiles; p.pop = pop;
       p.label = { x: lx, y: ly, size: ls, tile: lt };
       p.capital = cap; p.allies = new Set(allies); p.human = !!human; p.peakTiles = peak; p.kills = kills;
-      p.peace = new Map((peace || []).map((x) => [x, 0]));
       if (p.tribe) p.gold = stash || 0;
       if (id !== ui.myId) p.ideology = ideo || null;
     }
@@ -464,6 +465,7 @@ class Net {
     g.requests = u.rq.map(([id, from, expires, kind]) => ({ id, from, to: ui.myId, expires, kind }));
     if (u.rel) u.rel.forEach((v, k) => { g.rel[(k + 1) * g.P + ui.myId] = v; });
     if (u.nb) g.neighbors[ui.myId] = new Map(u.nb);
+    g.treaty = u.tr ? { id: u.tr[0], open: true, closesAt: u.tr[1], votes: new Map(u.tr[2]) } : null;
     if (u.over) g.over = u.over;
     this.localTicks = 0;
   }

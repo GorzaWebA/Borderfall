@@ -7,6 +7,7 @@ const ATTACK_SPEED = 0.22;      // share of a front that tries to advance each t
 const NEUTRAL_COST = 3;         // troops per plains tile of unclaimed land
 const NEUTRAL_SPEED = 0.75;     // settling is steady, so troops last instead of vanishing in a burst
 const MAX_LEVEL = 5;            // buildings stack up to this level
+const BLD_EARN = { city: 10, factory: 25 };   // earnings per level, before the income multiplier
 const RP_PRICE = 6000;          // dollars of research budget per research point
 const TECH_KNOWN_COST = 0.065;  // each known technology raises the cost of the next by 6.5%
 const TRIBE_NAMES = ['Ash Clan', 'Bramble Folk', 'Cinder Kin', 'Dune Riders', 'Elk Clan', 'Fen Dwellers', 'Grey Wolves',
@@ -23,7 +24,10 @@ const CITY_POP = 20000;
 const CAPITAL_POP = 10000;
 const SPAWN_RADIUS = 5;
 const WIN_SHARE = 0.7;
-const SHIP_SPEED = 1.5;         // tiles per tick
+const TREATY_AT = [0.8, 0.92];   // shares of the calendar when a general peace is proposed
+const TREATY_SECONDS = 40;        // how long the proposal stays open
+const SHIP_SPEED = 0.2;         // tiles per tick: 2 tiles a second before naval technology
+const LANDING_TICKS = 15;       // a fleet rides at anchor for 1.5s before its troops go ashore
 const MISSILE_BASE_COST = 4000 * MONEY;
 const MISSILE_R_IN = 6;
 const MISSILE_R_OUT = 12;
@@ -104,7 +108,6 @@ class Player {
     this.rebelOf = 0;
     this.unrestWarnedAt = -1e9;
     this.peer = null;              // multiplayer peer id for remote humans
-    this.peace = new Map();        // nation id -> tick the treaty was signed
     this.tribe = false;
     this.science = 0.2;            // share of income spent on research
     this.researchSpend = 0;
@@ -160,6 +163,8 @@ class Game {
     this.P = 0;
     this.lastEra = 0;
     this.announced = new Set();
+    this.treaty = null;              // the general peace proposed near the end, see updateTreaty
+    this.treatyRound = 0;
     this.spareNames = [];
     this.spareColors = [];
     this.unrestWarnedAt = -1e9;
@@ -330,9 +335,8 @@ class Game {
   // ---------- helpers ----------
   isWater(i) { return this.map.terrain[i] <= T_SEA; }
   isAllied(a, b) { return a > 0 && b > 0 && a !== b && this.players[a].allies.has(b); }
-  atPeace(a, b) { return a > 0 && b > 0 && a !== b && this.players[a].peace.has(b); }
-  // Allies and peace partners never attack each other.
-  isFriendly(a, b) { return this.isAllied(a, b) || this.atPeace(a, b); }
+  // Allies never attack each other.
+  isFriendly(a, b) { return this.isAllied(a, b); }
   isTarget(i, t) {
     return this.owner[i] === t && (t !== 0 || (this.map.terrain[i] > T_SEA && this.fallout[i] === 0));
   }
@@ -377,6 +381,20 @@ class Game {
     this.control[t] = c;
   }
   stabFactor(p) { return this.politics ? 0.6 + 0.8 * p.stability / 100 : 1; }
+  // Dollars per second per unit of earnings, after focus, technology, stability and martial law.
+  incomeMult(p) {
+    return MONEY * (0.4 + 1.2 * p.focus) * (1 + p.mods.gold) * this.stabFactor(p) * (p.martial ? 0.75 : 1) * (p.diffMult || 1);
+  }
+  // A harbor earns a little on its own and more for every other harbor in the world to trade with.
+  harborEarn(p) {
+    const others = Math.min(12, this.totalHarbors - p.counts.harbor);
+    return (6 + 1.5 * Math.max(0, others)) * (1 + p.mods.trade);
+  }
+  // What one building brings in, in dollars per second.
+  buildingIncome(p, b) {
+    const per = b.type === 'harbor' ? this.harborEarn(p) : BLD_EARN[b.type] || 0;
+    return per * (b.level || 1) * this.incomeMult(p);
+  }
   troopCap(p) {
     return (500 + p.pop * (p.mods.mobil + 0.005 * Math.min(p.counts.barracks, 6))) * Math.max(0.5, 1 + p.mods.troopCap);
   }
@@ -550,9 +568,8 @@ class Game {
       else if (a.target === p.id) { this.players[a.attacker].troops += a.troops; a.troops = 0; a.dead = true; }
     }
     for (const s of this.ships) if (s.owner === p.id) s.dead = true;
-    for (const q of this.players) if (q) { q.allies.delete(p.id); q.peace.delete(p.id); }
+    for (const q of this.players) if (q) q.allies.delete(p.id);
     p.allies.clear();
-    p.peace.clear();
     const loot = p.gold;
     if (by) { by.gold += p.gold; by.kills++; }
     p.gold = 0;
@@ -628,7 +645,8 @@ class Game {
     if (tId) {
       const D = this.players[tId];
       for (const o of this.attacks) {
-        if (o.dead || o.attacker !== tId || o.target !== aId) continue;
+        // Troops already ashore from a fleet fight for their beachhead tile by tile instead.
+        if (o.dead || o.attacker !== tId || o.target !== aId || o.seeded) continue;
         const m = Math.min(o.troops, atk.troops);
         o.troops -= m; atk.troops -= m;
         this.casualties(A, m);
@@ -796,7 +814,6 @@ class Game {
     const o = this.owner[tile];
     if (o === pid) return { msg: 'Your land. Right-click it to build.' };
     if (this.isAllied(pid, o)) return { msg: `${this.players[o].name} is your ally. Right-click to reinforce them.` };
-    if (this.atPeace(pid, o)) return { msg: `You are at peace with ${this.players[o].name}. Right-click their land to declare war.` };
     if (o === 0 && this.fallout[tile]) return { msg: 'That land is scorched and can\'t be taken yet.', bad: true };
     const amount = Math.floor(me.troops * clamp(ratio, 0.01, 1));
     if (amount < 1) return { msg: 'You have no troops to send.', bad: true };
@@ -819,6 +836,12 @@ class Game {
         if (this.started && !this.multiplayer) return r('Already started.');
         return this.spawnPlayer(pid, a.tile) ? r('', '') : r('Pick a spot on unclaimed land.');
       case 'attack': return this.attackTile(pid, a.tile, a.ratio);
+      case 'fleet': {
+        const amount = Math.floor(p.troops * clamp(Number(a.ratio) || 0, 0.01, 1));
+        const err = this.launchNaval(pid, a.tile, amount);
+        const o = this.owner[a.tile];
+        return r(err, `Fleet sailing to ${o ? this.players[o].name : 'unclaimed land'} with ${fmt(amount)} troops.`);
+      }
       case 'build': {
         const err = this.build(pid, a.type, a.tile);
         if (err || !BUILDINGS[a.type]) return r(err);
@@ -828,6 +851,12 @@ class Game {
       case 'missile': return r(this.launchMissile(pid, a.tile), 'Missile away.');
       case 'retreat': return this.retreat(a.id, pid) ? r('', 'Troops pulled back. 20% were lost in the retreat.') : r('That offensive has already ended.');
       case 'ally': return r(this.requestAlliance(pid, a.to));
+      case 'treaty': {
+        if (!this.treaty || !this.treaty.open || this.treaty.id !== a.id) return r('That proposal has closed.');
+        this.treaty.votes.set(pid, !!a.accept);
+        this.updateTreaty();
+        return r('', a.accept ? (this.multiplayer ? 'You signed. Waiting for the other players.' : '') : 'You refused. The war goes on.');
+      }
       case 'unally': this.breakAlliance(pid, a.to); return r('');
       case 'troops': return r(this.sendTroops(pid, a.to, Math.floor(p.troops * (a.ratio || 0.25))));
       case 'gold': return r(this.sendGold(pid, a.to, Math.floor(p.gold * (a.ratio || 0.25))));
@@ -848,16 +877,6 @@ class Game {
       case 'celebrate': return r(this.celebrate(pid));
       case 'focus': p.focus = clamp(Number(a.v) || 0, 0, 1); return r('');
       case 'science': p.science = clamp(Number(a.v) || 0, 0, 0.8); return r('');
-      case 'peace': return r(this.requestPeace(pid, a.to));
-      case 'peaceAll': {
-        let n = 0;
-        for (const q of this.players) {
-          if (!q || !q.alive || q.id === pid || q.tribe || this.isFriendly(pid, q.id)) continue;
-          if (!this.requestPeace(pid, q.id, true)) n++;
-        }
-        return r(n ? '' : 'You are already at peace with every nation.', n ? `Peace offered to ${n} ${n === 1 ? 'nation' : 'nations'}.` : '');
-      }
-      case 'war': return r(this.breakPeace(pid, a.to));
       default: return r('Unknown command.');
     }
   }
@@ -886,6 +905,32 @@ class Game {
       }
     }
     return -1;
+  }
+
+  nearCoast(tile, r) {
+    const W = this.W, H = this.H, x0 = tile % W, y0 = (tile - x0) / W;
+    for (let y = Math.max(0, y0 - r); y <= Math.min(H - 1, y0 + r); y++) {
+      for (let x = Math.max(0, x0 - r); x <= Math.min(W - 1, x0 + r); x++) if (this.isWater(y * W + x)) return true;
+    }
+    return false;
+  }
+
+  // The nearest coastal land within r tiles of a spot, not owned by pid or an ally: where a
+  // fleet ordered "here" from a right-click on the sea would land.
+  nearestForeignCoast(pid, tile, r = 8) {
+    const W = this.W, H = this.H, x0 = tile % W, y0 = (tile - x0) / W;
+    let best = -1, bd = 1e9;
+    for (let y = Math.max(0, y0 - r); y <= Math.min(H - 1, y0 + r); y++) {
+      for (let x = Math.max(0, x0 - r); x <= Math.min(W - 1, x0 + r); x++) {
+        const t = y * W + x;
+        if (!this.map.coast[t] || this.isWater(t)) continue;
+        const o = this.owner[t];
+        if (o === pid || this.isAllied(pid, o) || (o === 0 && this.fallout[t])) continue;
+        const d = (x - x0) * (x - x0) + (y - y0) * (y - y0);
+        if (d < bd) { bd = d; best = t; }
+      }
+    }
+    return best;
   }
 
   // BFS across water from the landing site back to any shore owned by aId.
@@ -935,7 +980,6 @@ class Game {
     const tOwner = this.owner[tile];
     if (tOwner === aId) return 'That is already your land.';
     if (this.isAllied(aId, tOwner)) return `${this.players[tOwner].name} is your ally.`;
-    if (this.atPeace(aId, tOwner)) return `You are at peace with ${this.players[tOwner].name}. Declare war first.`;
     if (tOwner === 0 && this.fallout[tile]) return 'That land is still scorched.';
     if (A.coastal === 0) return 'You need a coastline to launch a fleet.';
     if (this.fleetsOf(aId) >= this.fleetCap(A)) return `All ${this.fleetCap(A)} fleets are at sea. Build harbors for more.`;
@@ -963,8 +1007,9 @@ class Game {
   stepShips() {
     for (const s of this.ships) {
       if (s.dead) continue;
-      s.pos += s.speed;
-      if (s.pos >= s.path.length - 1) { s.dead = true; this.landShip(s); }
+      if (s.pos < s.path.length - 1) { s.pos = Math.min(s.path.length - 1, s.pos + s.speed); continue; }
+      if (s.dock === undefined) s.dock = this.tick + LANDING_TICKS;
+      else if (this.tick >= s.dock) { s.dead = true; this.landShip(s); }
     }
   }
 
@@ -1072,7 +1117,7 @@ class Game {
     if (A.gold < cost) return `A missile costs ${fmt(cost)} gold.`;
     if (t < 0 || t >= this.N) return 'Out of range.';
     const tgt = this.owner[t];
-    if (tgt && this.isFriendly(aId, tgt)) return `You can't strike ${this.players[tgt].name}: ${this.isAllied(aId, tgt) ? 'they are your ally' : 'you are at peace'}.`;
+    if (tgt && this.isFriendly(aId, tgt)) return `You can't strike ${this.players[tgt].name}: they are your ally.`;
     A.gold -= cost;
     A.missilesLaunched++;
     silo.cooldown = Math.round(SILO_RELOAD / (silo.level || 1));
@@ -1184,7 +1229,7 @@ class Game {
     if (cd > this.tick) return `Wait ${Math.ceil((cd - this.tick) / TPS)}s before asking ${B.name} again.`;
     this.reqCooldown.set(key, this.tick + 30 * TPS);
     if (B.human) {
-      if (this.requests.some((r) => r.from === from && r.to === to && r.kind !== 'peace')) return '';
+      if (this.requests.some((r) => r.from === from && r.to === to)) return '';
       this.requests.push({ id: this.idSeq++, from, to, kind: 'ally', expires: this.tick + 20 * TPS });
       if (A.human) this.log(`Alliance offer sent to ${B.name}.`, 'info', from);
       return '';
@@ -1198,53 +1243,6 @@ class Game {
     return '';
   }
 
-  requestPeace(from, to, quiet) {
-    const A = this.players[from], B = this.players[to];
-    if (!A || !B || !A.alive || !B.alive || from === to) return 'Not possible.';
-    if (this.atPeace(from, to)) return `Already at peace with ${B.name}.`;
-    if (this.isAllied(from, to)) return `${B.name} is already your ally.`;
-    const key = 'p' + (from * 1000 + to);
-    const cd = this.reqCooldown.get(key) || 0;
-    if (cd > this.tick) return `Wait ${Math.ceil((cd - this.tick) / TPS)}s before offering ${B.name} peace again.`;
-    this.reqCooldown.set(key, this.tick + 25 * TPS);
-    if (B.human) {
-      if (!this.requests.some((r) => r.from === from && r.to === to && r.kind === 'peace')) {
-        this.requests.push({ id: this.idSeq++, from, to, kind: 'peace', expires: this.tick + 20 * TPS });
-      }
-      if (A.human && !quiet) this.log(`Peace offer sent to ${B.name}.`, 'info', from);
-      return '';
-    }
-    if (B.ai.considerPeace(from)) this.makePeace(from, to);
-    else if (A.human) this.log(`${B.name} refused peace${this.getRel(to, from) < -30 ? '. They still hold a grudge' : ''}.`, 'info', from);
-    return '';
-  }
-
-  makePeace(a, b) {
-    const A = this.players[a], B = this.players[b];
-    A.peace.set(b, this.tick); B.peace.set(a, this.tick);
-    this.addRel(a, b, 10); this.addRel(b, a, 10);
-    for (const x of this.attacks) {
-      if (x.dead) continue;
-      if ((x.attacker === a && x.target === b) || (x.attacker === b && x.target === a)) {
-        this.players[x.attacker].troops += x.troops; x.troops = 0; x.dead = true;
-      }
-    }
-    if (A.human) this.log(`Peace signed with ${B.name}.`, 'good', a);
-    if (B.human) this.log(`Peace signed with ${A.name}.`, 'good', b);
-  }
-
-  breakPeace(a, b) {
-    const A = this.players[a], B = this.players[b];
-    if (!B || !this.atPeace(a, b)) return 'You are not at peace with them.';
-    A.peace.delete(b); B.peace.delete(a);
-    for (const q of this.players) if (q && q.id !== a) this.addRel(q.id, a, -8);
-    this.addRel(b, a, -35);
-    if (this.politics) A.shock += 4;
-    if (A.human) this.log(`You declared war on ${B.name}. Other nations take note.`, 'bad', a);
-    if (B.human) this.log(`${A.name} broke the peace and declared war on you.`, 'bad', b);
-    return '';
-  }
-
   respondRequest(reqId, accept, pid = 1) {
     const k = this.requests.findIndex((r) => r.id === reqId && r.to === pid);
     if (k < 0) return;
@@ -1252,12 +1250,11 @@ class Game {
     this.requests.splice(k, 1);
     const A = this.players[r.from];
     if (!A.alive || !this.players[pid].alive) return;
-    const peace = r.kind === 'peace';
-    if (accept) { if (peace) this.makePeace(r.from, pid); else this.formAlliance(r.from, pid); }
+    if (accept) this.formAlliance(r.from, pid);
     else {
       this.addRel(r.from, pid, -8);
       this.log(`You turned down ${A.name}.`, 'info', pid);
-      if (A.human) this.log(`${this.players[pid].name} declined your ${peace ? 'peace offer' : 'alliance'}.`, 'info', A.id);
+      if (A.human) this.log(`${this.players[pid].name} declined your alliance.`, 'info', A.id);
     }
   }
 
@@ -1517,7 +1514,7 @@ class Game {
 
   // ---------- encirclement ----------
   // Any patch of land touched only by one other nation (no sea, no third party) is annexed by it,
-  // unless it belongs to an ally or peace partner. Large cut-off pockets of a nation hold out.
+  // unless it belongs to an ally. Large cut-off pockets of a nation hold out.
   annexEnclaves() {
     const W = this.W, H = this.H, N = this.N, own = this.owner, T = this.map.terrain, fo = this.fallout;
     const st = this.nextStamp(), S = this.bfsStamp, Q = this.bfsQueue;
@@ -1594,12 +1591,10 @@ class Game {
       p.troops += g * dt;
       if (p.troops > p.pop) p.troops = p.pop;
       p.growth = g;
-      // Workers earn gold.
+      // Workers pay taxes; cities, harbors and factories add their own earnings.
       const workers = Math.max(0, p.pop - p.troops - p.field);
-      const others = Math.min(12, this.totalHarbors - p.counts.harbor);
-      const harborIncome = p.counts.harbor * (6 + 1.5 * Math.max(0, others)) * (1 + p.mods.trade);
-      const inc = MONEY * (5 + workers * 0.00025 + p.counts.city * 10 + harborIncome + p.counts.factory * 25) *
-        (0.4 + 1.2 * p.focus) * (1 + p.mods.gold) * sf * (p.martial ? 0.75 : 1) * p.diffMult;
+      const inc = (5 + workers * 0.00025 + p.counts.city * BLD_EARN.city + p.counts.harbor * this.harborEarn(p) +
+        p.counts.factory * BLD_EARN.factory) * this.incomeMult(p);
       // Research is funded from income; nothing is spent while there's nothing to research.
       const spend = p.research ? inc * p.science : 0;
       p.gold += (inc - spend) * dt;
@@ -1679,6 +1674,7 @@ class Game {
         }
       }
     }
+    this.updateTreaty();
     if (this.mode.endYear) {
       const left = this.mode.endYear - this.year;
       const warnAt = this.mode.endYear - START_YEAR > 300 ? [50, 10] : [25, 5];
@@ -1842,6 +1838,39 @@ class Game {
     }
   }
 
+  largestNation() {
+    let top = null;
+    for (const p of this.players) if (p && p.alive && !p.tribe && (!top || p.tiles > top.tiles)) top = p;
+    return top || this.players.find((p) => p && p.alive) || this.players[1];
+  }
+
+  // Near the end of the calendar the great powers propose a general peace. If every player still
+  // in the game signs, the game ends there and the largest nation wins; one refusal and the war
+  // goes on. It is offered twice, at 80% and 92% of the way to the final year.
+  updateTreaty() {
+    const T = this.treaty;
+    if (T && T.open) {
+      const voters = this.humans().filter((h) => h.alive);
+      if (voters.some((h) => T.votes.get(h.id) === false) || this.tick >= T.closesAt) {
+        T.open = false;
+        const no = voters.find((h) => T.votes.get(h.id) === false);
+        const msg = !no ? 'The general peace went unsigned. The war goes on.'
+          : this.multiplayer ? `${no.name} refused the general peace. The war goes on.` : 'You refused the general peace. The war goes on.';
+        for (const h of voters) this.log(msg, 'info', h.id);
+      } else if (voters.length && voters.every((h) => T.votes.get(h.id) === true)) {
+        T.open = false;
+        T.signed = true;
+      }
+      return;
+    }
+    if (!this.mode.endYear || this.over || this.treatyRound >= TREATY_AT.length) return;
+    const progress = (this.year - START_YEAR) / (this.mode.endYear - START_YEAR);
+    if (progress < TREATY_AT[this.treatyRound]) return;
+    this.treatyRound++;
+    this.treaty = { id: this.idSeq++, open: true, closesAt: this.tick + TREATY_SECONDS * TPS, votes: new Map() };
+    for (const h of this.humans()) if (h.alive) this.log('Envoys of the great powers propose a general peace. Sign it to end the game now.', 'info', h.id);
+  }
+
   checkGameOver() {
     if (this.over || !this.started) return;
     const end = (winner, reason) => { this.over = { winner, reason, time: this.time, year: this.year }; };
@@ -1853,15 +1882,7 @@ class Game {
     }
     const humans = this.humans();
     if (!humans.some((h) => h.alive)) { end(top ? top.id : 0, 'fallen'); return; }
-    // Peace victory: the largest nation, at peace or allied with every other surviving nation.
-    let topNation = null;
-    for (const p of this.players) if (p && p.alive && !p.tribe && (!topNation || p.tiles > topNation.tiles)) topNation = p;
-    for (const h of humans) {
-      if (!h.alive || h !== topNation || this.time < 120) continue;
-      let rivals = 0;
-      for (const p of this.players) if (p && p.alive && !p.tribe && p !== h && !this.isFriendly(h.id, p.id)) rivals++;
-      if (rivals === 0) { end(h.id, 'peace'); return; }
-    }
+    if (this.treaty && this.treaty.signed) { end(this.largestNation().id, 'treaty'); return; }
     if (this.mode.endYear && this.year >= this.mode.endYear) end(top.id, 'year');
   }
 

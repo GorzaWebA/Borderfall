@@ -298,10 +298,6 @@ class UI {
       : 'Click any unclaimed land to found your nation. Rivals are already on the map.';
     this.speed = 1;
     this.setSpeedButtons();
-    $('focus').value = 50;
-    $('science').value = 20;
-    this.updateScience();
-    this.updateFocus();
     this.r.insetLeft = 0;
     if (this.r.map !== game.map) this.r.setMap(game.map);
     this.r.setGame(game);
@@ -392,21 +388,32 @@ class UI {
       b.addEventListener('click', () => { this.speed = Number(b.dataset.speed); this.setSpeedButtons(); });
     }
     $('btn-menu').addEventListener('click', () => this.showGameMenu());
-    $('btn-peace').addEventListener('click', () => this.openNation('dipl'));
-    $('science').addEventListener('input', () => {
-      if (this.game && this.game.started) this.cmd('science', { v: Number($('science').value) / 100 }, true);
-      this.updateScience();
+    // Panels are placed from the measured heights of the top bar, command bar and dock, so they
+    // stay clear of each other whatever the screen size or zoom.
+    const measure = () => {
+      const root = document.documentElement.style;
+      for (const [id, v] of [['topbar', '--top-h'], ['command', '--cmd-h'], ['dock', '--dock-h']]) {
+        const h = $(id).offsetHeight;
+        if (h) root.setProperty(v, `${h}px`);
+      }
+    };
+    if (window.ResizeObserver) { const ro = new ResizeObserver(measure); for (const id of ['topbar', 'command', 'dock']) ro.observe($(id)); }
+    window.addEventListener('resize', measure);
+    for (const b of document.querySelectorAll('#command [data-open]')) b.addEventListener('click', () => this.openNation(b.dataset.open));
+    $('treaty').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-treaty]');
+      const T = this.game && this.game.treaty;
+      if (!b || !T || !T.open) return;
+      const accept = b.dataset.treaty === '1';
+      this.cmd('treaty', { id: T.id, accept });
+      T.votes.set(this.myId, accept);
+      this.treatyKey = '';
+      this.updateTreaty();
     });
     $('st-year').addEventListener('click', () => this.openNation('tech'));
     $('st-stability').addEventListener('click', () => this.openNation('gov'));
     const ratio = $('ratio');
     ratio.addEventListener('input', () => { this.ratio = Number(ratio.value) / 100; this.updateRatio(); });
-    const focus = $('focus');
-    focus.addEventListener('input', () => {
-      if (this.game && this.game.started) this.cmd('focus', { v: Number(focus.value) / 100 }, true);
-      this.updateFocus();
-    });
-    this.updateFocus();
 
     const builds = $('builds');
     this.buildBtns = {};
@@ -473,11 +480,6 @@ class UI {
     $('ratio-troops').textContent = g && this.me ? fmt(this.me.troops * this.ratio) : '';
   }
 
-  updateFocus() {
-    const v = Number($('focus').value);
-    $('focus-out').textContent = v < 20 ? 'War footing' : v < 42 ? 'Army-leaning' : v <= 58 ? 'Balanced' : v <= 80 ? 'Trade-leaning' : 'Merchant state';
-  }
-
   notice(text, bad) {
     const n = $('notice');
     n.textContent = text;
@@ -485,13 +487,6 @@ class UI {
     n.classList.add('show');
     clearTimeout(this.noticeTimer);
     this.noticeTimer = setTimeout(() => n.classList.remove('show'), 2600);
-  }
-
-  updateScience() {
-    const v = Number($('science').value);
-    $('sci-out').textContent = `${v}%`;
-    const me = this.game && this.me;
-    $('sci-cost').textContent = me && me.grossIncome ? `${fmtMoney(me.grossIncome * v / 100 * 60)}/min` : '';
   }
 
   // Missile hits on us shake the screen and flash; an incoming missile pulses the screen edge.
@@ -523,6 +518,7 @@ class UI {
       if (this.keys.has('arrowdown') || this.keys.has('s')) dy -= sp;
       if (dx || dy) this.r.pan(dx, dy);
     }
+    this.rollNumbers(dt);
     this.hudTimer -= dt;
     if (this.hudTimer <= 0) {
       this.hudTimer = 200;
@@ -531,17 +527,32 @@ class UI {
     }
   }
 
+  // Troops, treasury and people roll toward their true values every frame instead of jumping
+  // with each HUD refresh, so spending and income read as movement.
+  rollNumbers(dt) {
+    const g = this.game;
+    if (!g || !g.started || $('hud').hidden) { this.shown = null; return; }
+    const me = this.me;
+    const k = 1 - Math.exp(-dt / 1000 * 10);
+    if (!this.shown || this.shown.game !== g) this.shown = { game: g, troops: me.troops, gold: me.gold, pop: me.pop, text: {} };
+    const S = this.shown;
+    for (const [id, key, f] of [['v-troops', 'troops', fmt], ['v-gold', 'gold', fmtMoney], ['v-pop', 'pop', fmt]]) {
+      const target = me[key];
+      S[key] = Math.abs(target - S[key]) < 1 ? target : S[key] + (target - S[key]) * k;
+      const text = f(S[key]);
+      if (S.text[id] !== text) { S.text[id] = text; $(id).textContent = text; }
+    }
+  }
+
   updateHud(force) {
     const g = this.game;
     if (!g) return;
     const me = this.me;
     const cap = g.troopCap(me);
-    $('v-troops').textContent = fmt(me.troops);
     $('v-cap').textContent = `/ ${fmt(cap)}`;
     const gr = $('v-growth');
     gr.textContent = `${me.growth >= 0 ? '+' : ''}${fmt(me.growth * 60)}/min`;
     gr.classList.toggle('neg', me.growth < 0);
-    $('v-gold').textContent = fmtMoney(me.gold);
     $('v-income').textContent = `${me.income >= 0 ? '+' : ''}${fmtMoney(me.income * 60)}/min`;
     const share = g.landShare(me);
     $('v-land').textContent = `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`;
@@ -550,7 +561,6 @@ class UI {
     $('v-time').textContent = g.mode.endYear
       ? `${fmtTime(Math.max(0, (g.mode.endYear - START_YEAR) * g.mode.secPerYear - g.time))} left`
       : fmtTime(g.time);
-    $('v-pop').textContent = fmt(me.pop);
     $('v-popcap').textContent = `/ ${fmt(me.popCap)}`;
     const pg = $('v-popgrowth');
     pg.textContent = `${me.popGrowth >= 0 ? '+' : ''}${fmt(me.popGrowth * 60)}/min`;
@@ -598,10 +608,10 @@ class UI {
     this.updateFronts();
     this.updateLog();
     this.updateToasts();
+    this.updateTreaty();
 
     if (!this.spawnedShown && me.spawned) this.onSpawned(me.capital);
     this.checkBombs();
-    this.updateScience();
     if (g.over && !this.overShown) {
       this.overShown = true;
       this.fallenShown = true;
@@ -620,7 +630,7 @@ class UI {
     $('board-count').textContent = tribes ? `${alive.length} left, ${tribes} tribes` : `${alive.length} left`;
     const rows = [];
     const row = (p, rank) => {
-      const ally = g.isAllied(this.myId, p.id) ? '<span class="ally">Ally</span>' : g.atPeace(this.myId, p.id) ? '<span class="ally">Peace</span>' : p.human && p.id !== this.myId ? '<span class="ally pl">Player</span>' : '';
+      const ally = g.isAllied(this.myId, p.id) ? '<span class="ally">Ally</span>' : p.human && p.id !== this.myId ? '<span class="ally pl">Player</span>' : '';
       const share = g.landShare(p) * 100;
       return `<li data-pid="${p.id}" class="${p.id === this.myId ? 'me' : ''}" style="--c:${rgbCss(p.color)}"><span class="rk">${rank}</span><span class="nm">${esc(p.name)}${ally}</span><span class="ld">${share.toFixed(share < 10 ? 1 : 0)}%</span><span class="tr">${fmt(p.troops)}</span></li>`;
     };
@@ -650,13 +660,14 @@ class UI {
     }
     for (const s of g.ships) {
       if (s.dead) continue;
-      const eta = Math.max(0, Math.ceil((s.path.length - 1 - s.pos) / SHIP_SPEED / TPS));
+      const secs = Math.max(0, Math.ceil((s.path.length - 1 - s.pos) / Math.max(0.01, s.speed) / TPS));
+      const eta = secs > 0 ? `${secs}s` : 'landing';
       if (s.owner === this.myId) {
         const t = s.target ? g.players[s.target] : null;
-        out.push(`<div class="front" style="--c:${t ? rgbCss(t.color) : '#a89f80'}"><span class="nm">Fleet to ${t ? esc(t.name) : 'unclaimed land'}</span><span class="tr">${fmt(s.troops)}</span><span class="tr" style="font-size:13px;color:var(--muted)">${eta}s</span></div>`);
+        out.push(`<div class="front" style="--c:${t ? rgbCss(t.color) : '#a89f80'}"><span class="nm">Fleet to ${t ? esc(t.name) : 'unclaimed land'}</span><span class="tr">${fmt(s.troops)}</span><span class="eta">${eta}</span></div>`);
       } else if (s.target === this.myId) {
         const p = g.players[s.owner];
-        inc.push(`<div class="front in" style="--c:${rgbCss(p.color)}"><span class="nm">Fleet from ${esc(p.name)}</span><span class="tr">${fmt(s.troops)}</span><span class="tr" style="font-size:13px;color:var(--muted)">${eta}s</span></div>`);
+        inc.push(`<div class="front in" style="--c:${rgbCss(p.color)}"><span class="nm">Fleet from ${esc(p.name)}</span><span class="tr">${fmt(s.troops)}</span><span class="eta">${eta}</span></div>`);
       }
     }
     for (const m of g.missiles) {
@@ -711,7 +722,7 @@ class UI {
         el = document.createElement('div');
         el.className = 'toast';
         el.style.setProperty('--c', rgbCss(p.color));
-        el.innerHTML = `<p><b>${esc(p.name)}</b> ${r.kind === 'peace' ? 'offers peace. Neither side may attack the other while it lasts.' : 'proposes an alliance. Allies can\'t attack each other.'}</p><div class="acts"><button type="button" class="primary" data-a="1">Accept</button><button type="button" class="ghost" data-a="0">Decline</button></div><div class="timer"></div>`;
+        el.innerHTML = `<p><b>${esc(p.name)}</b> proposes an alliance. Allies can't attack each other.</p><div class="acts"><button type="button" class="primary" data-a="1">Accept</button><button type="button" class="ghost" data-a="0">Decline</button></div><div class="timer"></div>`;
         el.addEventListener('click', (e) => {
           const b = e.target.closest('button[data-a]');
           if (!b || !this.game) return;
@@ -728,6 +739,41 @@ class UI {
     for (const [id, el] of this.toastEls) {
       if (!live.has(id)) { el.remove(); this.toastEls.delete(id); }
     }
+  }
+
+  // The general peace proposed near the end of the game: standings, sign or fight on.
+  updateTreaty() {
+    const g = this.game, T = g.treaty, el = $('treaty'), me = this.me;
+    if (!T || !T.open || !me.alive || g.over) { el.hidden = true; return; }
+    const nations = g.players.filter((p) => p && p.alive && !p.tribe).sort((a, b) => b.tiles - a.tiles);
+    const top = nations[0], rank = nations.indexOf(me) + 1;
+    const pct = (p) => `${Math.round(g.landShare(p) * 100)}%`;
+    const standing = top === me
+      ? `Yours is the largest nation, with ${pct(me)} of the land. Signing wins the game.`
+      : `${top.name} is the largest nation, with ${pct(top)} of the land. You hold ${pct(me)} and rank ${rank} of ${nations.length}. Signing ends the game with ${top.name} ahead.`;
+    const mine = T.votes.get(this.myId);
+    const humans = g.players.filter((p) => p && p.human && p.alive);
+    let status = '';
+    if (g.multiplayer) {
+      const signed = humans.filter((h) => T.votes.get(h.id) === true).map((h) => h.name);
+      const waiting = humans.filter((h) => !T.votes.has(h.id)).map((h) => h.name);
+      status = `Every player must sign. ${signed.length ? `Signed: ${signed.join(', ')}.` : 'Nobody has signed yet.'}${waiting.length ? ` Waiting for ${waiting.join(', ')}.` : ''}`;
+    }
+    const left = Math.max(0, T.closesAt - g.tick);
+    const key = `${T.id}|${standing}|${status}|${mine}`;
+    if (key !== this.treatyKey) {
+      this.treatyKey = key;
+      const acts = mine === true
+        ? '<p class="treaty-wait">You signed.</p>'
+        : '<div class="acts"><button type="button" class="primary" data-treaty="1">Sign the peace</button><button type="button" class="ghost" data-treaty="0">Fight on</button></div>';
+      el.innerHTML = `<h3>A general peace</h3>
+        <p>Envoys of the great powers propose to end the wars. If it is signed, the game ends now and the largest nation wins.</p>
+        <p class="treaty-standing">${esc(standing)}</p>
+        ${status ? `<p class="treaty-wait">${esc(status)}</p>` : ''}
+        ${acts}<div class="timer"></div>`;
+    }
+    el.hidden = false;
+    el.querySelector('.timer').style.width = `${clamp(left / (TREATY_SECONDS * TPS), 0, 1) * 100}%`;
   }
 
   // ---------- modes ----------
@@ -797,6 +843,15 @@ class UI {
     else if (o) { const p = g.players[o]; title = o === my ? `${p.name} (you)` : p.name; sub = `${ter.name}, ${fmt(p.troops)} troops`; }
     else { title = 'Unclaimed land'; sub = ter.name; }
 
+    // A right-click on the sea near someone's coast offers to land a fleet there.
+    if (me.alive && water) {
+      const coast = g.nearestForeignCoast(my, tile);
+      if (coast >= 0) {
+        const co = g.owner[coast], amt = Math.floor(me.troops * this.ratio);
+        items.push({ label: `Send fleet to ${co ? g.players[co].name : 'unclaimed land'} with ${fmt(amt)} troops`,
+          act: () => this.cmd('fleet', { tile: coast, ratio: this.ratio }) });
+      }
+    }
     if (me.alive && !water) {
       if (o === my) {
         for (const type of BUILD_ORDER) {
@@ -808,7 +863,12 @@ class UI {
       } else if (!g.isAllied(my, o)) {
         const amt = Math.floor(me.troops * this.ratio);
         const land = g.landReachable(my, tile);
-        items.push({ label: land ? `Attack with ${fmt(amt)} troops` : `Send fleet with ${fmt(amt)} troops`, act: () => this.attackAt(tile) });
+        if (land) items.push({ label: `Attack with ${fmt(amt)} troops`, act: () => this.attackAt(tile) });
+        // Coastal land can always be reached by sea as well.
+        if (!land || g.nearCoast(tile, 3)) {
+          items.push({ label: `Send fleet with ${fmt(amt)} troops`, title: 'Your fleet lands on the nearest stretch of their coast.',
+            act: () => this.cmd('fleet', { tile, ratio: this.ratio }) });
+        }
         if (me.counts.silo) {
           const cost = g.missileCost(me);
           const err = !g.readySilo(me) ? 'Every silo is reloading.' : me.gold < cost ? `Needs ${fmtMoney(cost)}.` : '';
@@ -824,8 +884,6 @@ class UI {
           items.push({ label: `Send ${fmt(amt)} troops`, act: () => this.cmd('troops', { to: o, ratio: 0.25 }) });
           items.push({ label: 'Break alliance', danger: true, act: () => this.cmd('unally', { to: o }) });
         } else {
-          if (g.atPeace(my, o)) items.push({ label: 'Declare war', danger: true, title: 'Ends the peace. Other nations will trust you less.', act: () => this.cmd('war', { to: o }) });
-          else items.push({ label: 'Offer peace', act: () => this.cmd('peace', { to: o }) });
           if (!p.tribe) items.push({ label: 'Propose alliance', act: () => this.cmd('ally', { to: o }) });
         }
         const gold = Math.floor(me.gold * 0.25);
@@ -885,7 +943,6 @@ class UI {
       }
       if (o !== this.myId) {
         if (g.isAllied(this.myId, o)) rows.push(['Status', '<span class="rel-good">Your ally</span>']);
-        else if (g.atPeace(this.myId, o)) rows.push(['Status', '<span class="rel-good">At peace</span>']);
         else if (!p.human) {
           const v = g.getRel(o, this.myId);
           const [lbl, cls] = relLabel(v);
@@ -929,7 +986,7 @@ class UI {
       e.preventDefault();
       if (!this.r.map) return;
       const f = Math.exp(-clamp(e.deltaY, -120, 120) * 0.0022);
-      this.r.zoomAt(e.clientX, e.clientY, f);
+      this.r.zoomAt(e.clientX, e.clientY, f, true);
       this.closeCtx();
     }, { passive: false });
 
@@ -1020,7 +1077,8 @@ class UI {
       if (k === 'escape') {
         if (this.modalOpen) { this.closeModal(); return; }
         if (!$('ctx').hidden) { this.closeCtx(); return; }
-        if (this.r.mode && this.r.mode.kind !== 'spawn') { this.r.mode = null; this.updateHud(true); }
+        if (this.r.mode && this.r.mode.kind !== 'spawn') { this.r.mode = null; this.updateHud(true); return; }
+        if (this.game && this.game.started && !this.r.mode) this.showGameMenu();
         return;
       }
       if (this.modalOpen) return;
@@ -1064,6 +1122,7 @@ class UI {
     card.scrollTop = 0;
     for (const b of $('modal-body').querySelectorAll('[data-close]')) b.addEventListener('click', () => this.closeModal());
     if (opts.onClick) $('modal-body').addEventListener('click', opts.onClick, { once: false });
+    if (opts.onInput) $('modal-body').addEventListener('input', opts.onInput);
     const first = $('modal-body').querySelector('button.primary');
     if (first) first.focus({ preventScroll: true });
     card.scrollTop = 0;
@@ -1102,7 +1161,7 @@ class UI {
     if (!g || !g.started) return;
     this.nationTab = tab === 'gov' ? 'gov' : tab === 'dipl' ? 'dipl' : 'tech';
     this.nationMsg = '';
-    this.openModal(this.nationHtml(), { wide: true, onClick: (e) => this.onNationClick(e) });
+    this.openModal(this.nationHtml(), { wide: true, onClick: (e) => this.onNationClick(e), onInput: (e) => this.onNationInput(e) });
   }
 
   renderNation() {
@@ -1135,6 +1194,16 @@ class UI {
       this.renderNation();
       return;
     }
+    const preset = e.target.closest('[data-focus]');
+    if (preset && me.alive) {
+      const v = Number(preset.dataset.focus);
+      this.cmd('focus', { v }, true);
+      me.focus = v;
+      const r = $('modal-body').querySelector('#focus-range');
+      if (r) r.value = Math.round(v * 100);
+      this.updatePriorityReadout(v);
+      return;
+    }
     const ideo = e.target.closest('[data-ideo]');
     if (ideo && me.alive) {
       const res = this.cmd('ideology', { id: ideo.dataset.ideo }, true);
@@ -1160,6 +1229,82 @@ class UI {
     }
   }
 
+  onNationInput(e) {
+    const me = this.me;
+    if (!me || !me.alive) return;
+    if (e.target.id === 'sci-range') {
+      const v = Number(e.target.value) / 100;
+      this.cmd('science', { v }, true);
+      me.science = v;
+      this.updateBudgetReadout(v);
+    } else if (e.target.id === 'focus-range') {
+      const v = Number(e.target.value) / 100;
+      this.cmd('focus', { v }, true);
+      me.focus = v;
+      this.updatePriorityReadout(v);
+    }
+  }
+
+  // Research per second if the budget were v, from the current rate and what money buys.
+  researchAt(v) {
+    const g = this.game, me = this.me;
+    const mult = (1 + me.mods.research) * g.stabFactor(me) * g.mode.research;
+    const base = Math.max(0, me.rpRate - (me.researchSpend || 0) / RP_PRICE * mult);
+    return base + (me.grossIncome || 0) * v / RP_PRICE * mult;
+  }
+
+  budgetText(v) {
+    const me = this.me;
+    const spend = (me.grossIncome || 0) * v * 60;
+    return `${Math.round(v * 100)}% of income, ${fmtMoney(spend)}/min. Research about ${this.researchAt(v).toFixed(1)} per second.`;
+  }
+
+  updateBudgetReadout(v) {
+    const el = $('modal-body').querySelector('#sci-readout');
+    if (el) el.textContent = this.budgetText(v);
+  }
+
+  budgetHtml() {
+    const me = this.me, v = me.science;
+    return `<div class="budget">
+      <label for="sci-range"><b>Research budget</b><span>The share of your income spent on research. More money means faster technology but less to build with. Nothing is spent while there's nothing to research.</span></label>
+      <input type="range" id="sci-range" min="0" max="80" value="${Math.round(v * 100)}">
+      <p id="sci-readout" class="budget-out">${esc(this.budgetText(v))}</p>
+    </div>`;
+  }
+
+  priorityText(v) {
+    const rec = 1.3 - 0.6 * v, inc = 0.4 + 1.2 * v;
+    const pct = (x) => `${x >= 1 ? '+' : '−'}${Math.round(Math.abs(x - 1) * 100)}%`;
+    const burden = Math.abs(v - 0.5) * 20;
+    let t = Math.abs(v - 0.5) < 0.01 ? 'Recruiting and income at their normal rate.' : `Recruiting ${pct(rec)}, income ${pct(inc)}.`;
+    if (this.game.politics && burden >= 0.5) t += ` Stability −${burden.toFixed(0)} from the strain.`;
+    return t;
+  }
+
+  updatePriorityReadout(v) {
+    const el = $('modal-body').querySelector('#focus-readout');
+    if (el) el.textContent = this.priorityText(v);
+    for (const b of $('modal-body').querySelectorAll('[data-focus]')) b.setAttribute('aria-pressed', String(Math.abs(Number(b.dataset.focus) - v) < 0.01));
+  }
+
+  // National priority: where your people's effort goes, armies or the economy.
+  priorityHtml() {
+    const v = this.me.focus;
+    const preset = (val, label) => `<button type="button" class="ghost" data-focus="${val}" aria-pressed="${Math.abs(val - v) < 0.01}">${label}</button>`;
+    return `<section class="priority">
+      <h3>National priority</h3>
+      <p class="ideo-lede">Where your people's effort goes. Toward the army, troops refill faster; toward the economy, your treasury fills faster.${this.game.politics ? ' Leaning far either way strains your people and costs stability.' : ''}</p>
+      <div class="priority-row">
+        <span>Army</span>
+        <input type="range" id="focus-range" min="0" max="100" value="${Math.round(v * 100)}" aria-label="National priority, army to economy">
+        <span>Economy</span>
+      </div>
+      <p id="focus-readout" class="budget-out">${esc(this.priorityText(v))}</p>
+      <div class="priority-presets">${preset(0.15, 'War footing')}${preset(0.5, 'Balanced')}${preset(0.85, 'Prosperity')}</div>
+    </section>`;
+  }
+
   nationHtml() {
     const g = this.game;
     const tab = (id, label) => `<button type="button" role="tab" data-tab="${id}" aria-selected="${this.nationTab === id}">${label}</button>`;
@@ -1180,7 +1325,7 @@ class UI {
       const left = g.techCost(me, t) - (me.progress[t.id] || 0);
       return rate > 0 ? Math.ceil(left / rate) : Infinity;
     };
-    const lede = `It is ${g.year}, the ${ERAS[era].name.toLowerCase()} era. You produce ${rate.toFixed(1)} research per second from your people and universities.` +
+    const lede = `It is ${g.year}, the ${ERAS[era].name.toLowerCase()} era. You produce ${rate.toFixed(1)} research per second from your people, universities and budget.` +
       (cur ? ` Researching ${cur.name}, done in about ${fmtDuration(eta(cur))}.` : ' Pick a technology to research.') +
       (g.mode.timeGate ? ' Technologies marked with a later year open up as time passes.' : '');
     let cols = '';
@@ -1207,47 +1352,43 @@ class UI {
       const span = e < ERAS.length - 1 ? `${ERAS[e].from}–${ERAS[e + 1].from - 1}` : `${ERAS[e].from} on`;
       cols += `<section class="era${e === era ? ' now' : ''}${g.mode.timeGate && e > era ? ' future' : ''}"><h3>${ERAS[e].name} <span>${span}</span></h3>${cards}</section>`;
     }
-    return `<p class="result-lede">${esc(lede)}</p><div class="tree">${cols}</div>`;
+    return `${this.budgetHtml()}<p class="result-lede">${esc(lede)}</p><div class="tree">${cols}</div>`;
   }
 
-  // Diplomacy: everyone's stance toward you, and how close you are to a peaceful victory.
+  // Diplomacy: every nation, its stance toward you, and alliances.
   diplHtml() {
-    const g = this.game, me = this.me, my = this.myId;
+    const g = this.game, my = this.myId;
     const nations = g.players.filter((p) => p && p.alive && p.spawned && !p.tribe && p.id !== my).sort((a, b) => b.tiles - a.tiles);
-    const friendly = nations.filter((p) => g.isFriendly(my, p.id)).length;
-    const largest = nations.every((p) => p.tiles <= me.tiles);
     const atWar = new Set();
     for (const a of g.attacks) {
       if (a.dead) continue;
       if (a.attacker === my) atWar.add(a.target);
       if (a.target === my) atWar.add(a.attacker);
     }
+    const allies = nations.filter((p) => g.isAllied(my, p.id)).length;
     const rows = nations.map((p) => {
-      let st, cls, acts = '';
-      if (g.isAllied(my, p.id)) { st = 'Ally'; cls = 'st-ally'; }
-      else if (g.atPeace(my, p.id)) { st = 'At peace'; cls = 'st-peace'; acts = `<button type="button" class="ghost" data-dip="war" data-to="${p.id}">Declare war</button>`; }
-      else {
-        st = atWar.has(p.id) ? 'At war' : 'No treaty'; cls = atWar.has(p.id) ? 'st-war' : 'st-neutral';
-        acts = `<button type="button" class="ghost" data-dip="peace" data-to="${p.id}">Offer peace</button><button type="button" class="ghost" data-dip="ally" data-to="${p.id}">Ally</button>`;
+      let st, cls, acts;
+      if (g.isAllied(my, p.id)) {
+        st = 'Ally'; cls = 'st-ally';
+        acts = `<button type="button" class="ghost" data-dip="unally" data-to="${p.id}" title="Others will trust you less, and your land is easier to take for a while.">Break alliance</button>`;
+      } else {
+        st = atWar.has(p.id) ? 'At war' : 'Neutral'; cls = atWar.has(p.id) ? 'st-war' : 'st-neutral';
+        acts = `<button type="button" class="ghost" data-dip="ally" data-to="${p.id}">Propose alliance</button>`;
       }
       const feel = p.human ? 'Player' : relLabel(g.getRel(p.id, my))[0];
       const ideo = p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : '<span class="st-neutral">None yet</span>';
       return `<tr><td><span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}</td><td class="num">${(g.landShare(p) * 100).toFixed(1)}%</td><td>${ideo}</td><td class="${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
     }).join('');
-    const need = nations.length - friendly;
-    const progress = need === 0 && largest
-      ? '<b>Every surviving nation is at peace or allied with you, and yours is the largest.</b> Victory is moments away.'
-      : `At peace or allied with <b>${friendly} of ${nations.length}</b> nations. To win in peace, make peace with the remaining ${need} and be the largest nation${largest ? ' (you are)' : ' (you are not yet)'}. Tribes don't count.`;
-    return `<p class="dipl-progress">${progress}</p>
-      <div class="modal-actions" style="justify-content:flex-start;margin:0 0 12px"><button type="button" class="primary" data-dip="peaceAll">Offer peace to everyone</button></div>
+    const lede = `${nations.length} ${nations.length === 1 ? 'nation remains' : 'nations remain'}${allies ? `, ${allies} of them allied with you` : ''}. Allies can't attack each other, and nations that like you are more willing to ally. Gifts of money warm them; attacking them, or breaking an alliance, does the opposite.`;
+    return `<p class="dipl-progress">${esc(lede)}</p>
       <table class="dipl-table"><thead><tr><th>Nation</th><th style="text-align:right">Land</th><th>Ideology</th><th>Status</th><th>Feeling toward you</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="6">No other nations remain.</td></tr>'}</tbody></table>`;
   }
 
   govHtml() {
     if (!this.game.politics) {
-      return `<p class="ideo-note">Blitz has no stability or administration, so effects on them do nothing here. Everything else applies.</p>${this.ideologyHtml()}`;
+      return `${this.priorityHtml()}<p class="ideo-note">Blitz has no stability or administration, so ideology effects on them do nothing here. Everything else applies.</p>${this.ideologyHtml()}`;
     }
-    return this.stateHtml() + this.ideologyHtml();
+    return this.stateHtml() + this.priorityHtml() + this.ideologyHtml();
   }
 
   ideologyCard(I, current, action) {
@@ -1522,13 +1663,14 @@ class UI {
     const rank = me.alive ? alive.indexOf(me) + 1 : '—';
     const won = o.winner === this.myId;
     const leader = o.winner ? g.players[o.winner] : null;
-    const title = won ? 'Victory' : me.alive ? `The year ${o.year} arrives` : 'Your nation has fallen';
+    const title = won ? 'Victory' : o.reason === 'treaty' && me.alive ? 'A general peace' : me.alive ? `The year ${o.year} arrives` : 'Your nation has fallen';
     let lede;
     if (won && o.reason === 'share') lede = `You hold ${Math.round(g.landShare(me) * 100)}% of the world. No one is left to challenge you.`;
     else if (won && o.reason === 'year') lede = `The year ${o.year} arrives and yours is the largest nation on earth, with ${Math.round(g.landShare(me) * 100)}% of the land.`;
-    else if (won && o.reason === 'peace') lede = 'Every surviving nation is at peace or allied with you, and yours is the largest. A peaceful victory.';
+    else if (won && o.reason === 'treaty') lede = `A general peace is signed in ${o.year}, and yours is the largest nation on earth, with ${Math.round(g.landShare(me) * 100)}% of the land.`;
     else if (won) lede = 'Every rival is gone or sworn to you. The world is yours.';
     else if (me.alive && leader && o.reason === 'share') lede = `${leader.name} controls ${Math.round(g.landShare(leader) * 100)}% of the world and wins the game.`;
+    else if (me.alive && leader && o.reason === 'treaty') lede = `A general peace is signed in ${o.year}. ${leader.name} leaves the table as the largest nation, with ${Math.round(g.landShare(leader) * 100)}% of the land. You hold ${Math.round(g.landShare(me) * 100)}%.`;
     else if (me.alive && leader) lede = `${leader.name} ends the age as the largest nation, with ${Math.round(g.landShare(leader) * 100)}% of the land. You hold ${Math.round(g.landShare(me) * 100)}%.`;
     else lede = 'Your last province was taken. You can keep watching how the war ends, or start again.';
     this.openModal(`<h2 id="modal-title">${title}</h2>

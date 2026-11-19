@@ -31,6 +31,7 @@
       if (ui.net.role === 'host') ui.net.frame();
       else ui.net.clientFrame(dt);
     }
+    renderer.timeScale = running || (g && g.multiplayer && g.started) ? (g.multiplayer ? 1 : ui.speed) : 0;
     ui.frame(dt);
     // Low graphics draws every other frame (about 30 fps).
     if (renderer.quality !== 'low' || (frameNo++ & 1) === 0) {
