@@ -154,9 +154,12 @@ class UI {
       this.queuePreview(0);
     });
     $('btn-help').addEventListener('click', () => this.showHelp());
-    $('btn-tutorial').addEventListener('click', () => this.startTutorial());
-    let tutDone = false;
-    try { tutDone = localStorage.getItem('borderfall.tutorialDone') === '1'; } catch (e) { /* storage unavailable */ }
+    $('btn-tutorial').addEventListener('click', () => this.showTutorials(false));
+    let tutDone = false, welcomed = false;
+    try {
+      tutDone = localStorage.getItem(TUT_DONE_KEY) === '1';
+      welcomed = localStorage.getItem('borderfall.welcomed') === '1';
+    } catch (e) { /* storage unavailable */ }
     $('btn-tutorial').classList.toggle('nudge', !tutDone);
     if (!tutDone) $('btn-tutorial').textContent = 'New here? Play the tutorial';
     const gfx = P.gfx === 'low' ? 'low' : 'high';
@@ -168,6 +171,8 @@ class UI {
     $('setup').addEventListener('submit', (e) => { e.preventDefault(); this.startGame(); });
     $('btn-random-spawn').addEventListener('click', () => this.randomSpawn());
     this.generatePreview();
+    // First visit: offer the tutorials, unless the visitor came to join a friend's lobby.
+    if (!tutDone && !welcomed && !new URLSearchParams(location.search).has('join')) this.showTutorials(true);
   }
 
   rollRandomType() {
@@ -260,10 +265,8 @@ class UI {
     const diff = document.querySelector('input[name=diff]:checked').value;
     const mode = document.querySelector('input[name=mode]:checked').value;
     const numAI = Number($('opt-ai').value);
-    if (!this.tutorialPending) {
-      this.prefs = { ...this.prefs, name, type: $('opt-type').value, size: $('opt-size').value, numAI, numTribes: Number($('opt-tribes').value), diff, mode, color: this.color, v: PREFS_VERSION };
-      savePrefs(this.prefs);
-    }
+    this.prefs = { ...this.prefs, name, type: $('opt-type').value, size: $('opt-size').value, numAI, numTribes: Number($('opt-tribes').value), diff, mode, color: this.color, v: PREFS_VERSION };
+    savePrefs(this.prefs);
     if (this.isClient()) return;
     const game = new Game(this.map, { difficulty: diff, mode, multiplayer: !!this.net });
     if (this.net) {
@@ -274,11 +277,6 @@ class UI {
       game.setupPlayers({ playerName: name, playerColor: hexToRgb(this.color), numAI, numTribes: Number($('opt-tribes').value), difficulty: diff });
     }
     this.enterGame(game, 1);
-    if (this.tutorialPending) {
-      this.tutorialPending = false;
-      this.tutorial = new Tutorial(this);
-      this.tutorial.begin();
-    }
   }
 
   // Everything that resets the screen for a new match, offline, hosted or joined.
@@ -318,6 +316,7 @@ class UI {
   randomSpawn() {
     const g = this.game;
     if (!g || g.started) return;
+    if (this.tutorial && this.tutorial.spawnTile() >= 0) { this.spawn(this.tutorial.spawnTile()); return; }
     const cand = [];
     for (let k = 0; k < 4000 && cand.length < 60; k++) {
       const i = Math.floor(Math.random() * g.N);
@@ -347,6 +346,7 @@ class UI {
 
   spawn(tile) {
     if (this.me.spawned) return;
+    if (this.tutorial && !this.tutorial.spawnOk(tile)) { this.notice('Click inside the gold ring.', true); return; }
     const res = this.cmd('spawn', { tile }, true);
     if (res && res.bad) { this.notice(res.msg, true); return; }
     if (res) this.onSpawned(tile);
@@ -396,8 +396,11 @@ class UI {
         const h = $(id).offsetHeight;
         if (h) root.setProperty(v, `${h}px`);
       }
+      // The advisor card sits above the wars panel and pushes it down while it is open.
+      const t = $('tutorial').offsetHeight;
+      root.setProperty('--tut-h', t ? `${t + 10}px` : '0px');
     };
-    if (window.ResizeObserver) { const ro = new ResizeObserver(measure); for (const id of ['topbar', 'command', 'dock']) ro.observe($(id)); }
+    if (window.ResizeObserver) { const ro = new ResizeObserver(measure); for (const id of ['topbar', 'command', 'dock', 'tutorial']) ro.observe($(id)); }
     window.addEventListener('resize', measure);
     for (const b of document.querySelectorAll('#command [data-open]')) b.addEventListener('click', () => this.openNation(b.dataset.open));
     $('treaty').addEventListener('click', (e) => {
@@ -555,7 +558,7 @@ class UI {
     gr.classList.toggle('neg', me.growth < 0);
     $('v-income').textContent = `${me.income >= 0 ? '+' : ''}${fmtMoney(me.income * 60)}/min`;
     const share = g.landShare(me);
-    $('v-land').textContent = `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`;
+    $('v-land').textContent = fmtPct(share * 100);
     $('v-tiles').textContent = `${fmt(me.tiles)} tiles`;
     $('v-landbar').style.width = `${Math.min(100, share * 100)}%`;
     $('v-time').textContent = g.mode.endYear
@@ -632,7 +635,7 @@ class UI {
     const row = (p, rank) => {
       const ally = g.isAllied(this.myId, p.id) ? '<span class="ally">Ally</span>' : p.human && p.id !== this.myId ? '<span class="ally pl">Player</span>' : '';
       const share = g.landShare(p) * 100;
-      return `<li data-pid="${p.id}" class="${p.id === this.myId ? 'me' : ''}" style="--c:${rgbCss(p.color)}"><span class="rk">${rank}</span><span class="nm">${esc(p.name)}${ally}</span><span class="ld">${share.toFixed(share < 10 ? 1 : 0)}%</span><span class="tr">${fmt(p.troops)}</span></li>`;
+      return `<li data-pid="${p.id}" class="${p.id === this.myId ? 'me' : ''}" style="--c:${rgbCss(p.color)}"><span class="rk">${rank}</span><span class="nm">${esc(p.name)}${ally}</span><span class="ld">${fmtPct(share)}</span><span class="tr">${fmt(p.troops)}</span></li>`;
     };
     const top = Math.min(10, alive.length);
     for (let k = 0; k < top; k++) rows.push(row(alive[k], k + 1));
@@ -747,7 +750,7 @@ class UI {
     if (!T || !T.open || !me.alive || g.over) { el.hidden = true; return; }
     const nations = g.players.filter((p) => p && p.alive && !p.tribe).sort((a, b) => b.tiles - a.tiles);
     const top = nations[0], rank = nations.indexOf(me) + 1;
-    const pct = (p) => `${Math.round(g.landShare(p) * 100)}%`;
+    const pct = (p) => fmtPct(g.landShare(p) * 100);
     const standing = top === me
       ? `Yours is the largest nation, with ${pct(me)} of the land. Signing wins the game.`
       : `${top.name} is the largest nation, with ${pct(top)} of the land. You hold ${pct(me)} and rank ${rank} of ${nations.length}. Signing ends the game with ${top.name} ahead.`;
@@ -836,6 +839,7 @@ class UI {
     if (!g || !g.started || tile < 0) return;
     if (this.r.mode) { this.r.mode = null; this.updateHud(true); return; }
     const me = this.me, my = this.myId, o = g.owner[tile], water = g.isWater(tile);
+    this.lastCtx = { own: o === my, at: performance.now() };
     const ter = TERRAIN[g.map.terrain[tile]];
     const items = [];
     let title, sub;
@@ -934,8 +938,8 @@ class UI {
       head = `<span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}${o === this.myId ? ' (you)' : p.human ? ' (player)' : ''}`;
       rows.push(['Troops', fmt(p.troops)]);
       rows.push(['People', fmt(p.pop)]);
-      rows.push(['Land', `${(g.landShare(p) * 100).toFixed(1)}%`]);
-      if (p.tribe) rows.push(['Stores', `<span class="rel-good">${fmtMoney(p.gold)}</span>`]);
+      rows.push(['Land', fmtPct(g.landShare(p) * 100)]);
+      if (p.tribe) rows.push(['Stores', `<span class="rel-good">${fmtMoney(nicePrice(p.gold))}</span>`]);
       else if (p.ideology) rows.push(['Ideology', IDEOLOGY_BY_ID[p.ideology].name]);
       if (g.politics) {
         const c = g.control[tile];
@@ -1160,6 +1164,7 @@ class UI {
     const g = this.game;
     if (!g || !g.started) return;
     this.nationTab = tab === 'gov' ? 'gov' : tab === 'dipl' ? 'dipl' : 'tech';
+    this.lastOpen = { tab: this.nationTab, at: performance.now() };
     this.nationMsg = '';
     this.openModal(this.nationHtml(), { wide: true, onClick: (e) => this.onNationClick(e), onInput: (e) => this.onNationInput(e) });
   }
@@ -1177,7 +1182,7 @@ class UI {
     const g = this.game, me = this.me;
     if (e.target.closest('[data-close]')) { this.closeModal(); return; }
     const tab = e.target.closest('[data-tab]');
-    if (tab) { this.nationTab = tab.dataset.tab; this.nationMsg = ''; this.renderNation(); return; }
+    if (tab) { this.nationTab = tab.dataset.tab; this.lastOpen = { tab: this.nationTab, at: performance.now() }; this.nationMsg = ''; this.renderNation(); return; }
     const tech = e.target.closest('[data-tech]');
     if (tech) {
       const res = me.alive ? this.cmd('research', { id: tech.dataset.tech }, true) : { msg: 'Your nation has fallen.', bad: true };
@@ -1377,7 +1382,7 @@ class UI {
       }
       const feel = p.human ? 'Player' : relLabel(g.getRel(p.id, my))[0];
       const ideo = p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : '<span class="st-neutral">None yet</span>';
-      return `<tr><td><span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}</td><td class="num">${(g.landShare(p) * 100).toFixed(1)}%</td><td>${ideo}</td><td class="${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
+      return `<tr><td><span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}</td><td class="num">${fmtPct(g.landShare(p) * 100)}</td><td>${ideo}</td><td class="${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
     }).join('');
     const lede = `${nations.length} ${nations.length === 1 ? 'nation remains' : 'nations remain'}${allies ? `, ${allies} of them allied with you` : ''}. Allies can't attack each other, and nations that like you are more willing to ally. Gifts of money warm them; attacking them, or breaking an alliance, does the opposite.`;
     return `<p class="dipl-progress">${esc(lede)}</p>
@@ -1457,7 +1462,7 @@ class UI {
     const label = s >= 70 ? 'Prosperous' : s >= 50 ? 'Orderly' : s >= REVOLT_BELOW + 10 ? 'Uneasy' : s >= REVOLT_BELOW ? 'Restless' : 'In revolt';
     let occupied = 0;
     for (let t = 0; t < g.N; t++) if (g.owner[t] === this.myId && g.control[t] < 50) occupied++;
-    const rows = me.stabFactors.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(v % 1 && Math.abs(v) < 10 ? 1 : 0)}</td></tr>`).join('');
+    const rows = me.stabFactors.filter(([, v]) => Math.round(v) !== 0).map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : '−'}${Math.abs(Math.round(v))}</td></tr>`).join('');
     const cc = g.celebrateCost(me);
     const cdLeft = Math.max(0, Math.ceil((me.celebrateReadyAt - g.tick) / TPS));
     const adminPct = Math.round(me.tiles / Math.max(1, me.adminCap) * 100);
@@ -1515,18 +1520,65 @@ class UI {
   }
 
   // ---------- tutorial ----------
-  startTutorial() {
+  // The tutorial chooser: on a first visit as a welcome, and from the menu's tutorial link.
+  showTutorials(first) {
+    const seen = () => { try { localStorage.setItem('borderfall.welcomed', '1'); } catch (e) { /* storage unavailable */ } };
+    this.openModal(`<h2 id="modal-title">${first ? 'Welcome to Borderfall' : 'Tutorials'}</h2>
+      <p class="result-lede">${first ? 'A real-time conquest game from 1500 to 2000. New here? Two short steps get you playing.' : 'Learn the controls, or play a whole match with an advisor beside you.'}</p>
+      <ol class="tut-choices">
+        <li><button type="button" data-act="lesson"><b>The controls</b><span>About three minutes on a practice island: moving the map, taking land, building, sailing and the big screens.</span></button></li>
+        <li><button type="button" data-act="guide"><b>A guided game</b><span>A whole match with an advisor beside you for most of it, until you take over and conquer the world yourself.</span></button></li>
+      </ol>
+      <div class="modal-actions"><button type="button" class="ghost" data-act="skip">${first ? 'I know how to play' : 'Close'}</button></div>`, {
+      onClick: (e) => {
+        const b = e.target.closest('[data-act]');
+        if (!b) return;
+        seen();
+        this.closeModal();
+        if (b.dataset.act === 'lesson') this.startLesson();
+        else if (b.dataset.act === 'guide') this.startGuided();
+      },
+    });
+  }
+
+  // The controls lesson: the hand-laid practice island, one distant rival that leaves you alone,
+  // a tribe beside your home and another across the strait.
+  startLesson() {
     if (this.net) { this.mpStatus('Leave the lobby before starting the tutorial.', true); return; }
-    const map = generateMap({ seed: 4242, type: 'continents', size: 'small' });
+    const map = buildTutorialMap();
+    this.map = map;
+    this.mapKey = '';
+    const at = ([x, y]) => y * map.W + x;
+    const S = TUTORIAL_SPOTS;
+    // Blitz rules keep stability and revolts out of the way while you learn the controls.
+    const game = new Game(map, { difficulty: 'easy', mode: 'blitz' });
+    game.setupPlayers({ playerName: this.playerName(), playerColor: hexToRgb(this.color), numAI: 1, numTribes: 2, difficulty: 'easy',
+      spawns: [at(S.rival), at(S.tribe), at(S.islandTribe)] });
+    const [rival, tribe, island] = game.players.slice(2);
+    rival.tutSpot = 'rival'; tribe.tutSpot = 'tribe'; island.tutSpot = 'islandTribe';
+    rival.ai.diff = { ...rival.ai.diff, graceVsHuman: 1e9, aggression: 0.4 };
+    rival.ai.nextNaval = 1e12;
+    tribe.troops = 260; tribe.gold = 3e6;
+    island.gold = 4e6;
+    game.players[1].tutorialBonus = true;
+    this.enterGame(game, 1);
+    $('spawn-banner').querySelector('p').textContent = 'Found your nation inside the gold ring.';
+    this.tutorial = new Coach(this, LESSON);
+    this.tutorial.begin();
+  }
+
+  // The guided game: a real Realistic match on easy, rivals holding off for five minutes, with
+  // the advisor setting objectives until it hands over in the 1800s.
+  startGuided() {
+    if (this.net) { this.mpStatus('Leave the lobby before starting the tutorial.', true); return; }
+    const map = generateMap({ seed: 2468, type: 'continents', size: 'medium' });
     this.map = map;
     this.mapKey = '';
     const game = new Game(map, { difficulty: 'easy', mode: 'realistic' });
-    game.setupPlayers({ playerName: this.playerName(), playerColor: hexToRgb(this.color), numAI: 5, difficulty: 'easy' });
-    // Rivals leave you alone while you learn, and you start with enough for a city.
-    for (const p of game.players) if (p && p.ai) p.ai.diff = { ...p.ai.diff, graceVsHuman: 480 };
-    game.players[1].tutorialBonus = true;
+    game.setupPlayers({ playerName: this.playerName(), playerColor: hexToRgb(this.color), numAI: 12, numTribes: 16, difficulty: 'easy' });
+    for (const p of game.players) if (p && p.ai && !p.tribe) p.ai.diff = { ...p.ai.diff, graceVsHuman: 300 };
     this.enterGame(game, 1);
-    this.tutorial = new Tutorial(this);
+    this.tutorial = new Coach(this, GUIDE);
     this.tutorial.begin();
   }
 
@@ -1678,7 +1730,7 @@ class UI {
       <div class="result-stats">
         <div><span>Year</span><b>${o.year}</b></div>
         <div><span>Time</span><b>${fmtTime(o.time)}</b></div>
-        <div><span>Peak land</span><b>${(me.peakTiles / g.map.landCount * 100).toFixed(1)}%</b></div>
+        <div><span>Peak land</span><b>${fmtPct(me.peakTiles / g.map.landCount * 100)}</b></div>
         <div><span>Nations conquered</span><b>${me.kills}</b></div>
         <div><span>Rank</span><b>${rank}</b></div>
       </div>

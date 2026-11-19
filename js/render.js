@@ -56,6 +56,9 @@ class Renderer {
     this.mode = null;          // { kind: 'build', type } | { kind: 'missile' } | { kind: 'spawn' }
     this.timeScale = 0;        // game speed this frame, 0 while paused; drives merchant ships
     this.sprites = new Map();  // cached pixel-art ship sprites
+    this.marks = [];           // tutorial rings: { x, y, r, label } in tile coordinates
+    this.userPanned = 0;
+    this.userZoomed = 0;
     this.resetTrade();
     this.resize();
     // Canvas text only uses a web font once it has loaded, so ask for the map faces up front.
@@ -246,6 +249,7 @@ class Renderer {
   // Zoom about a screen point. With smooth set (the mouse wheel), the zoom eases toward its
   // target over a few frames while the point under the cursor stays put.
   zoomAt(sx, sy, factor, smooth) {
+    this.userZoomed += Math.abs(Math.log(factor));   // the lesson counts zooming done by the player
     const [wx, wy] = this.screenToWorld(sx, sy);
     if (smooth) {
       const from = this.zoomGlide ? this.zoomGlide.zoom : this.cam.zoom;
@@ -264,6 +268,7 @@ class Renderer {
     this.clampCam();
   }
   pan(dx, dy) {
+    this.userPanned += Math.hypot(dx, dy);           // and panning, in screen pixels
     this.panGlide = null;
     this.cam.x -= dx / this.cam.zoom;
     this.cam.y -= dy / this.cam.zoom;
@@ -328,7 +333,43 @@ class Renderer {
     this.drawMissiles(ox, oy, z, alpha);
     this.drawEffects(ox, oy, z);
     this.drawLabels(ox, oy, z);
+    this.drawMarks(ox, oy, z, now);
     this.drawMode(ox, oy, z);
+  }
+
+  // Tutorial pointers: a slowly turning dashed gold ring with a label above it.
+  drawMarks(ox, oy, z, now) {
+    if (!this.marks.length) return;
+    const ctx = this.ctx, pulse = 0.5 + 0.5 * Math.sin(now / 320);
+    for (const m of this.marks) {
+      const sx = ox + m.x * z, sy = oy + m.y * z, r = Math.max(18, m.r * z) * (1 + pulse * 0.06);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(230,199,121,${0.08 + pulse * 0.06})`;
+      ctx.fill();
+      ctx.setLineDash([10, 7]);
+      ctx.lineDashOffset = -now / 60;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(28,20,14,0.85)';
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#e6c779';
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (m.label) {
+        ctx.font = `700 15px ${FONT_NUM}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(28,20,14,0.9)';
+        ctx.strokeText(m.label, sx, sy - r - 6);
+        ctx.fillStyle = '#f1d27f';
+        ctx.fillText(m.label, sx, sy - r - 6);
+      }
+      ctx.restore();
+    }
   }
 
   visible(sx, sy, pad) {
@@ -605,7 +646,7 @@ class Renderer {
         this.popNext.set(b.id, g.tick + POPUP_SECONDS * TPS);
         const amount = g.buildingIncome(me, b) * POPUP_SECONDS;
         const sx = ox + (b.x + 0.5) * z, sy = oy + (b.y + 0.5) * z;
-        if (amount >= 1 && this.visible(sx, sy, 20) && this.popups.length < 40) this.popups.push({ b, text: `+${fmtMoney(amount)}`, t0: now });
+        if (amount >= 1 && this.visible(sx, sy, 20) && this.popups.length < 40) this.popups.push({ b, text: `+${fmtMoney(nicePrice(amount))}`, t0: now });
       }
     }
     if (!this.popups.length) return;
@@ -765,7 +806,7 @@ class Renderer {
       const troopFs = Math.max(8, fs * 0.72);
       ctx.font = `italic 500 ${troopFs}px ${FONT_BOOK}`;
       ctx.lineWidth = Math.max(2.5, troopFs * 0.2);
-      const t = tribe ? fmtMoney(p.gold) : fmt(p.troops), ty = sy + fs * 0.55;
+      const t = tribe ? fmtMoney(nicePrice(p.gold)) : fmt(p.troops), ty = sy + fs * 0.55;
       ctx.strokeText(t, sx, ty);
       ctx.fillStyle = tribe ? '#7a5512' : g.isAllied(this.myId, p.id) ? '#1f5e4a' : (mine ? '#6b4a0e' : '#3a2f25');
       ctx.fillText(t, sx, ty);

@@ -128,18 +128,39 @@ function colorDistance(a, b) {
   return Math.sqrt(dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11);
 }
 
+// Compact numbers without trailing zeros: 1.5M, 12.4K, 2M.
 function fmt(n) {
   n = Math.floor(n);
   const abs = Math.abs(n);
-  if (abs >= 1e9) return (n / 1e9).toFixed(abs >= 1e10 ? 1 : 2).replace(/\.0+$/, '') + 'B';
-  if (abs >= 1e6) return (n / 1e6).toFixed(abs >= 1e7 ? 1 : 2).replace(/\.0+$/, '') + 'M';
-  if (abs >= 1e4) return (n / 1e3).toFixed(abs >= 1e5 ? 0 : 1).replace(/\.0$/, '') + 'K';
-  if (abs >= 1e3) return (n / 1e3).toFixed(2).replace(/0$/, '').replace(/\.0$/, '') + 'K';
+  const trim = (x) => x.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  if (abs >= 1e9) return trim((n / 1e9).toFixed(abs >= 1e10 ? 1 : 2)) + 'B';
+  if (abs >= 1e6) return trim((n / 1e6).toFixed(abs >= 1e7 ? 1 : 2)) + 'M';
+  if (abs >= 1e4) return trim((n / 1e3).toFixed(abs >= 1e5 ? 0 : 1)) + 'K';
+  if (abs >= 1e3) return trim((n / 1e3).toFixed(2)) + 'K';
   return String(n);
 }
 
 function fmtMoney(n) {
   return (n < 0 ? '−$' : '$') + fmt(Math.abs(n));
+}
+
+// Prices are rounded to a round figure people would actually quote: $1.87M becomes $2M,
+// $4.41M becomes $4M, $13.7M becomes $15M.
+const NICE_STEPS = [1, 1.2, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10];
+function nicePrice(v) {
+  if (!(v > 0)) return 0;
+  const m = Math.pow(10, Math.floor(Math.log10(v)));
+  const n = v / m;
+  let best = NICE_STEPS[0];
+  for (const s of NICE_STEPS) if (Math.abs(s - n) < Math.abs(best - n)) best = s;
+  return Math.round(best * m);
+}
+
+// Whole percentages; a share that is there but rounds to nothing reads as under 1%.
+function fmtPct(v) {
+  if (!(v > 0)) return '0%';
+  if (v < 0.5) return '<1%';
+  return `${Math.round(v)}%`;
 }
 
 function fmtTime(sec) {
