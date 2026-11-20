@@ -20,7 +20,7 @@
     <div class="menu-panel">
       <header class="brand">
         <h1 class="wordmark">Borderfall</h1>
-        <p class="tagline">A real-time conquest game. Start with a few villages in 1500 and push your borders across five centuries.</p>
+        <p class="tagline">Real-time conquest across five centuries. Start with a few villages in 1500 and push your borders.</p>
       </header>
       <form id="setup" autocomplete="off">
         <div class="field">
@@ -30,20 +30,6 @@
             <label><input type="radio" name="mode" value="blitz"><span><b>Blitz</b><small>1500 to 1700, about 15 minutes</small></span></label>
           </div>
           <p id="mode-desc" class="field-note"></p>
-        </div>
-        <div class="field">
-          <span id="name-label">Your nation</span>
-          <div class="seed-row">
-            <input id="opt-name" maxlength="16" spellcheck="false" aria-labelledby="name-label">
-            <button type="button" id="btn-rename" class="ghost">Another name</button>
-          </div>
-          <div id="opt-colors" class="swatches" role="radiogroup" aria-label="Colour"></div>
-          <div class="pattern-row">
-            <canvas id="pattern-preview" width="36" height="20" aria-hidden="true"></canvas>
-            <span>Pattern <b id="pattern-name">Plain</b></span>
-            <button type="button" class="ghost" id="btn-shop">Shop <em id="shop-crowns"></em></button>
-          </div>
-          <p id="crowns-note" class="field-note" hidden></p>
         </div>
         <div class="row2">
           <label class="field">
@@ -85,72 +71,109 @@
           </label>
         </div>
         <p id="map-desc" class="field-note" hidden></p>
-        <details class="world" id="world-settings">
-          <summary><span>World settings</span><small id="world-summary"></small></summary>
-          <div class="world-body">
-            <label class="field">
-              <span>Rival nations <output id="opt-ai-out">20</output></span>
-              <input type="range" id="opt-ai" min="3" max="60" value="20">
-            </label>
-            <label class="field">
-              <span>Tribes <output id="opt-tribes-out">16</output></span>
-              <input type="range" id="opt-tribes" min="0" max="40" value="16">
-            </label>
-            <div class="field">
-              <span id="diff-label">Difficulty</span>
-              <div class="segmented" role="radiogroup" aria-labelledby="diff-label">
-                <label><input type="radio" name="diff" value="easy"><span>Easy</span></label>
-                <label><input type="radio" name="diff" value="normal" checked><span>Normal</span></label>
-                <label><input type="radio" name="diff" value="hard"><span>Hard</span></label>
-              </div>
-            </div>
-            <div class="field">
-              <span id="seed-label">World seed</span>
-              <div class="seed-row">
-                <input id="opt-seed" spellcheck="false" aria-labelledby="seed-label">
-                <button type="button" id="btn-reroll" class="ghost">New world</button>
-              </div>
-            </div>
-            <div class="field">
-              <span id="gfx-label">Graphics</span>
-              <div class="segmented two" role="radiogroup" aria-labelledby="gfx-label">
-                <label><input type="radio" name="gfx" value="high" checked><span>High</span></label>
-                <label><input type="radio" name="gfx" value="low"><span>Low, for older devices</span></label>
-              </div>
-            </div>
-          </div>
-        </details>
 
-        <section id="lobby" class="lobby" hidden aria-live="polite">
-          <div class="lobby-head">
-            <div><span class="lobby-k">Lobby code</span><b id="lobby-code">-----</b></div>
-            <button type="button" class="ghost" id="mp-copy">Copy invite link</button>
-          </div>
-          <ul id="lobby-players"></ul>
-          <p id="lobby-status" class="field-note"></p>
-          <button type="button" class="text-btn" id="mp-leave">Leave lobby</button>
-        </section>
+        <!-- Each row opens a card beside the panel, so the panel itself never needs scrolling. -->
+        <div class="menu-rows">
+          <button type="button" class="menu-row" data-side="nation" aria-expanded="false" aria-controls="side-nation">
+            <span class="mr-k">Your nation</span>
+            <span class="mr-v"><canvas id="nation-chip" width="36" height="20" aria-hidden="true"></canvas><b id="nation-chip-name"></b></span>
+          </button>
+          <button type="button" class="menu-row" data-side="world" aria-expanded="false" aria-controls="world-settings">
+            <span class="mr-k">World</span>
+            <span class="mr-v"><small id="world-summary"></small></span>
+          </button>
+          <button type="button" class="menu-row" data-side="online" aria-expanded="false" aria-controls="side-online">
+            <span class="mr-k">Online</span>
+            <span class="mr-v"><small id="online-summary">Play with friends or strangers</small></span>
+          </button>
+        </div>
+
+        <p id="crowns-note" class="field-note" hidden></p>
+
+        <div id="menu-side">
+          <section id="side-nation" class="side-card" hidden aria-labelledby="side-nation-title">
+            <div class="side-head"><h2 id="side-nation-title">Your nation</h2><button type="button" class="ghost" data-side-close="nation">Done</button></div>
+            <div class="seed-row">
+              <input id="opt-name" maxlength="16" spellcheck="false" aria-label="Nation name">
+              <button type="button" id="btn-rename" class="ghost">Another name</button>
+            </div>
+            <div id="opt-colors" class="swatches" role="radiogroup" aria-label="Colour"></div>
+            <div class="pattern-row">
+              <canvas id="pattern-preview" width="36" height="20" aria-hidden="true"></canvas>
+              <span>Pattern <b id="pattern-name">Plain</b></span>
+              <button type="button" class="ghost" id="btn-shop">Shop <em id="shop-crowns"></em></button>
+            </div>
+          </section>
+
+          <section id="world-settings" class="side-card world" hidden aria-labelledby="world-title">
+            <div class="side-head"><h2 id="world-title">World settings</h2><button type="button" class="ghost" data-side-close="world">Done</button></div>
+            <div class="world-body">
+              <label class="field">
+                <span>Rival nations <output id="opt-ai-out">20</output></span>
+                <input type="range" id="opt-ai" min="3" max="60" value="20">
+              </label>
+              <label class="field">
+                <span>Tribes <output id="opt-tribes-out">16</output></span>
+                <input type="range" id="opt-tribes" min="0" max="40" value="16">
+              </label>
+              <div class="field">
+                <span id="diff-label">Difficulty</span>
+                <div class="segmented" role="radiogroup" aria-labelledby="diff-label">
+                  <label><input type="radio" name="diff" value="easy"><span>Easy</span></label>
+                  <label><input type="radio" name="diff" value="normal" checked><span>Normal</span></label>
+                  <label><input type="radio" name="diff" value="hard"><span>Hard</span></label>
+                </div>
+              </div>
+              <div class="field">
+                <span id="seed-label">World seed</span>
+                <div class="seed-row">
+                  <input id="opt-seed" spellcheck="false" aria-labelledby="seed-label">
+                  <button type="button" id="btn-reroll" class="ghost">New world</button>
+                </div>
+              </div>
+              <div class="field">
+                <span id="gfx-label">Graphics</span>
+                <div class="segmented two" role="radiogroup" aria-labelledby="gfx-label">
+                  <label><input type="radio" name="gfx" value="high" checked><span>High</span></label>
+                  <label><input type="radio" name="gfx" value="low"><span>Low, for older devices</span></label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="side-online" class="side-card" hidden aria-labelledby="side-online-title">
+            <div class="side-head"><h2 id="side-online-title">Play online</h2><button type="button" class="ghost" data-side-close="online">Done</button></div>
+            <div id="mp-entry" class="mp">
+              <p class="field-note">Play live with friends or strangers. Computer nations fill the rest of the world.</p>
+              <div class="mp-row">
+                <button type="button" class="ghost" id="mp-quick">Quick match</button>
+                <button type="button" class="ghost" id="mp-create">Create lobby</button>
+              </div>
+              <div class="seed-row">
+                <input id="mp-code" maxlength="5" placeholder="Lobby code" aria-label="Lobby code" autocapitalize="characters" spellcheck="false">
+                <button type="button" class="ghost" id="mp-join">Join</button>
+              </div>
+              <p id="mp-status" class="field-note" role="status"></p>
+            </div>
+            <section id="lobby" class="lobby" hidden aria-live="polite">
+              <div class="lobby-head">
+                <div><span class="lobby-k">Lobby code</span><b id="lobby-code">-----</b></div>
+                <button type="button" class="ghost" id="mp-copy">Copy invite link</button>
+              </div>
+              <ul id="lobby-players"></ul>
+              <p id="lobby-status" class="field-note"></p>
+              <button type="button" class="text-btn" id="mp-leave">Leave lobby</button>
+            </section>
+          </section>
+        </div>
 
         <button type="submit" class="primary" id="btn-start">Choose your homeland</button>
       </form>
 
-      <section id="mp-entry" class="mp">
-        <h2>Multiplayer</h2>
-        <p class="field-note">Play live with friends or strangers. Computer nations fill the rest of the world.</p>
-        <div class="mp-row">
-          <button type="button" class="ghost" id="mp-quick">Quick match</button>
-          <button type="button" class="ghost" id="mp-create">Create lobby</button>
-        </div>
-        <div class="seed-row">
-          <input id="mp-code" maxlength="5" placeholder="Lobby code" aria-label="Lobby code" autocapitalize="characters" spellcheck="false">
-          <button type="button" class="ghost" id="mp-join">Join</button>
-        </div>
-        <p id="mp-status" class="field-note" role="status"></p>
-      </section>
-
       <div class="menu-links">
         <button type="button" class="text-btn" id="btn-tutorial">Tutorials</button>
         <button type="button" class="text-btn" id="btn-help">How to play</button>
+        <button type="button" class="text-btn" id="btn-shop-link">Shop</button>
       </div>
     </div>
   </section>
@@ -254,92 +277,104 @@
   </div>
 
   <template id="help-tpl">
-    <h2 id="modal-title">How to play</h2>
     <div class="help">
-      <section>
-        <h3>Goal</h3>
-        <p>Control 70% of the world's land. If nobody manages that before time runs out (2000 in Realistic, 1700 in Blitz), the largest nation wins. Near the end, the great powers twice propose a general peace: if every player signs, the game ends there and the largest nation wins. If you lose every tile, your nation falls.</p>
-      </section>
-      <section>
-        <h3>Modes</h3>
-        <p><b>Realistic</b> runs from 1500 to 2000, about 37 minutes at normal speed. Each technology waits for its year, and you have to keep your nation stable. <b>Blitz</b> runs from 1500 to 1700, about 15 minutes. You can research anything as soon as you know what it builds on, and there's no stability or revolts. The command bar at the top right shows how long is left.</p>
-      </section>
-      <section>
-        <h3>Maps</h3>
-        <p><b>Random worlds</b> are generated from the seed. <b>Real world</b> maps use real coastlines, mountains, deserts and forests. <b>Competitive</b> maps are built from mirrored or rotated copies of one region, so every start has an identical twin somewhere else.</p>
-      </section>
-      <section>
-        <h3>Taking land</h3>
-        <p>Click land to send the share of troops set on the <b>Attack</b> slider. Settling empty land is quick, and your border grows toward the spot you click. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first, faster with naval technology, and ride at anchor briefly before their troops go ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors.</p>
-        <p>Troops at home defend you. Troops sent out don't, so don't empty your barracks while a neighbor is watching. Troops regrow fastest when you're well under your cap.</p>
-      </section>
-      <section>
-        <h3>People</h3>
-        <p>Your population grows toward what your land and cities can feed. Only a share of them can serve as soldiers (8% at first, more with Standing Army, Levée en Masse and Total War). Everyone else works and pays taxes. Soldiers who die in battle are gone for good, and conquered land brings some of its people with it.</p>
-      </section>
-      <section>
-        <h3>Technology</h3>
-        <p>Click the year in the top bar to open the technology tree: 51 technologies across six eras. Pick what to research next. Research comes from your people and universities, plus whatever your research budget spends; set the budget at the top of the Technology screen. Most technologies need earlier ones first, and in Realistic none can start before its year. Each technology you know makes the next one cost more, so no nation learns everything. If you don't pick, the cheapest available one is chosen for you.</p>
-      </section>
-      <section>
-        <h3>Ideology</h3>
-        <p>Press G or open Government to choose an ideology: Crown, Commerce, Militarism, Reason, Frontier, or Moderation, the balanced one with small bonuses and no drawbacks. Each has strengths and weaknesses. Every ideology has a tree of six doctrines you buy with money: the first opens two branches, and the last needs both. Changing ideology loses your doctrines and, in Realistic, shakes your stability.</p>
-        <p>Government also holds your national priority: lean toward the army and troops refill faster, toward the economy and money comes in faster.</p>
-      </section>
-      <section>
-        <h3>Stability and control (Realistic)</h3>
-        <p>Stability rises and falls toward a target set by your technology, how far you've outgrown your administration, how much of your land is still occupied, war losses, harsh taxes or levies, and the sheer size of your empire. High stability boosts income, recruiting, research and growth; low stability cuts them.</p>
-        <p>Land you take from another nation starts out occupied (hatched on the map) and slowly integrates. Land far from your capital, cities and courthouses never comes fully under control. Below 30 stability, poorly controlled regions can revolt and break away as a new nation.</p>
-        <p>Click Stability to declare martial law (more order, less income and growth) or hold a celebration (costs money, lifts stability for a while).</p>
-      </section>
-      <section>
-        <h3>Terrain</h3>
-        <p>Plains are fast and valuable. Forests and hills slow attackers. Mountains are slow, costly and worth little. Deserts and tundra are cheap to hold but earn less.</p>
-      </section>
-      <section>
-        <h3>Buildings</h3>
-        <ul class="bl"></ul>
-      </section>
-      <section>
-        <h3>Borders, tribes and encirclement</h3>
-        <p>Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with a tag giving the troops fighting there. Tribes are grey and labelled in italics, with their troops and, in gold, the treasure they hold. They are scattered across the map at the start. They never build or research, their armies are small, and whoever absorbs one takes its stores. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
-      </section>
-      <section>
-        <h3>Money</h3>
-        <p>Your treasury fills from your workers' taxes, cities, harbors and factories; each building shows what it earns as it comes in. A city costs about $2 million, and each extra building of a kind costs more. Build on top of one of your own buildings of the same type to stack it, up to level 5; each level adds the building's full effect again. The national priority in Government trades troop recruiting for income, and the research budget in Technology sets how much of your income goes to research.</p>
-      </section>
-      <section>
-        <h3>Shop</h3>
-        <p>Under Your nation on the start screen, the Shop sells patterns for your land, bought with crowns. You earn crowns by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning. Other players see your pattern in multiplayer.</p>
-      </section>
-      <section>
-        <h3>Multiplayer</h3>
-        <p>Create a lobby and share its 5-letter code or invite link, join a friend's code, or use Quick match to join an open public game. Up to 8 people play together, with computer nations filling the rest. The host's browser runs the match, so the game ends if the host leaves; if anyone else drops out, the computer takes over their nation.</p>
-      </section>
-      <section>
-        <h3>Diplomacy</h3>
-        <p>Computer nations carry an icon for their personality beside their name: crossed swords for a warlord (attacks often), scales for a merchant (trades and builds), a shield for a guardian (fortifies and defends) and an eye for an opportunist (strikes whoever looks weak).</p>
-        <p>Right-click a nation to propose an alliance, send money, or reinforce an ally. Nations warm to quiet neighbors and remember who attacked them. Breaking an alliance makes everyone trust you less. When one nation grows too large, others band together against it.</p>
-      </section>
-      <section>
-        <h3>Controls</h3>
-        <dl class="keys">
-          <dt>Click</dt><dd>Attack, sail, place a building, or fire</dd>
-          <dt>Right-click / long-press</dt><dd>Options for that spot</dd>
-          <dt>Drag, wheel, pinch</dt><dd>Move and zoom the map</dd>
-          <dt>1 – 9</dt><dd>Choose a building to place</dd>
-          <dt>T</dt><dd>Open the technology tree</dd>
-          <dt>P</dt><dd>Open diplomacy</dd>
-          <dt>G</dt><dd>Open government and ideology</dd>
-          <dt>M</dt><dd>Aim a missile</dd>
-          <dt>Q / E</dt><dd>Lower or raise the attack share</dd>
-          <dt>Space</dt><dd>Pause</dd>
-          <dt>H</dt><dd>Jump to your nation</dd>
-          <dt>Esc</dt><dd>Cancel, or open the menu</dd>
-        </dl>
-      </section>
+      <div class="help-page" data-page="basics" data-title="The basics">
+        <section>
+          <h3>Goal</h3>
+          <p>Control 70% of the world's land. If nobody manages that before time runs out (2000 in Realistic, 1700 in Blitz), the largest nation wins. Near the end, the great powers twice propose a general peace: if every player signs, the game ends there and the largest nation wins. If you lose every tile, your nation falls.</p>
+        </section>
+        <section>
+          <h3>Modes</h3>
+          <p><b>Realistic</b> runs from 1500 to 2000, about 37 minutes at normal speed. Each technology waits for its year, and you have to keep your nation stable. <b>Blitz</b> runs from 1500 to 1700, about 15 minutes. You can research anything as soon as you know what it builds on, and there's no stability or revolts. The command bar at the top right shows how long is left.</p>
+        </section>
+        <section>
+          <h3>Maps</h3>
+          <p><b>Random worlds</b> are generated from the seed. <b>Real world</b> maps use real coastlines, mountains, deserts and forests. <b>Competitive</b> maps are built from mirrored or rotated copies of one region, so every start has an identical twin somewhere else.</p>
+        </section>
+        <section>
+          <h3>Terrain</h3>
+          <p>Plains are fast and valuable. Forests and hills slow attackers. Mountains are slow, costly and worth little. Deserts and tundra are cheap to hold but earn less.</p>
+        </section>
+      </div>
+      <div class="help-page" data-page="war" data-title="Land and war">
+        <section>
+          <h3>Taking land</h3>
+          <p>Click land to send the share of troops set on the <b>Attack</b> slider. Settling empty land is quick, and your border grows toward the spot you click. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first, faster with naval technology, and ride at anchor briefly before their troops go ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors.</p>
+          <p>Troops at home defend you. Troops sent out don't, so don't empty your barracks while a neighbor is watching. Troops regrow fastest when you're well under your cap.</p>
+        </section>
+        <section>
+          <h3>Borders, tribes and encirclement</h3>
+          <p>Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with a tag giving the troops fighting there. Tribes are grey and labelled in italics, with their troops and, in gold, the treasure they hold. They are scattered across the map at the start. They never build or research, their armies are small, and whoever absorbs one takes its stores. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
+          <p>A nation or tribe beaten down to a small remnant of its former size surrenders: whoever has been taking its land annexes the rest, with its treasury, so nobody has to hunt down the last few pixels. The same goes for you.</p>
+        </section>
+      </div>
+      <div class="help-page" data-page="economy" data-title="People and money">
+        <section>
+          <h3>People</h3>
+          <p>Your population grows toward what your land and cities can feed. Only a share of them can serve as soldiers (8% at first, more with Standing Army, Levée en Masse and Total War). Everyone else works and pays taxes. Soldiers who die in battle are gone for good, and conquered land brings some of its people with it.</p>
+        </section>
+        <section>
+          <h3>Money</h3>
+          <p>Your treasury fills from your workers' taxes, cities, harbors and factories; each building shows what it earns as it comes in. A city costs about $2 million, and each extra building of a kind costs more. Build on top of one of your own buildings of the same type to stack it, up to level 5; each level adds the building's full effect again. The national priority in Government trades troop recruiting for income, and the research budget in Technology sets how much of your income goes to research.</p>
+        </section>
+        <section>
+          <h3>Buildings</h3>
+          <ul class="bl"></ul>
+        </section>
+      </div>
+      <div class="help-page" data-page="rule" data-title="Research and rule">
+        <section>
+          <h3>Technology</h3>
+          <p>Press T, or click the year in the top bar, to open the Technology screen: 51 technologies across six eras, shown one era at a time. Pick what to research next. Research comes from your people and universities, plus whatever your research budget spends; set the budget at the top of the Technology screen. Most technologies need earlier ones first, and in Realistic none can start before its year. Each technology you know makes the next one cost more, so no nation learns everything. If you don't pick, the cheapest available one is chosen for you.</p>
+        </section>
+        <section>
+          <h3>Ideology</h3>
+          <p>Press I, or open Government and its Ideology tab, to choose an ideology: Crown, Commerce, Militarism, Reason, Frontier, or Moderation, the balanced one with small bonuses and no drawbacks. Each has strengths and weaknesses. Every ideology has a tree of six doctrines you buy with money: the first opens two branches, and the last needs both. Changing ideology loses your doctrines and, in Realistic, shakes your stability.</p>
+          <p>Government also holds your national priority: lean toward the army and troops refill faster, toward the economy and money comes in faster.</p>
+        </section>
+        <section>
+          <h3>Stability and control (Realistic)</h3>
+          <p>Stability rises and falls toward a target set by your technology, how far you've outgrown your administration, how much of your land is still occupied, war losses, harsh taxes or levies, and the sheer size of your empire. High stability boosts income, recruiting, research and growth; low stability cuts them.</p>
+          <p>Land you take from another nation starts out occupied (hatched on the map) and slowly integrates. Land far from your capital, cities and courthouses never comes fully under control. Below 30 stability, poorly controlled regions can revolt and break away as a new nation.</p>
+          <p>Click Stability to declare martial law (more order, less income and growth) or hold a celebration (costs money, lifts stability for a while).</p>
+        </section>
+      </div>
+      <div class="help-page" data-page="world" data-title="Other nations">
+        <section>
+          <h3>Diplomacy</h3>
+          <p>Computer nations carry an icon for their personality beside their name: crossed swords for a warlord (attacks often), scales for a merchant (trades and builds), a shield for a guardian (fortifies and defends) and an eye for an opportunist (strikes whoever looks weak).</p>
+          <p>Right-click a nation to propose an alliance, send money, or reinforce an ally. Nations warm to quiet neighbors and remember who attacked them. Breaking an alliance makes everyone trust you less. When one nation grows too large, others band together against it.</p>
+        </section>
+        <section>
+          <h3>Multiplayer</h3>
+          <p>Create a lobby and share its 5-letter code or invite link, join a friend's code, or use Quick match to join an open public game. Up to 8 people play together, with computer nations filling the rest. The host's browser runs the match, so the game ends if the host leaves; if anyone else drops out, the computer takes over their nation.</p>
+        </section>
+        <section>
+          <h3>Shop</h3>
+          <p>The Shop, under the start button on the start screen, sells patterns for your land, bought with crowns. You earn crowns by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning. Other players see your pattern in multiplayer.</p>
+        </section>
+      </div>
+      <div class="help-page" data-page="keys" data-title="Controls">
+        <section>
+          <h3>Controls</h3>
+          <dl class="keys">
+            <dt>Click</dt><dd>Attack, sail, place a building, or fire</dd>
+            <dt>Right-click / long-press</dt><dd>Options for that spot</dd>
+            <dt>Drag, wheel, pinch</dt><dd>Move and zoom the map</dd>
+            <dt>1 – 9</dt><dd>Choose a building to place</dd>
+            <dt>T</dt><dd>Open the technology tree</dd>
+            <dt>P</dt><dd>Open diplomacy</dd>
+            <dt>G</dt><dd>Open government</dd>
+            <dt>I</dt><dd>Open ideology</dd>
+            <dt>M</dt><dd>Aim a missile</dd>
+            <dt>Q / E</dt><dd>Lower or raise the attack share</dd>
+            <dt>Space</dt><dd>Pause</dd>
+            <dt>H</dt><dd>Jump to your nation</dd>
+            <dt>Esc</dt><dd>Cancel, or open the menu</dd>
+          </dl>
+        </section>
+      </div>
     </div>
-    <div class="modal-actions"><button type="button" class="primary" data-close>Got it</button></div>
   </template>
 
   <script src="js/util.js"></script>

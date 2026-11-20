@@ -24,6 +24,12 @@ const CITY_POP = 20000;
 const CAPITAL_POP = 10000;
 const SPAWN_RADIUS = 5;
 const WIN_SHARE = 0.7;
+// A nation or tribe beaten down to a scrap of its former size surrenders the rest to whoever has
+// been taking its land, so nobody has to hunt down the last few pixels. Shares of its peak size:
+const REMNANT_SHARE = { tribe: 0.3, nation: 0.05, human: 0.03 };
+const REMNANT_MIN = 10;           // tiles: anything this small surrenders whatever its peak
+const REMNANT_MAX = { tribe: 50, nation: 120, human: 50 };
+const REMNANT_SECONDS = 20;       // the conqueror must have taken a tile from it this recently
 const TREATY_AT = [0.8, 0.92];   // shares of the calendar when a general peace is proposed
 const TREATY_SECONDS = 40;        // how long the proposal stays open
 const SHIP_SPEED = 0.2;         // tiles per tick: 2 tiles a second before naval technology
@@ -82,6 +88,8 @@ class Player {
     this.kills = 0;
     this.ai = null;
     this.eliminatedAt = -1;
+    this.lastHitBy = 0;             // who last took a tile from this nation, and when
+    this.lastHitAt = -1e9;
     // Population
     this.pop = 0;
     this.popCap = 0;
@@ -151,6 +159,7 @@ class Game {
     this.neighbors = [];
     this.distField = new Float32Array(this.N);
     this.over = null;
+    this.coached = false;           // a tutorial: it ends with the lesson, never with a win at 70%
     this.started = false;
     this.idSeq = 1;
     this.totalHarbors = 0;
@@ -531,7 +540,10 @@ class Game {
     const oldC = this.control[t];
     const newC = !this.politics ? 100 : old ? 10 : 55;
     this.owner[t] = newOwner;
-    if (po) { po.tiles--; po.value -= v; po.effValue -= v * this.controlFactor(oldC); }
+    if (po) {
+      po.tiles--; po.value -= v; po.effValue -= v * this.controlFactor(oldC);
+      if (newOwner) { po.lastHitBy = newOwner; po.lastHitAt = this.tick; }
+    }
     this.control[t] = newOwner ? newC : 0;
     if (pn) {
       pn.tiles++; pn.value += v; pn.effValue += v * this.controlFactor(newC);
@@ -1566,6 +1578,31 @@ class Game {
     }
   }
 
+  // The most land a beaten nation can hold and still surrender, from its peak size.
+  remnantSize(p) {
+    const k = p.tribe ? 'tribe' : p.human ? 'human' : 'nation';
+    return Math.max(REMNANT_MIN, Math.min(REMNANT_MAX[k], Math.round(p.peakTiles * REMNANT_SHARE[k])));
+  }
+
+  // Every few seconds: any nation or tribe down to a remnant, with an enemy still taking its land,
+  // surrenders everything it has left to that enemy, who also takes its treasury.
+  surrenderRemnants() {
+    const W = this.W, own = this.owner;
+    for (const D of this.players) {
+      if (!D || !D.alive || !D.spawned || D.tiles <= 0 || D.tiles > this.remnantSize(D)) continue;
+      const P = this.players[D.lastHitBy];
+      if (!P || !P.alive || P === D || this.tick - D.lastHitAt > REMNANT_SECONDS * TPS || this.isFriendly(D.id, P.id)) continue;
+      const [x0, y0, x1, y1] = D.bbox, region = [];
+      for (let y = Math.max(0, y0); y <= y1 && region.length < D.tiles; y++) {
+        for (let x = Math.max(0, x0), t = y * W + x; x <= x1; x++, t++) if (own[t] === D.id) region.push(t);
+      }
+      if (P.human) this.log(`The last of ${D.tribe ? 'the ' : ''}${D.name} surrendered to you.`, 'good', P.id);
+      if (D.human) this.log(`Your last ${fmt(D.tiles)} tiles surrendered to ${P.name}.`, 'bad', D.id);
+      const density = D.troops / Math.max(1, D.tiles);
+      for (const t of region) this.takeTile(t, P, D, density);
+    }
+  }
+
   annexRegion(P, D, region) {
     const density = D ? D.troops / Math.max(1, D.tiles) : 0;
     for (const t of region) this.takeTile(t, P, D, density);
@@ -1877,7 +1914,7 @@ class Game {
       }
       return;
     }
-    if (!this.mode.endYear || this.over || this.treatyRound >= TREATY_AT.length) return;
+    if (!this.mode.endYear || this.over || this.coached || this.treatyRound >= TREATY_AT.length) return;
     const progress = (this.year - START_YEAR) / (this.mode.endYear - START_YEAR);
     if (progress < TREATY_AT[this.treatyRound]) return;
     this.treatyRound++;
@@ -1892,10 +1929,11 @@ class Game {
     for (const p of this.players) {
       if (!p || !p.alive) continue;
       if (!top || p.tiles > top.tiles) top = p;
-      if (this.landShare(p) >= WIN_SHARE) { end(p.id, 'share'); return; }
+      if (!this.coached && this.landShare(p) >= WIN_SHARE) { end(p.id, 'share'); return; }
     }
     const humans = this.humans();
     if (!humans.some((h) => h.alive)) { end(top ? top.id : 0, 'fallen'); return; }
+    if (this.coached) return;
     if (this.treaty && this.treaty.signed) { end(this.largestNation().id, 'treaty'); return; }
     if (this.mode.endYear && this.year >= this.mode.endYear) end(top.id, 'year');
   }
@@ -1917,6 +1955,7 @@ class Game {
     if (this.tick % TPS === 0) this.perSecond();
     if (this.tick % (TPS * 2) === 5) this.computeLabels();
     if (this.tick % (TPS * 3) === 15) this.annexEnclaves();
+    if (this.tick % TPS === 7) this.surrenderRemnants();
     for (let k = 2; k < this.players.length; k++) {
       const p = this.players[k];
       if (p.alive && p.ai) p.ai.update();

@@ -1,7 +1,8 @@
 'use strict';
 // Tutorials. The controls lesson runs on a hand-laid practice island (buildTutorialMap) and
 // teaches one control at a time; the guided game is a real match in which an advisor sets
-// objectives and drops tips for most of the game, then steps aside so you finish it yourself.
+// objectives and drops tips through most of the game. Neither can be won by conquest: each ends
+// with a closing screen when its last step is reached, and the guided game can then be played on.
 // Both are plans run by a Coach: a list of steps, each with text, an optional map marker or
 // highlighted control, and a test for when it's done.
 
@@ -96,10 +97,10 @@ const LESSON = {
     },
     {
       title: 'Government and ideology',
-      text: () => 'Now open Government, or press G. It holds your national priority, army or economy, and your ideology: a set of strengths and weaknesses you can build on. Pick one if you like.',
+      text: () => 'Now open Government, or press G. It holds your national priority, army or economy. Beside it is the Ideology tab (or press I): a set of strengths and weaknesses you can build on. Pick one if you like.',
       target: () => document.querySelector('#command [data-open="gov"]'),
       enter: (c) => { c.mem.t = performance.now(); },
-      done: (c) => !!(c.ui.lastOpen && c.ui.lastOpen.tab === 'gov' && c.ui.lastOpen.at > c.mem.t),
+      done: (c) => !!(c.ui.lastOpen && (c.ui.lastOpen.tab === 'gov' || c.ui.lastOpen.tab === 'ideo') && c.ui.lastOpen.at > c.mem.t),
     },
     {
       title: 'Pause and speed up',
@@ -108,10 +109,11 @@ const LESSON = {
       check: (c) => { if (c.ui.speed === 0) c.mem.paused = true; },
       done: (c) => !c.ui.modalOpen && ((c.mem.paused && c.ui.speed > 0) || c.ui.speed >= 2),
     },
+    // The last step isn't a card: finishing the lesson ends it with a closing screen.
     {
-      title: "That's the controls",
-      text: () => 'You can move around, take land, build, sail and use the big screens. Next comes a guided game: a whole match with an advisor beside you for most of it, until you take over and conquer the world yourself.',
-      actions: [['guide', 'Play the guided game', 'primary'], ['menu', 'Back to the menu', 'ghost']],
+      title: 'Lesson complete',
+      text: () => 'You can move around, take land, build, sail and use the big screens. Next comes a guided game: a whole match with an advisor beside you, from your first city to a great power.',
+      actions: [['menu', 'Back to the menu', 'ghost'], ['guide', 'Play the guided game', 'primary']],
       final: true,
     },
   ],
@@ -172,7 +174,7 @@ const GUIDE = {
     },
     {
       title: 'Choose an ideology',
-      text: () => 'Open Government (G) and choose an ideology. Moderation is the safe choice: small bonuses and no drawbacks. Commerce brings money, Militarism a stronger army, Reason faster research.',
+      text: () => 'Open the Ideology screen (press I, or Government and then its Ideology tab) and choose an ideology. Moderation is the safe choice: small bonuses and no drawbacks. Commerce brings money, Militarism a stronger army, Reason faster research.',
       target: () => document.querySelector('#command [data-open="gov"]'),
       done: (c) => !!c.me.ideology,
     },
@@ -209,7 +211,7 @@ const GUIDE = {
     {
       title: 'Strengthen your ideology',
       skip: (c) => !c.me.ideology,
-      text: () => 'Open Government and buy a doctrine from your ideology\'s tree. The first one opens two branches; the last needs both.',
+      text: () => 'Open the Ideology screen (I) and buy a doctrine from your ideology\'s tree. The first one opens two branches; the last needs both.',
       target: () => document.querySelector('#command [data-open="gov"]'),
       done: (c) => c.me.doctrines.size >= 1,
     },
@@ -260,18 +262,20 @@ const GUIDE = {
     },
     {
       title: 'Grow to 30% of the world',
-      text: () => 'Railroads and combustion engines speed up your fronts. Use them to push for the 70% that wins the game.',
+      text: () => 'Railroads and combustion engines speed up your fronts. Use them to push your borders further than ever.',
       done: (c) => tutShare(c) >= 0.3,
       progress: (c) => `${pctText(tutShare(c))} of the world`,
     },
+    // Finishing ends the tutorial with a closing screen; you can play on in the same world.
     {
-      title: 'The world is yours to take',
-      text: () => 'You have the tools to win: land, money, research, ideology, armies and fleets. From here on the advisor steps aside. Hold 70% of the world, or be the largest nation when 2000 comes.',
-      actions: [['handover', 'Take command', 'primary']],
+      title: 'Tutorial complete',
+      text: () => 'You have the tools to win: land, money, research, ideology, armies and fleets. The guided game ends here. You can carry on in this world on your own, where the usual rules apply: hold 70% of the land, or be the largest nation when 2000 comes.',
+      actions: [['keep', 'Keep playing on my own', 'ghost'], ['menu', 'Back to the menu', 'primary']],
+      stats: true,
       final: true,
     },
   ],
-  // The advisor hands over late in the 1800s whether or not every objective is done.
+  // The tutorial ends late in the 1800s whether or not every objective is done.
   handover: (c) => c.ui.game.year >= 1880,
   tips: [
     {
@@ -342,26 +346,35 @@ class Coach {
     this.step = k;
     this.mem = {};
     const s = this.current;
+    if (s.final) { this.complete(); return; }
     if (s.enter) s.enter(this);
     this.render();
   }
 
   act(a) {
     if (a === 'next' || a === 'skipstep') this.advance();
-    else if (a === 'quit') this.end();
+    // Leaving the lesson goes back to the menu; dismissing the advisor turns the guided game
+    // into an ordinary match, which can be won at 70%.
+    else if (a === 'quit') { this.end(); if (this.plan.id === 'lesson') this.ui.backToMenu(); else this.game.coached = false; }
     else if (a === 'tip') { this.tip = null; this.render(); }
-    else if (a === 'handover') this.finish('The world is yours to take.');
-    else if (a === 'guide') { this.finish(); this.ui.startGuided(); }
-    else if (a === 'menu') { this.finish(); this.ui.backToMenu(); }
+  }
+
+  // The last step ends the tutorial: the card goes, the reward is paid once, and a closing
+  // screen offers what comes next.
+  complete() {
+    const s = this.current;
+    try { localStorage.setItem(TUT_DONE_KEY, '1'); } catch (e) { /* storage unavailable */ }
+    this.end();
+    const crowns = this.plan.reward ? this.ui.claimReward(this.plan.id, this.plan.reward) : 0;
+    this.ui.showTutorialComplete(this.plan, s, crowns);
   }
 
   render() {
-    const s = this.current, n = this.plan.steps.length, c = this;
+    // The closing screen isn't counted as a step.
+    const s = this.current, n = this.plan.steps.filter((x) => !x.final).length, c = this;
     this.highlight(s.target ? s.target() : null);
     this.updateMarks();
-    let actions;
-    if (s.actions) actions = s.actions.map(([a, label, cls]) => `<button type="button" class="${cls}" data-tut="${a}">${label}</button>`).join('');
-    else actions = `<button type="button" class="text-btn" data-tut="quit">${this.plan.quit}</button>` +
+    const actions = `<button type="button" class="text-btn" data-tut="quit">${this.plan.quit}</button>` +
       (s.optional ? '<button type="button" class="ghost" data-tut="skipstep">Skip this</button>' : '') +
       (s.next ? `<button type="button" class="primary" data-tut="next">${s.next}</button>` : (s.optional ? '' : '<span class="tut-wait">Waiting for you…</span>'));
     this.card.innerHTML = `<p class="tut-step">${this.plan.label(this.step + 1, n)}</p>
@@ -423,15 +436,8 @@ class Coach {
   }
 
   advance() {
-    if (this.step >= this.plan.steps.length - 1) { this.finish(); return; }
+    if (this.step >= this.plan.steps.length - 1) { this.complete(); return; }
     this.go(this.step + 1);
-  }
-
-  finish(message) {
-    try { localStorage.setItem(TUT_DONE_KEY, '1'); } catch (e) { /* storage unavailable */ }
-    this.end();
-    const crowns = this.plan.reward ? this.ui.claimReward(this.plan.id, this.plan.reward) : 0;
-    if (message || crowns) this.ui.notice([message, crowns ? `You earned ${crowns} crowns for the shop.` : ''].filter(Boolean).join(' '));
   }
 
   end() {

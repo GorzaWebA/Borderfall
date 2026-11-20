@@ -136,8 +136,13 @@ class UI {
       });
       sw.appendChild(b);
     }
-    $('btn-rename').addEventListener('click', () => { $('opt-name').value = this.suggestName(); });
+    $('btn-rename').addEventListener('click', () => { $('opt-name').value = this.suggestName(); this.renderPatternRow(); });
+    $('opt-name').addEventListener('input', () => this.renderPatternRow());
     $('btn-shop').addEventListener('click', () => this.showShop());
+    $('btn-shop-link').addEventListener('click', () => this.showShop());
+    // Rows in the panel open their cards beside it.
+    for (const b of document.querySelectorAll('.menu-row[data-side]')) b.addEventListener('click', () => this.setSide(b.dataset.side, b.getAttribute('aria-expanded') !== 'true'));
+    for (const b of document.querySelectorAll('[data-side-close]')) b.addEventListener('click', () => this.setSide(b.dataset.sideClose, false));
     this.renderPatternRow();
     $('setup').addEventListener('input', () => this.updateWorldSummary());
     $('setup').addEventListener('change', () => this.updateWorldSummary());
@@ -191,12 +196,26 @@ class UI {
     if (!tutDone && !welcomed && !new URLSearchParams(location.search).has('join')) this.showTutorials(true);
   }
 
+  // The start screen's side cards: your nation, world settings and online play.
+  // One card at a time, except that a lobby keeps its card open beside the world settings.
+  setSide(name, open) {
+    const ids = { nation: 'side-nation', world: 'world-settings', online: 'side-online' };
+    for (const k of Object.keys(ids)) {
+      const keep = k === name ? open : open && !(this.net && (k === 'online' || name === 'online')) ? false : !$(ids[k]).hidden;
+      $(ids[k]).hidden = !keep;
+      document.querySelector(`.menu-row[data-side="${k}"]`).setAttribute('aria-expanded', String(keep));
+    }
+  }
+
   // ---------- shop ----------
   renderPatternRow() {
     const skin = SKIN_BY_ID[this.shop.equipped] || SKINS[0];
     paintSkinPreview($('pattern-preview'), skin.id, hexToRgb(this.color));
+    paintSkinPreview($('nation-chip'), skin.id, hexToRgb(this.color));
+    $('nation-chip-name').textContent = $('opt-name').value.trim() || 'Your nation';
     $('pattern-name').textContent = skin.name;
     $('shop-crowns').textContent = `${this.shop.crowns} crowns`;
+    $('btn-shop-link').title = `${this.shop.crowns} crowns to spend`;
   }
 
   // Crowns for the game in progress, once per game.
@@ -231,17 +250,17 @@ class UI {
       let btn;
       if (on) btn = '<button type="button" class="ghost" disabled>Equipped</button>';
       else if (owned) btn = `<button type="button" class="ghost" data-equip="${k.id}">Equip</button>`;
-      else if (S.crowns >= k.price) btn = `<button type="button" class="primary" data-buy="${k.id}">Buy for ${k.price} crowns</button>`;
-      else btn = `<button type="button" class="ghost" disabled>${k.price} crowns, ${k.price - S.crowns} more needed</button>`;
-      const tag = on ? '<em>Equipped</em>' : owned ? '<em>Owned</em>' : k.price ? '' : '<em>Free</em>';
+      else if (S.crowns >= k.price) btn = `<button type="button" class="primary" data-buy="${k.id}">Buy</button>`;
+      else btn = `<button type="button" class="ghost" disabled>${k.price - S.crowns} more needed</button>`;
+      const tag = on ? '<em>Equipped</em>' : owned ? '<em>Owned</em>' : k.price ? `<em class="price">${k.price} crowns</em>` : '<em>Free</em>';
       return `<article class="skin-card${on ? ' on' : ''}"><canvas data-skin="${k.id}" width="36" height="20"></canvas>
         <div class="skin-name"><b>${k.name}</b>${tag}</div><p>${k.desc}</p>${btn}</article>`;
     }).join('');
-    this.openModal(`<div class="shop-top"><h2 id="modal-title">Shop</h2><p class="shop-bal"><b>${S.crowns}</b> crowns</p></div>
+    this.openModal(`<div class="shop-top"><h2 id="modal-title">Shop</h2><p class="shop-bal"><b>${S.crowns}</b> crowns</p>
+        <button type="button" class="primary" data-close>Done</button></div>
       <p class="result-lede">Patterns for your nation's land. They are drawn into the map tile by tile, and other players see yours in multiplayer.</p>
       <div class="shop-grid">${cards}</div>
-      <p class="fine">Earn crowns by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning (120 in Realistic, 60 in Blitz). The controls lesson pays 50 and the guided game 100, the first time.</p>
-      <div class="modal-actions"><button type="button" class="primary" data-close>Done</button></div>`, {
+      <p class="fine">Earn crowns by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning (120 in Realistic, 60 in Blitz). The controls lesson pays 50 and the guided game 100, the first time.</p>`, {
       wide: true,
       onClick: (e) => {
         const buy = e.target.closest('[data-buy]'), equip = e.target.closest('[data-equip]');
@@ -460,7 +479,8 @@ class UI {
   backToMenu() {
     // Leaving a game you have played for a few minutes still earns crowns for what you held.
     const g = this.game;
-    if (g && g.started && !g.over && g.time >= 180) this.awardGame();
+    // Tutorials pay their own one-off reward instead.
+    if (g && g.started && !g.over && !g.coached && g.time >= 180) this.awardGame();
     this.closeModal();
     this.closeCtx();
     if (this.net) { this.net.leave(); this.net = null; this.leaveLobby(true); }
@@ -954,7 +974,7 @@ class UI {
         for (const type of BUILD_ORDER) {
           if (!g.buildingAvailable(type)) continue;
           const err = g.canBuild(me, type, tile);
-          items.push({ label: `Build ${BUILDINGS[type].name.toLowerCase()}`, cost: fmtMoney(g.buildCost(me, type)), disabled: !!err, title: err || BUILDINGS[type].desc,
+          items.push({ label: `Build ${BUILDINGS[type].name.toLowerCase()}`, icon: type, cost: fmtMoney(g.buildCost(me, type)), disabled: !!err, title: err || BUILDINGS[type].desc,
             act: () => this.cmd('build', { type, tile }) });
         }
       } else if (!g.isAllied(my, o)) {
@@ -969,7 +989,7 @@ class UI {
         if (me.counts.silo) {
           const cost = g.missileCost(me);
           const err = !g.readySilo(me) ? 'Every silo is reloading.' : me.gold < cost ? `Needs ${fmtMoney(cost)}.` : '';
-          items.push({ label: 'Launch missile here', cost: fmtMoney(cost), disabled: !!err, title: err, danger: true,
+          items.push({ label: 'Launch missile here', icon: 'missile', cost: fmtMoney(cost), disabled: !!err, title: err, danger: true,
             act: () => this.cmd('missile', { tile }) });
         }
       }
@@ -997,6 +1017,9 @@ class UI {
 
     const el = $('ctx');
     el.innerHTML = `<div class="ctx-head"><b>${esc(title)}</b><span>${esc(sub)}</span></div>`;
+    // Buildings and missiles carry the same icon as on the map and in the bottom bar; when any
+    // item has one, the rest keep the same indent so the labels line up.
+    const icons = items.some((it) => it.icon);
     for (const it of items) {
       if (it.sep) { const s = document.createElement('div'); s.className = 'sep'; el.appendChild(s); continue; }
       const b = document.createElement('button');
@@ -1004,7 +1027,13 @@ class UI {
       b.disabled = !!it.disabled;
       if (it.danger) b.className = 'danger';
       if (it.title) b.title = it.title;
-      b.innerHTML = `<span>${esc(it.label)}</span>${it.cost ? `<span class="c">${esc(it.cost)}</span>` : ''}`;
+      b.innerHTML = `${icons ? '<span class="ci"></span>' : ''}<span class="l">${esc(it.label)}</span>${it.cost ? `<span class="c">${esc(it.cost)}</span>` : ''}`;
+      if (it.icon) {
+        const cv = document.createElement('canvas');
+        cv.width = cv.height = 48;
+        drawBuildingIcon(cv.getContext('2d'), it.icon, 24, 24, 36, it.icon === 'missile' ? [214, 90, 60] : me.color, !!it.disabled);
+        b.querySelector('.ci').appendChild(cv);
+      }
       b.addEventListener('click', () => { this.closeCtx(); it.act(); this.updateHud(true); });
       el.appendChild(b);
     }
@@ -1177,10 +1206,19 @@ class UI {
       }
       const k = e.key.toLowerCase();
       if (k === 'escape') {
-        if (this.modalOpen) { this.closeModal(); return; }
+        if (this.modalOpen) { if (!this.modalLocked) this.closeModal(); return; }
         if (!$('ctx').hidden) { this.closeCtx(); return; }
         if (this.r.mode && this.r.mode.kind !== 'spawn') { this.r.mode = null; this.updateHud(true); return; }
         if (this.game && this.game.started && !this.r.mode) this.showGameMenu();
+        return;
+      }
+      // With a nation screen open, its keys switch between the tabs.
+      const TAB_KEYS = { t: 'tech', g: 'gov', i: 'ideo', p: 'dipl' };
+      if (this.modalOpen && TAB_KEYS[k] && $('modal-body').querySelector('.nation-body')) {
+        this.nationTab = TAB_KEYS[k];
+        this.lastOpen = { tab: this.nationTab, at: performance.now() };
+        this.nationMsg = '';
+        this.renderNation();
         return;
       }
       if (this.modalOpen) return;
@@ -1205,6 +1243,7 @@ class UI {
       if (k === 't' && g.started) { this.openNation('tech'); return; }
       if (k === 'g' && g.started) { this.openNation('gov'); return; }
       if (k === 'p' && g.started) { this.openNation('dipl'); return; }
+      if (k === 'i' && g.started) { this.openNation('ideo'); return; }
       const bt = BUILD_ORDER.find((t) => BUILDINGS[t].key === k);
       if (bt) this.toggleBuild(bt);
     });
@@ -1216,8 +1255,10 @@ class UI {
   openModal(html, opts = {}) {
     $('modal-body').innerHTML = html;
     $('modal').querySelector('.modal-card').classList.toggle('wide', !!opts.wide);
+    $('modal').querySelector('.modal-card').classList.toggle('paged', !!opts.paged);
     $('modal').hidden = false;
     this.modalOpen = true;
+    this.modalLocked = !!opts.locked;    // a screen that must be answered with one of its buttons
     this.closeCtx();
     $('tooltip').hidden = true;
     const card = $('modal').querySelector('.modal-card');
@@ -1233,15 +1274,16 @@ class UI {
   closeModal() {
     $('modal').hidden = true;
     this.modalOpen = false;
+    this.modalLocked = false;
     const body = $('modal-body');
     const fresh = body.cloneNode(false);
     body.replaceWith(fresh);
   }
 
-  showHelp() {
-    const tpl = $('help-tpl').content.cloneNode(true);
+  // How to play, one page per topic so nothing needs scrolling.
+  showHelp(page = 'basics') {
     const wrap = document.createElement('div');
-    wrap.appendChild(tpl);
+    wrap.appendChild($('help-tpl').content.cloneNode(true));
     const ul = wrap.querySelector('.bl');
     const color = this.game ? this.me.color : hexToRgb(this.color);
     for (const t of BUILD_ORDER) {
@@ -1252,28 +1294,58 @@ class UI {
       li.innerHTML = `<canvas width="52" height="52" style="width:26px;height:26px" data-t="${t}"></canvas><span><b>${d.name}</b> (${fmtMoney(d.base)}, key ${d.key}${needs}). ${d.desc}${only}</span>`;
       ul.appendChild(li);
     }
-    this.openModal(wrap.innerHTML);
+    const tabs = [...wrap.querySelectorAll('.help-page')].map((pg) => `<button type="button" role="tab" data-help="${pg.dataset.page}">${pg.dataset.title}</button>`).join('');
+    const show = (id) => {
+      for (const pg of $('modal-body').querySelectorAll('.help-page')) pg.hidden = pg.dataset.page !== id;
+      for (const b of $('modal-body').querySelectorAll('[data-help]')) b.setAttribute('aria-selected', String(b.dataset.help === id));
+    };
+    this.openModal(`<div class="nation-top"><h2 id="modal-title">How to play</h2><div class="tabs" role="tablist">${tabs}</div>
+      <button type="button" class="ghost nation-close" data-close>Close <kbd>Esc</kbd></button></div>
+      <div class="nation-body help-body">${wrap.innerHTML}</div>`, {
+      wide: true, paged: true,
+      onClick: (e) => { const b = e.target.closest('[data-help]'); if (b) show(b.dataset.help); },
+    });
+    show(page);
     for (const cv of $('modal-body').querySelectorAll('canvas[data-t]')) {
       drawBuildingIcon(cv.getContext('2d'), cv.dataset.t, 26, 26, 36, color, false);
     }
   }
 
+  // The nation screens: one page each for technology, government, ideology and diplomacy, sized
+  // to the window so none of them needs scrolling.
   openNation(tab) {
     const g = this.game;
     if (!g || !g.started) return;
-    this.nationTab = tab === 'gov' ? 'gov' : tab === 'dipl' ? 'dipl' : 'tech';
+    this.nationTab = ['gov', 'ideo', 'dipl'].includes(tab) ? tab : 'tech';
     this.lastOpen = { tab: this.nationTab, at: performance.now() };
     this.nationMsg = '';
-    this.openModal(this.nationHtml(), { wide: true, onClick: (e) => this.onNationClick(e), onInput: (e) => this.onNationInput(e) });
+    this.techEra = null;
+    this.diplPage = 0;
+    this.ideoChanging = false;
+    this.openModal(this.nationHtml(), { wide: true, paged: true, onClick: (e) => this.onNationClick(e), onInput: (e) => this.onNationInput(e) });
+    this.fitDiplomacy();
   }
 
   renderNation() {
-    const body = $('modal-body');
-    const scroller = body.querySelector('.tree');
-    const sx = scroller ? scroller.scrollLeft : 0;
-    body.innerHTML = this.nationHtml();
-    const nt = body.querySelector('.tree');
-    if (nt) nt.scrollLeft = sx;
+    $('modal-body').innerHTML = this.nationHtml();
+    this.fitDiplomacy();
+  }
+
+  // Diplomacy shows as many rows as the window has room for, in two columns when it is wide,
+  // and pages through the rest.
+  fitDiplomacy() {
+    const body = $('modal-body').querySelector('.nation-body');
+    const cols = body && body.querySelector('.dipl-cols');
+    if (!cols) return;
+    const row = cols.querySelector('tbody tr'), head = cols.querySelector('thead');
+    const pager = body.querySelector('.pager');
+    const room = cols.clientHeight + (pager ? 0 : 44) - (head ? head.offsetHeight : 30);
+    const per = Math.max(4, Math.floor(room / (row ? row.offsetHeight : 40)));
+    const n = body.clientWidth >= 980 ? 2 : 1;
+    if (per === this.diplPer && n === this.diplCols) return;
+    this.diplPer = per;
+    this.diplCols = n;
+    $('modal-body').innerHTML = this.nationHtml();
   }
 
   onNationClick(e) {
@@ -1281,6 +1353,12 @@ class UI {
     if (e.target.closest('[data-close]')) { this.closeModal(); return; }
     const tab = e.target.closest('[data-tab]');
     if (tab) { this.nationTab = tab.dataset.tab; this.lastOpen = { tab: this.nationTab, at: performance.now() }; this.nationMsg = ''; this.renderNation(); return; }
+    const chg = e.target.closest('[data-ideo-change]');
+    if (chg) { this.ideoChanging = chg.dataset.ideoChange === '1'; this.nationMsg = ''; this.renderNation(); return; }
+    const eraTab = e.target.closest('[data-era]');
+    if (eraTab) { this.techEra = Number(eraTab.dataset.era); this.nationMsg = ''; this.renderNation(); return; }
+    const pg = e.target.closest('[data-dpage]');
+    if (pg) { this.diplPage = (this.diplPage || 0) + Number(pg.dataset.dpage); this.nationMsg = ''; this.renderNation(); return; }
     const tech = e.target.closest('[data-tech]');
     if (tech) {
       const res = me.alive ? this.cmd('research', { id: tech.dataset.tech }, true) : { msg: 'Your nation has fallen.', bad: true };
@@ -1310,6 +1388,7 @@ class UI {
     const ideo = e.target.closest('[data-ideo]');
     if (ideo && me.alive) {
       const res = this.cmd('ideology', { id: ideo.dataset.ideo }, true);
+      if (!res || !res.bad) this.ideoChanging = false;
       this.nationMsg = res ? res.msg : 'Order sent.';
       this.nationMsgBad = !!(res && res.bad);
       this.renderNation();
@@ -1369,8 +1448,8 @@ class UI {
 
   budgetHtml() {
     const me = this.me, v = me.science;
-    return `<div class="budget">
-      <label for="sci-range"><b>Research budget</b><span>The share of your income spent on research. More money means faster technology but less to build with. Nothing is spent while there's nothing to research.</span></label>
+    return `<div class="budget" title="More money means faster technology but less to build with. Nothing is spent while there's nothing to research.">
+      <label for="sci-range"><b>Research budget</b><span>The share of your income spent on research</span></label>
       <input type="range" id="sci-range" min="0" max="80" value="${Math.round(v * 100)}">
       <p id="sci-readout" class="budget-out">${esc(this.budgetText(v))}</p>
     </div>`;
@@ -1409,17 +1488,18 @@ class UI {
   }
 
   nationHtml() {
-    const g = this.game;
     const tab = (id, label) => `<button type="button" role="tab" data-tab="${id}" aria-selected="${this.nationTab === id}">${label}</button>`;
-    const tabs = `<div class="tabs" role="tablist">${tab('tech', 'Technology')}${tab('gov', 'Government')}${tab('dipl', 'Diplomacy')}</div>`;
+    const tabs = `<div class="tabs" role="tablist">${tab('tech', 'Technology <kbd>T</kbd>')}${tab('gov', 'Government <kbd>G</kbd>')}${tab('ideo', 'Ideology <kbd>I</kbd>')}${tab('dipl', 'Diplomacy <kbd>P</kbd>')}</div>`;
     const msg = this.nationMsg ? `<p class="nation-msg${this.nationMsgBad ? ' bad' : ''}" role="status">${esc(this.nationMsg)}</p>` : '';
-    const content = this.nationTab === 'gov' ? this.govHtml() : this.nationTab === 'dipl' ? this.diplHtml() : this.techHtml();
-    const title = { gov: 'Government', dipl: 'Diplomacy', tech: 'Technology' }[this.nationTab];
-    return `<div class="nation-top"><h2 id="modal-title">${title}</h2>${tabs}</div>
-      ${content}${msg}
-      <div class="modal-actions"><button type="button" class="primary" data-close>Back to the map</button></div>`;
+    const t = this.nationTab;
+    const content = t === 'gov' ? this.govHtml() : t === 'ideo' ? this.ideologyHtml() : t === 'dipl' ? this.diplHtml() : this.techHtml();
+    const title = { gov: 'Government', ideo: 'Ideology', dipl: 'Diplomacy', tech: 'Technology' }[t];
+    return `<div class="nation-top"><h2 id="modal-title">${title}</h2>${tabs}<button type="button" class="ghost nation-close" data-close>Back to the map <kbd>Esc</kbd></button></div>
+      <div class="nation-body tab-${t}">${content}</div>${msg}`;
   }
 
+  // Technology: what you're researching and the budget on top, then one era at a time, chosen
+  // from a strip that shows how far you've got through each.
   techHtml() {
     const g = this.game, me = this.me, era = eraIndex(g.year);
     const cur = me.research ? TECH_BY_ID[me.research] : null;
@@ -1428,37 +1508,62 @@ class UI {
       const left = g.techCost(me, t) - (me.progress[t.id] || 0);
       return rate > 0 ? Math.ceil(left / rate) : Infinity;
     };
-    const lede = `It is ${g.year}, the ${ERAS[era].name.toLowerCase()} era. You produce ${rate.toFixed(1)} research per second from your people, universities and budget.` +
-      (cur ? ` Researching ${cur.name}, done in about ${fmtDuration(eta(cur))}.` : ' Pick a technology to research.') +
-      (g.mode.timeGate ? ' Technologies marked with a later year open up as time passes.' : '');
-    let cols = '';
-    for (let e = 0; e < ERAS.length; e++) {
-      const techs = TECHS.filter((t) => t.era === e);
-      let cards = '';
-      for (const t of techs) {
-        const st = g.techState(me, t);
-        const isCur = me.research === t.id;
-        const prog = me.progress[t.id] || 0;
-        let foot;
-        if (st === 'done') foot = 'Known';
-        else if (isCur) foot = `Researching, ${Math.floor(prog / g.techCost(me, t) * 100)}%`;
-        else if (st === 'avail') foot = `${fmt(g.techCost(me, t))} research, about ${fmtDuration(eta(t))}`;
-        else if (st === 'year') foot = `Opens in ${t.year}`;
-        else foot = `Needs ${t.req.filter((r) => !me.techs.has(r)).map((r) => TECH_BY_ID[r].name).join(', ')}`;
-        const bar = (isCur || (prog > 0 && st !== 'done')) ? `<span class="tp"><i style="width:${Math.min(100, prog / g.techCost(me, t) * 100)}%"></i></span>` : '';
-        cards += `<button type="button" class="tech s-${st}${isCur ? ' cur' : ''}" data-tech="${t.id}"${st === 'done' ? ' disabled' : ''} aria-pressed="${isCur}">
-          <span class="th"><span class="tn">${esc(t.name)}</span>${g.mode.timeGate ? `<span class="ty">${t.year}</span>` : ''}</span>
-          <span class="td">${esc(t.desc)}${!g.politics && t.kind === 'gov' ? ' Stability and administration don\'t apply in Blitz.' : ''}</span>
-          <span class="tf">${esc(foot)}</span>${bar}
-        </button>`;
-      }
-      const span = e < ERAS.length - 1 ? `${ERAS[e].from}–${ERAS[e + 1].from - 1}` : `${ERAS[e].from} on`;
-      cols += `<section class="era${e === era ? ' now' : ''}${g.mode.timeGate && e > era ? ' future' : ''}"><h3>${ERAS[e].name} <span>${span}</span></h3>${cards}</section>`;
+    const state = {};
+    for (const t of TECHS) state[t.id] = g.techState(me, t);
+    // The era shown: the one picked, else the one being researched, else the first with
+    // something to research, else the present.
+    let sel = this.techEra;
+    if (sel === null || sel === undefined) {
+      const open = TECHS.find((t) => state[t.id] === 'avail');
+      sel = cur ? cur.era : open ? open.era : era;
     }
-    return `${this.budgetHtml()}<p class="result-lede">${esc(lede)}</p><div class="tree">${cols}</div>`;
+    const span = (e) => (e < ERAS.length - 1 ? `${ERAS[e].from}–${ERAS[e + 1].from - 1}` : `${ERAS[e].from} on`);
+    const strip = ERAS.map((E, e) => {
+      const ts = TECHS.filter((t) => t.era === e);
+      const known = ts.filter((t) => state[t.id] === 'done').length;
+      const open = ts.filter((t) => state[t.id] === 'avail').length;
+      const later = g.mode.timeGate && e > era;
+      const note = later ? `from ${E.from}` : known === ts.length ? 'complete' : open ? `${open} open` : '';
+      return `<button type="button" role="tab" class="era-tab${e === era ? ' now' : ''}${later ? ' later' : ''}" data-era="${e}" aria-selected="${e === sel}">
+        <span class="et-head"><b>${E.name}</b>${cur && cur.era === e ? '<i class="et-busy" title="Researching here"></i>' : ''}</span>
+        <span class="et-years">${span(e)}${e === era ? ', now' : ''}</span>
+        <span class="et-bar"><i style="width:${known / ts.length * 100}%"></i></span>
+        <span class="et-note"><span>${known} of ${ts.length} known</span><span>${note}</span></span>
+      </button>`;
+    }).join('');
+    let cards = '';
+    for (const t of TECHS.filter((x) => x.era === sel)) {
+      const st = state[t.id];
+      const isCur = me.research === t.id;
+      const prog = me.progress[t.id] || 0;
+      let foot;
+      if (st === 'done') foot = 'Known';
+      else if (isCur) foot = `Researching, ${Math.floor(prog / g.techCost(me, t) * 100)}%`;
+      else if (st === 'avail') foot = `${fmt(g.techCost(me, t))} research, about ${fmtDuration(eta(t))}`;
+      else if (st === 'year') foot = `Opens in ${t.year}`;
+      else foot = `Needs ${t.req.filter((r) => !me.techs.has(r)).map((r) => TECH_BY_ID[r].name).join(', ')}`;
+      const bar = (isCur || (prog > 0 && st !== 'done')) ? `<span class="tp"><i style="width:${Math.min(100, prog / g.techCost(me, t) * 100)}%"></i></span>` : '';
+      cards += `<button type="button" class="tech s-${st}${isCur ? ' cur' : ''}" data-tech="${t.id}"${st === 'done' ? ' disabled' : ''} aria-pressed="${isCur}">
+        <span class="th"><span class="tn">${esc(t.name)}</span>${g.mode.timeGate ? `<span class="ty">${t.year}</span>` : ''}</span>
+        <span class="td">${esc(t.desc)}${!g.politics && t.kind === 'gov' ? ' Stability and administration don\'t apply in Blitz.' : ''}</span>
+        <span class="tf">${esc(foot)}</span>${bar}
+      </button>`;
+    }
+    const status = cur
+      ? `<b>Researching ${esc(cur.name)}</b>, ${Math.floor((me.progress[cur.id] || 0) / g.techCost(me, cur) * 100)}% done, about ${fmtDuration(eta(cur))} to go.`
+      : '<b>Nothing is being researched.</b> Pick a technology below.';
+    const why = `${rate.toFixed(1)} research per second from your people, universities and budget. Each technology you know makes the next cost more.` +
+      (g.mode.timeGate ? ' Later eras open as the years pass.' : '');
+    return `<div class="tech-head">
+        <div class="tech-status"><p>${status}</p><p class="fine">${esc(why)}</p></div>
+        ${this.budgetHtml()}
+      </div>
+      <div class="era-strip" role="tablist" aria-label="Eras">${strip}</div>
+      <div class="tech-grid">${cards}</div>`;
   }
 
-  // Diplomacy: every nation, its stance toward you, and alliances.
+  // Diplomacy: every nation, its stance toward you, and alliances. fitDiplomacy sets how many
+  // rows and columns fit; the rest are on further pages.
   diplHtml() {
     const g = this.game, my = this.myId;
     const nations = g.players.filter((p) => p && p.alive && p.spawned && !p.tribe && p.id !== my).sort((a, b) => b.tiles - a.tiles);
@@ -1469,7 +1574,7 @@ class UI {
       if (a.target === my) atWar.add(a.attacker);
     }
     const allies = nations.filter((p) => g.isAllied(my, p.id)).length;
-    const rows = nations.map((p) => {
+    const row = (p) => {
       let st, cls, acts;
       if (g.isAllied(my, p.id)) {
         st = 'Ally'; cls = 'st-ally';
@@ -1480,18 +1585,35 @@ class UI {
       }
       const feel = p.human ? 'Player' : relLabel(g.getRel(p.id, my))[0];
       const ideo = p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : '<span class="st-neutral">None yet</span>';
-      return `<tr><td><span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}${persTag(p)}</td><td class="num">${fmtPct(g.landShare(p) * 100)}</td><td>${ideo}</td><td class="${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
-    }).join('');
+      return `<tr><td class="nm"><span class="dot" style="background:${rgbCss(p.color)}"></span><span>${esc(p.name)}</span>${persTag(p)}</td><td class="num">${fmtPct(g.landShare(p) * 100)}</td><td class="c-ideo">${ideo}</td><td class="c-st ${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
+    };
+    const table = (list) => `<table class="dipl-table"><thead><tr><th>Nation</th><th class="num">Land</th><th class="c-ideo">Ideology</th><th class="c-st">Status</th><th>Feeling</th><th></th></tr></thead><tbody>${list.map(row).join('') || '<tr><td colspan="6">No other nations remain.</td></tr>'}</tbody></table>`;
+    const per = this.diplPer || 12, cols = this.diplCols || 1, size = per * cols;
+    const pages = Math.max(1, Math.ceil(nations.length / size));
+    const page = Math.min(this.diplPage || 0, pages - 1);
+    this.diplPage = page;
+    const slice = nations.slice(page * size, (page + 1) * size);
+    let tables = '';
+    for (let c = 0; c < cols; c++) {
+      const part = slice.slice(c * per, (c + 1) * per);
+      if (c && !part.length) break;
+      tables += table(part);
+    }
+    const pager = pages > 1 ? `<div class="pager">
+        <button type="button" class="ghost" data-dpage="-1"${page === 0 ? ' disabled' : ''}>Previous</button>
+        <span>Page ${page + 1} of ${pages}</span>
+        <button type="button" class="ghost" data-dpage="1"${page === pages - 1 ? ' disabled' : ''}>Next</button>
+      </div>` : '';
     const lede = `${nations.length} ${nations.length === 1 ? 'nation remains' : 'nations remain'}${allies ? `, ${allies} of them allied with you` : ''}. Allies can't attack each other, and nations that like you are more willing to ally. Gifts of money warm them; attacking them, or breaking an alliance, does the opposite.`;
-    return `<p class="dipl-progress">${esc(lede)}</p>
-      <table class="dipl-table"><thead><tr><th>Nation</th><th style="text-align:right">Land</th><th>Ideology</th><th>Status</th><th>Feeling toward you</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="6">No other nations remain.</td></tr>'}</tbody></table>`;
+    return `<p class="dipl-progress">${esc(lede)}</p><div class="dipl-cols" style="--cols:${cols}">${tables}</div>${pager}`;
   }
 
+  // Government: stability, administration and policies (Realistic only), and national priority.
   govHtml() {
     if (!this.game.politics) {
-      return `${this.priorityHtml()}<p class="ideo-note">Blitz has no stability or administration, so ideology effects on them do nothing here. Everything else applies.</p>${this.ideologyHtml()}`;
+      return `<div class="gov blitz">${this.priorityHtml()}<p class="ideo-note">Blitz has no stability or administration, so ideology effects on them do nothing here. Everything else applies.</p></div>`;
     }
-    return this.stateHtml() + this.priorityHtml() + this.ideologyHtml();
+    return this.stateHtml();
   }
 
   ideologyCard(I, current, action) {
@@ -1514,7 +1636,6 @@ class UI {
       const cards = IDEOLOGIES.map((I) => this.ideologyCard(I, false,
         `<button type="button" class="ghost" data-ideo="${I.id}">Adopt ${esc(I.name)}</button>`)).join('');
       return `<section class="ideo">
-        <h3>Ideology</h3>
         <p class="ideo-lede">Choose what your nation believes. Each ideology has strengths and weaknesses, and a tree of doctrines you can buy to strengthen it. Moderation has no drawbacks but smaller bonuses.</p>
         <div class="ideo-grid">${cards}</div>
       </section>`;
@@ -1533,23 +1654,30 @@ class UI {
       </button>`;
     }).join('');
     const since = g.time - me.ideologyAt;
-    const others = IDEOLOGIES.filter((I) => I.id !== cur.id).map((I) => this.ideologyCard(I, false,
-      `<button type="button" class="ghost" data-ideo="${I.id}"${since < 60 ? ' disabled' : ''}>Switch to ${esc(I.name)}</button>`)).join('');
+    // Changing ideology is a view of its own, in place of the tree.
+    if (this.ideoChanging) {
+      const others = IDEOLOGIES.filter((I) => I.id !== cur.id).map((I) => this.ideologyCard(I, false,
+        `<button type="button" class="ghost" data-ideo="${I.id}"${since < 60 ? ' disabled' : ''}>Switch to ${esc(I.name)}</button>`)).join('');
+      return `<section class="ideo">
+        <div class="ideo-bar">
+          <p class="ideo-lede">Changing from ${esc(cur.name)} loses every doctrine you've bought${g.politics ? ` and costs ${IDEOLOGY_CHANGE_SHOCK} stability for a while` : ''}.${since < 60 ? ` You can change again in ${Math.ceil(60 - since)}s.` : ''}</p>
+          <button type="button" class="ghost" data-ideo-change="0">Keep ${esc(cur.name)}</button>
+        </div>
+        <div class="ideo-grid">${others}</div>
+      </section>`;
+    }
     const owned = me.doctrines.size;
     return `<section class="ideo">
-      <h3>Ideology</h3>
       <div class="ideo-now">
-        ${this.ideologyCard(cur, true, '')}
+        <div class="ideo-side">
+          ${this.ideologyCard(cur, true, '')}
+          <button type="button" class="text-btn" data-ideo-change="1">Change ideology</button>
+        </div>
         <div class="ideo-tree">
           <p class="ideo-lede">Doctrines strengthen ${esc(cur.name)}. Buy the first to open both branches; the last needs both. You have ${owned} of ${cur.tree.length}.</p>
           <div class="doctrines">${nodes}</div>
         </div>
       </div>
-      <details class="ideo-change">
-        <summary>Change ideology</summary>
-        <p class="ideo-lede">Changing loses every doctrine you've bought${g.politics ? ` and costs ${IDEOLOGY_CHANGE_SHOCK} stability for a while` : ''}.${since < 60 ? ` You can change again in ${Math.ceil(60 - since)}s.` : ''}</p>
-        <div class="ideo-grid">${others}</div>
-      </details>
     </section>`;
   }
 
@@ -1584,6 +1712,9 @@ class UI {
           <div><b>Celebration</b><p>+15 stability, fading over a minute. Costs ${fmtMoney(cc)}.${cdLeft ? ` Ready again in ${cdLeft}s.` : ''}</p></div>
           <button type="button" class="ghost" data-gov="celebrate"${cdLeft || me.gold < cc ? ' disabled' : ''}>Hold a celebration</button>
         </div>
+      </section>
+      <section class="gov-card">
+        ${this.priorityHtml()}
         <p class="fine">The age ends in ${g.mode.endYear}. If nobody holds 70% of the land by then, the largest nation wins.</p>
       </section>
     </div>`;
@@ -1659,6 +1790,7 @@ class UI {
     tribe.troops = 260; tribe.gold = 3e6;
     island.gold = 4e6;
     game.players[1].tutorialBonus = true;
+    game.coached = true;
     this.enterGame(game, 1);
     $('spawn-banner').querySelector('p').textContent = 'Found your nation inside the gold ring.';
     this.tutorial = new Coach(this, LESSON);
@@ -1675,9 +1807,41 @@ class UI {
     const game = new Game(map, { difficulty: 'easy', mode: 'realistic' });
     game.setupPlayers({ playerName: this.playerName(), playerColor: hexToRgb(this.color), playerSkin: this.shop.equipped, numAI: 12, numTribes: 16, difficulty: 'easy' });
     for (const p of game.players) if (p && p.ai && !p.tribe) p.ai.diff = { ...p.ai.diff, graceVsHuman: 300 };
+    game.coached = true;
     this.enterGame(game, 1);
     this.tutorial = new Coach(this, GUIDE);
     this.tutorial.begin();
+  }
+
+  // The end of a tutorial: a closing screen in place of a victory. The guided game can be played
+  // on from here as an ordinary match.
+  showTutorialComplete(plan, s, crowns) {
+    const g = this.game, me = this.me;
+    const stats = s.stats && g ? `<div class="result-stats">
+        <div><span>Year</span><b>${g.year}</b></div>
+        <div><span>Time</span><b>${fmtTime(g.time)}</b></div>
+        <div><span>Land</span><b>${fmtPct(g.landShare(me) * 100)}</b></div>
+        <div><span>Nations conquered</span><b>${me.kills}</b></div>
+      </div>` : '';
+    this.openModal(`<p class="kicker">${plan.id === 'lesson' ? 'The controls' : 'The guided game'}</p>
+      <h2 id="modal-title">${esc(s.title)}</h2>
+      <p class="result-lede">${s.text()}</p>
+      ${crowns ? `<p class="crowns-earned">You earned <b>${crowns} crowns</b>. Spend them on patterns in the shop on the main menu.</p>` : ''}
+      ${stats}
+      <div class="modal-actions">${s.actions.map(([a, label, cls]) => `<button type="button" class="${cls}" data-act="${a}">${esc(label)}</button>`).join('')}</div>`, {
+      locked: true,
+      onClick: (e) => {
+        const b = e.target.closest('button[data-act]');
+        if (!b) return;
+        if (b.dataset.act === 'menu') this.backToMenu();
+        else if (b.dataset.act === 'guide') { this.closeModal(); this.startGuided(); }
+        else if (b.dataset.act === 'keep') {
+          if (this.game) this.game.coached = false;
+          this.closeModal();
+          this.notice('The world is yours. Hold 70% of the land to win.');
+        }
+      },
+    });
   }
 
   // ---------- multiplayer menu ----------
@@ -1753,7 +1917,8 @@ class UI {
     }
     for (const b of $('opt-colors').children) b.disabled = true;
     $('btn-rename').disabled = true;
-    $('world-settings').open = true;
+    $('online-summary').textContent = `Lobby ${L.code}, ${L.players.length} ${L.players.length === 1 ? 'player' : 'players'}`;
+    if (!this.lobbyShown) { this.lobbyShown = true; this.setSide('online', true); this.setSide('world', true); }
   }
 
   applyLobbySettings(st) {
@@ -1779,6 +1944,8 @@ class UI {
   leaveLobby(silent) {
     $('lobby').hidden = true;
     $('mp-entry').hidden = false;
+    this.lobbyShown = false;
+    $('online-summary').textContent = 'Play with friends or strangers';
     this.appliedLobby = null;
     for (const el of $('setup').querySelectorAll('input, select')) el.disabled = false;
     for (const b of $('opt-colors').children) b.disabled = false;
@@ -1808,6 +1975,7 @@ class UI {
 
   showGameOver() {
     const g = this.game, me = this.me;
+    if (this.tutorial) this.tutorial.end();
     const o = g.over || { winner: 0, reason: 'fallen', time: g.time, year: g.year };
     const alive = g.players.filter((p) => p && p.alive).sort((a, b) => b.tiles - a.tiles);
     const rank = me.alive ? alive.indexOf(me) + 1 : '—';

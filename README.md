@@ -6,7 +6,7 @@
 
 A real-time world conquest strategy game that runs in your browser, alone or with friends. Found a nation in the year 1500, carry it through the centuries with technology, population growth and politics, and hold 70% of the land to win.
 
-No install, no account. Works on desktop and mobile browsers. On your first visit the game offers its two-part tutorial: a three-minute lesson on the controls on a small practice island, then a guided game in which an advisor sets objectives for most of a real match before handing over.
+No install, no account. Works on desktop and mobile browsers. On your first visit the game offers its two-part tutorial: a three-minute lesson on the controls on a small practice island, then a guided game in which an advisor sets objectives through most of a real match. Neither can be won by conquest: each ends with a closing screen when its last step is done, and you can play on in the guided game's world as an ordinary match.
 
 ![Europe in 1633: your figures and wars on the left, time, screens and nations on the right, merchant ships and war fleets at sea, money rising from your buildings, and the build dock below](docs/screenshot.jpg)
 
@@ -33,7 +33,7 @@ No install, no account. Works on desktop and mobile browsers. On your first visi
 
 ## Shop
 
-Give your nation's land a pattern: 13 heraldic designs, from Barry (bands) and Chequy (checks) to Lozengy, Masoned brickwork, Tartan, Semé of stars and Ermine. They are drawn into the map tile by tile, and other players see yours in multiplayer. Patterns cost crowns, which you earn by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning. You start with 100, and the two tutorials pay 50 and 100 the first time. Open the shop from Your nation on the start screen. Crowns are saved in your browser; no real money is involved.
+Give your nation's land a pattern: 13 heraldic designs, from Barry (bands) and Chequy (checks) to Lozengy, Masoned brickwork, Tartan, Semé of stars and Ermine. They are drawn into the map tile by tile, and other players see yours in multiplayer. Patterns cost crowns, which you earn by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning. You start with 100, and the two tutorials pay 50 and 100 the first time. Open the shop from the link under the start button, or from Your nation. Crowns are saved in your browser; no real money is involved.
 
 ## Multiplayer
 
@@ -47,14 +47,15 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 - **Expand.** Click land to send troops into it (10% of your troops by default). Settling empty land is steady and cheap, and your border grows toward the spot you click. Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with the troops fighting there on a tag.
 - **Encircle.** Completely surround a patch of land and it becomes yours, unless it belongs to an ally.
+- **Finish them off.** A nation or tribe beaten down to a small remnant of its former size surrenders: whoever has been taking its land annexes the rest, with its treasury. No hunting down the last few pixels. The same rule applies to you.
 - **Absorb tribes.** Weak grey tribes hold scattered land at the start; their troops and treasure show under their name. They never build or research, so they're easy pickings, and whoever absorbs one takes its stores. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
 - **Grow your people.** Population grows toward what your land and cities can feed. Only a share can serve as soldiers (8% in 1500, up to 23% by the World Wars); the rest work and pay taxes. Soldiers killed in battle are gone for good.
 - **Manage your treasury.** Money comes in dollars at a realistic scale: you start with $1.2 million, a city costs $2 million, and a missile $8 million.
 - **Watch the money come in.** Your cities, harbors and factories show what they earn above them as it arrives. In Government, set your national priority: lean toward the army and troops refill faster, toward the economy and money comes in faster.
-- **Research.** Set a research budget at the top of the Technology screen: the share of your income spent on research. 51 technologies across six eras, from Military Drill and Craft Guilds to Railroads, the Telegraph, Machine Guns and Nuclear Fission. Click the year to open the tree and choose what comes next.
+- **Research.** Set a research budget at the top of the Technology screen: the share of your income spent on research. 51 technologies across six eras, from Military Drill and Craft Guilds to Railroads, the Telegraph, Machine Guns and Nuclear Fission, shown one era at a time with your progress through each. Click the year to open it and choose what comes next.
 - **Keep order (Realistic).** Stability depends on your technology, how far you've outgrown your administration, occupied land, war losses, taxes and levies, and the size of your empire. Conquered land shows hatched until it integrates. Below 30 stability, restless regions break away as new nations. Declare martial law or hold a celebration when things get tense.
-- **Choose an ideology.** Crown, Commerce, Militarism, Reason or Frontier, each with strengths and weaknesses, or Moderation, the balanced one. Each has a tree of six doctrines bought with money; the first opens two branches and the last needs both.
-- **Build and stack.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos. Most unlock through technology. Build on top of one of your own buildings of the same type to stack it up to level 5; every level adds its full effect again.
+- **Choose an ideology.** On the Ideology screen (`I`): Crown, Commerce, Militarism, Reason or Frontier, each with strengths and weaknesses, or Moderation, the balanced one. Each has a tree of six doctrines bought with money; the first opens two branches and the last needs both.
+- **Build and stack.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos, from the bottom bar or by right-clicking your land, where each comes with its icon and price. Most unlock through technology. Build on top of one of your own buildings of the same type to stack it up to level 5; every level adds its full effect again.
 - **Sail.** Click land across the water, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first (faster with naval technology), ride at anchor briefly, then put their troops ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors.
 - **Strike.** Missiles wipe out troops and scorch land for a while; the screen shakes when one hits you. Air defense can shoot them down.
 - **End the war.** Near the end of the game the great powers twice propose a general peace. If every player signs, the game ends and the largest nation wins; otherwise the war goes on.
@@ -64,7 +65,8 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 - 3 to 60 AI rivals (20 by default on a medium world) with distinct personalities, each tagged with an icon beside its name: crossed swords for warlords, scales for merchants, a shield for guardians and an eye for opportunists. Three difficulty levels.
 - Six terrain types that change how fast fronts move, how costly land is, and how much it's worth.
-- A guided tutorial for your first game.
+- A controls lesson and a guided game for your first time.
+- Every screen fits the window without scrolling: Technology, Government, Ideology and Diplomacy are tabs of one frame, How to play is split into pages, and the start screen's options open in cards beside it.
 - High and Low graphics. Low draws at 30 fps and native resolution with simpler effects, for phones and older computers.
 - Pause and 1×, 2×, 4× speed in single player.
 
@@ -78,7 +80,8 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 | `1`–`9` | Choose a building to place (hold Shift to place several) |
 | `T` | Open the technology tree |
 | `P` | Open diplomacy: alliances and how every nation feels about you |
-| `G` | Open government: ideology and doctrines, plus stability, administration and policies in Realistic |
+| `G` | Open government: national priority, plus stability, administration and policies in Realistic |
+| `I` | Open ideology: choose one and buy its doctrines |
 | `M` | Aim a missile |
 | `Q` / `E` | Lower or raise the share of troops sent per attack |
 | `W` `A` `S` `D` / arrows | Pan the map |
