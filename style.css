@@ -764,6 +764,10 @@ input[type=range]::-moz-range-thumb {
 #ctx button .c { margin-left: 16px; color: var(--brass-hi); font-weight: 600; font-variant-numeric: lining-nums tabular-nums; }
 #ctx button.danger { color: var(--vermilion-hi); }
 #ctx .sep { height: 1px; background: var(--rule); margin: 4px 0; }
+/* On touch screens the menu also carries the tooltip's facts about the spot. */
+#ctx .ctx-info { display: grid; grid-template-columns: auto 1fr; gap: 1px 12px; padding: 2px 8px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--rule); font-size: 13.5px; }
+#ctx .ctx-info span { color: var(--sepia); }
+#ctx .ctx-info b { font-weight: 600; text-align: right; }
 
 /* ---------- Modals ---------- */
 #modal { display: grid; place-items: center; background: rgba(15, 11, 8, 0.62); z-index: 50; padding: 16px; }
@@ -884,7 +888,7 @@ input[type=range]::-moz-range-thumb {
   .tabs kbd, .nation-close kbd { display: none; }
   .modal-card.paged { padding: 16px 14px 14px; }
   .modal-card.paged .nation-top h2 { font-size: 28px; }
-  .dipl-table .c-ideo, .dipl-table .c-st, .board-table .c-inc, .board-table .c-b, .board-table .c-feel { display: none; }
+  .dipl-table .c-ideo, .dipl-table .c-st, .board-table .c-feel { display: none; }
   .help-page { columns: 1; }
 }
 .tech-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; align-content: start; }
@@ -962,6 +966,7 @@ input[type=range]::-moz-range-thumb {
 .board-table td.c-feel { white-space: nowrap; }
 .fine-t { color: var(--sepia); font-size: 13px; font-variant-numeric: tabular-nums; }
 @media (max-width: 1180px) { .board-table .c-pop, .board-table .c-tech { display: none; } }
+@media (max-width: 640px) { .board-table .c-inc, .board-table .c-b { display: none; } }
 @media (max-width: 980px) { .board-table .c-ideo { display: none; } }
 .tab-dipl .dipl-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 0 26px; align-content: start; overflow: hidden; }
 .dipl-table td.nm { white-space: nowrap; }
@@ -1234,51 +1239,248 @@ input[type=range]::-moz-range-thumb {
   .gov { grid-template-columns: 1fr; }
 }
 
-/* Phones: two rows of figures, the command bar across the screen under them, and the dock as
-   the attack slider over a scrolling strip of buildings. */
-@media (max-width: 640px) {
+/* ---------- Phones and touch ---------- */
+/* Room kept clear of notches and rounded corners, and touch-friendly defaults everywhere: no
+   double-tap zoom on buttons, no text selection or callouts when a finger rests on the HUD. */
+:root {
+  --sa-t: env(safe-area-inset-top, 0px);
+  --sa-r: env(safe-area-inset-right, 0px);
+  --sa-b: env(safe-area-inset-bottom, 0px);
+  --sa-l: env(safe-area-inset-left, 0px);
+}
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
+#hud, #ctx, canvas#map, .banner, #toasts { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.ls, #phone-tools { display: none; }
+#phone-tools button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 44px;
+  height: 38px;
+  padding: 0 10px;
+  color: var(--paper);
+  font-weight: 700;
+  font-size: 14px;
+}
+#phone-tools button[aria-expanded=true] { border-color: var(--brass); color: var(--brass-hi); }
+#phone-tools svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+#phone-tools b { font-weight: 800; }
+/* Fingers need bigger targets than a mouse. */
+@media (pointer: coarse) {
+  .speed button { min-height: 32px; min-width: 32px; }
+  input[type=range] { height: 32px; }
+  input[type=range]::-webkit-slider-thumb { width: 18px; height: 28px; margin-top: -12.5px; }
+  input[type=range]::-moz-range-thumb { width: 15px; height: 25px; }
+  .toast .acts button { min-height: 38px; }
+  .text-btn { padding: 6px 0; }
+}
+
+/* Phones (and any short window): a compact HUD that leaves the map most of the screen. One slim
+   row of figures, one row of controls, the nations list folded behind your rank, the latest two
+   lines of the chronicle, and a dock of slider and buildings. */
+@media (max-width: 760px), (max-height: 520px) {
   html, body { font-size: 14px; }
-  #topbar { left: 8px; right: 8px; top: 8px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 3px; }
-  .stat { min-width: 0; padding: 3px 9px 5px; border-bottom: 1px solid var(--rule); }
-  .stat .k { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .stat .v { font-size: 19px; }
-  .stat.year .v { font-size: 21px; }
+  #topbar {
+    top: calc(6px + var(--sa-t)); left: calc(6px + var(--sa-l)); right: calc(6px + var(--sa-r));
+    max-width: none;
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+    padding: 2px;
+    overflow: hidden;
+  }
+  .stat { min-width: 0; padding: 3px 7px 4px; }
+  .stat .k { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stat .v { font-size: 16px; white-space: nowrap; }
+  .stat.year .v { font-size: 17px; }
   .stat .sub { display: none; }
-  .stat .goal { margin-top: 3px; }
-  #command { top: calc(14px + var(--top-h, 100px)); left: 8px; right: 8px; width: auto; padding: 5px 6px 6px; gap: 5px; }
-  #v-time { font-size: 14px; }
-  .speed button { padding: 1px 6px; font-size: 13px; }
-  .cmd-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
-  .cmd-nav button { justify-content: center; padding: 4px 2px; font-size: 12.5px; }
-  .cmd-nav kbd { display: none; }
-  #log li:nth-last-child(n+4) { display: none; }
-  #board { top: auto; bottom: calc(16px + var(--dock-h, 120px)); right: 8px; width: 148px; max-height: 24vh; padding: 5px 0 3px; }
-  #board h2 { font-size: 15px; margin: 0 10px 2px; }
-  #board h2 span { display: none; }
-  #board-list li { grid-template-columns: 9px 1fr auto; gap: 6px; padding: 2px 10px; font-size: 13px; }
-  #board-list li::before { width: 9px; height: 8px; }
-  #board-list .rk { display: none; }
-  #side-left { left: 8px; width: calc(100% - 172px); top: calc(26px + var(--top-h, 100px) + var(--cmd-h, 64px)); bottom: calc(16px + var(--dock-h, 120px)); }
-  #log li { font-size: 13px; padding: 4px 8px; gap: 7px; }
-  #dock { left: 8px; right: 8px; bottom: 8px; transform: none; flex-direction: column; max-width: none; padding: 3px; }
-  .dock-sliders { width: auto; border-right: 0; border-bottom: 1px solid var(--rule); padding: 4px 10px 2px; }
+  .stat .goal { margin-top: 2px; height: 2px; }
+  .stat .goal i { top: -2px; height: 6px; }
+
+  #command {
+    top: calc(12px + var(--sa-t) + var(--top-h, 44px)); left: calc(6px + var(--sa-l)); right: calc(6px + var(--sa-r));
+    width: auto;
+    flex-direction: row; align-items: center; gap: 6px;
+    padding: 4px 6px;
+  }
+  .cmd-time { flex: none; gap: 5px; }
+  #v-time { font-size: 13px; }
+  .speed { gap: 2px; }
+  .speed button { padding: 0 5px; font-size: 12.5px; min-height: 32px; min-width: 32px; }
+  .lf, .cmd-nav kbd { display: none; }
+  .ls { display: inline; }
+  .cmd-nav { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  .cmd-nav button { justify-content: center; align-items: center; padding: 0 3px; min-height: 34px; font-size: 13px; }
+
+  #phone-tools {
+    display: flex; flex-direction: column; gap: 6px;
+    position: absolute; z-index: 3;
+    right: calc(6px + var(--sa-r));
+    top: calc(18px + var(--sa-t) + var(--top-h, 44px) + var(--cmd-h, 42px));
+  }
+  #board { display: none; }
+  #hud.board-open #board {
+    display: block;
+    top: calc(18px + var(--sa-t) + var(--top-h, 44px) + var(--cmd-h, 42px)); bottom: auto;
+    right: calc(58px + var(--sa-r));
+    width: min(270px, calc(100% - 76px));
+    max-height: calc(100% - var(--top-h, 44px) - var(--cmd-h, 42px) - var(--dock-h, 100px) - 48px - var(--sa-t) - var(--sa-b));
+    padding: 6px 0 4px;
+  }
+  #board h2 { font-size: 16px; margin: 0 12px 4px; }
+
+  #side-left {
+    left: calc(6px + var(--sa-l));
+    width: min(340px, calc(100% - 70px - var(--sa-l) - var(--sa-r)));
+    top: calc(18px + var(--sa-t) + var(--top-h, 44px) + var(--cmd-h, 42px) + var(--tut-h, 0px));
+    bottom: calc(12px + var(--sa-b) + var(--dock-h, 100px));
+    gap: 6px;
+  }
+  #log li:nth-last-child(n+3) { display: none; }
+  #log li { font-size: 12.5px; padding: 3px 8px 4px; gap: 6px; }
+  #fronts { max-height: 34%; padding: 3px 8px 4px; }
+  .front { padding: 2px 0; gap: 6px; }
+  .front .tr { font-size: 14px; }
+
+  #dock {
+    left: calc(6px + var(--sa-l)); right: calc(6px + var(--sa-r)); bottom: calc(6px + var(--sa-b));
+    transform: none; max-width: none;
+    flex-direction: column;
+    padding: 2px;
+  }
+  .dock-sliders { width: auto; border-right: 0; border-bottom: 1px solid var(--rule); padding: 1px 12px 0; }
   .slider-head { font-size: 12.5px; }
   .slider-head output { font-size: 14px; }
   .slider-head em { font-size: 12.5px; }
-  .builds { padding: 4px; }
-  .bbtn { width: 62px; flex: none; padding: 5px 2px 4px; }
-  .bbtn .nm { font-size: 12px; }
-  .bbtn .cost { font-size: 13px; }
-  #notice { bottom: calc(16px + var(--dock-h, 120px)); }
-  #toasts { top: calc(26px + var(--top-h, 100px) + var(--cmd-h, 64px)); }
-  .menu-panel { padding: 26px 20px 24px; background: rgba(36, 30, 25, 0.96); gap: 18px; }
+  .builds { padding: 2px; gap: 1px; scrollbar-width: none; }
+  .builds::-webkit-scrollbar { display: none; }
+  .bbtn { flex: none; width: 60px; grid-template-rows: 24px auto auto; gap: 0; padding: 4px 1px 3px; }
+  .bbtn canvas { width: 24px !important; height: 24px !important; }
+  .bbtn .hk { display: none; }
+  .bbtn .nm { font-size: 11.5px; }
+  .bbtn .cost { font-size: 12.5px; }
+  .builds .divider { margin: 4px 2px; }
+
+  #notice { bottom: calc(14px + var(--sa-b) + var(--dock-h, 100px)); max-width: calc(100% - 24px); }
+  #toasts {
+    top: calc(18px + var(--sa-t) + var(--top-h, 44px) + var(--cmd-h, 42px));
+    left: calc(6px + var(--sa-l)); transform: none;
+    width: min(420px, calc(100% - 70px - var(--sa-l) - var(--sa-r)));
+    gap: 6px;
+  }
+  .toast { padding: 7px 10px 9px; }
+  .toast p, .toast.alert p { font-size: 13.5px; margin-bottom: 6px; line-height: 1.3; }
+  .toast b, .toast.alert b { font-size: 15px; }
+  .toast .acts button, .toast.alert .acts button { padding: 4px 6px; font-size: 13.5px; min-height: 36px; }
+  /* Alert cards shrink to a line of text and their main button; tapping the card dismisses it. */
+  .toast.alert { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px 10px; }
+  .toast.alert p { flex: 1; margin: 0; }
+  .toast.alert .acts { flex: none; flex-direction: column; gap: 4px; }
+  .toast.alert .acts button { flex: none; min-height: 34px; padding: 2px 10px; }
+  .toast.alert .acts button[data-a=close] { display: none; }
+  #tutorial {
+    left: calc(6px + var(--sa-l)); right: calc(6px + var(--sa-r)); top: auto; width: auto;
+    bottom: calc(12px + var(--sa-b) + var(--dock-h, 100px));
+    max-height: 36vh; overflow-y: auto;
+    padding: 9px 12px;
+  }
+  #tutorial h3 { font-size: 18px; margin: 0 0 4px; }
+  #tutorial p { margin-bottom: 6px; font-size: 14px; }
+  #treaty { width: calc(100% - 12px - var(--sa-l) - var(--sa-r)); top: calc(18px + var(--sa-t) + var(--top-h, 44px) + var(--cmd-h, 42px)); }
+  .banner { top: calc(10px + var(--sa-t)); max-width: calc(100% - 20px); }
+
+  /* The long-press menu becomes a sheet from the bottom of the screen, with rows a finger can hit
+     and, on touch, what you'd see in the tooltip on a desktop. */
+  #ctx {
+    left: 0 !important; right: 0; top: auto !important; bottom: 0;
+    width: auto; min-width: 0;
+    max-height: 66vh; overflow-y: auto; overscroll-behavior: contain;
+    border-radius: 12px 12px 0 0;
+    padding: 4px 10px calc(10px + var(--sa-b));
+    animation: sheetUp 0.18s ease-out;
+  }
+  #ctx::before { content: ''; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--rule-strong); margin: 4px auto 6px; }
+  #ctx button { min-height: 44px; font-size: 15px; }
+  #ctx .ctx-head b { font-size: 19px; }
+}
+@keyframes sheetUp { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* The narrowest phones: time and speed on one line of the control bar, the screens on the next. */
+@media (max-width: 380px) {
+  #command { flex-wrap: wrap; row-gap: 4px; }
+  .cmd-time { flex: 1 1 100%; justify-content: space-between; }
+  .speed { flex: 1; justify-content: flex-end; }
+  .cmd-nav { flex: 1 1 100%; }
+}
+/* Tablets in portrait and narrow windows: alert cards sit in the right-hand column, over the
+   nations list for a moment, instead of across the map's middle where the columns meet. */
+@media (min-width: 761px) and (max-width: 1000px) and (min-height: 521px) {
+  #toasts { left: auto; right: 12px; transform: none; width: 272px; top: calc(22px + var(--cmd-h, 104px)); }
+}
+@media (min-width: 761px) and (max-width: 820px) and (min-height: 521px) {
+  #toasts { width: 220px; }
+}
+
+/* Landscape phones: figures on the left and controls on the right share one row at the top, and the
+   dock is a single row; the long-press menu slides in from the right. */
+@media (max-height: 520px) and (orientation: landscape) {
+  #topbar { right: auto; width: min(54%, 500px); }
+  #command {
+    top: calc(6px + var(--sa-t)); left: auto; right: calc(6px + var(--sa-r));
+    width: calc(100% - min(54%, 500px) - 18px - var(--sa-l) - var(--sa-r));
+    height: var(--top-h, 44px);
+  }
+  #phone-tools, #toasts, #treaty, #hud.board-open #board { top: calc(12px + var(--sa-t) + var(--top-h, 44px)); }
+  #side-left { top: calc(12px + var(--sa-t) + var(--top-h, 44px) + var(--tut-h, 0px)); width: min(300px, 40%); }
+  #log li:nth-last-child(n+2) { display: none; }
+  #hud.board-open #board { max-height: calc(100% - var(--top-h, 44px) - var(--dock-h, 70px) - 36px - var(--sa-t) - var(--sa-b)); }
+  #toasts { left: auto; right: calc(58px + var(--sa-r)); width: min(380px, calc(58% - 76px)); }
+  #dock { flex-direction: row; }
+  .dock-sliders { width: 180px; flex: none; border-bottom: 0; border-right: 1px solid var(--rule); padding: 2px 12px; }
+  #tutorial { left: calc(6px + var(--sa-l)); right: auto; width: min(430px, 56%); max-height: 48vh; }
+  #ctx {
+    left: auto !important; right: 0; top: 0 !important; bottom: 0;
+    width: min(400px, 56%); max-height: none;
+    border-radius: 12px 0 0 12px;
+    padding: 6px 10px 10px;
+    padding-right: calc(10px + var(--sa-r));
+    animation: sheetIn 0.18s ease-out;
+  }
+  #ctx::before { display: none; }
+  .modal-card, .modal-card.paged { max-height: calc(100vh - 12px); }
+  .modal-card.paged { height: calc(100vh - 12px); padding: 8px 14px 10px; }
+  #modal { padding: 6px; padding-left: calc(6px + var(--sa-l)); padding-right: calc(6px + var(--sa-r)); }
+  /* Short screens keep the nation screens' header to one slim row and their parts side by side. */
+  .modal-card.paged .nation-top { margin-bottom: 8px; gap: 4px 14px; }
+  .modal-card.paged .nation-top h2 { font-size: 21px; margin: 0 0 4px; }
+  .tabs { gap: 14px; }
+  .tabs button { padding: 4px 0 6px; font-size: 14px; }
+  .tabs kbd, .nation-close kbd { display: none; }
+  .nation-close { padding: 4px 10px; font-size: 13px; }
+  .nation-body { gap: 8px; }
+  .tech-head { grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); }
+  .tech-status .fine, .budget label span { display: none; }
+  .era-strip { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .era-tab { padding: 5px 7px 6px; }
+  .et-head b { font-size: 14px; }
+  .et-note { display: none; }
+  .tab-dipl .dipl-progress { display: none; }
+  .modal-card h2 { font-size: 24px; margin-bottom: 8px; }
+  .result-lede { margin-bottom: 8px; }
+  .modal-actions { margin-top: 12px; }
+}
+@keyframes sheetIn { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Phones in portrait: the start screen fills the screen, and dialogs use all of it. */
+@media (max-width: 640px) {
+  .menu-panel { padding: calc(26px + var(--sa-t)) 20px calc(24px + var(--sa-b)); background: rgba(36, 30, 25, 0.96); gap: 18px; }
   .wordmark { font-size: 50px; }
   .tagline { font-size: 16px; }
-  .banner { flex-direction: column; align-items: stretch; text-align: center; top: 10px; }
-  #tutorial { left: 8px; right: 8px; top: auto; bottom: calc(16px + var(--dock-h, 120px)); width: auto; max-height: 40vh; overflow-y: auto; }
+  .banner { flex-direction: column; align-items: stretch; text-align: center; }
   .mp-row { grid-template-columns: 1fr; }
-  .modal-card { padding: 22px 18px 18px; }
-  .modal-card h2 { font-size: 30px; }
+  #modal { padding: calc(6px + var(--sa-t)) 6px calc(6px + var(--sa-b)); }
+  .modal-card { padding: 20px 16px 16px; max-height: calc(100vh - 12px); }
+  .modal-card.paged { height: calc(100vh - 12px - var(--sa-t) - var(--sa-b)); }
+  .modal-card h2 { font-size: 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -30,6 +30,17 @@ function stanceTags(g, myId, p) {
   }).join('');
 }
 
+// A short vibration on phones that support it (long-press, threats). Silently does nothing elsewhere.
+function buzz(pattern) {
+  try { if (navigator.vibrate && window.matchMedia('(pointer: coarse)').matches) navigator.vibrate(pattern); } catch (e) { /* not allowed */ }
+}
+function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+  } catch (e) { /* not supported */ }
+}
+
 function fmtDuration(sec) {
   if (!isFinite(sec)) return 'a long time';
   if (sec < 60) return `${Math.max(1, sec)}s`;
@@ -169,6 +180,11 @@ class UI {
     $('opt-name').addEventListener('input', () => this.renderPatternRow());
     $('btn-shop').addEventListener('click', () => this.showShop());
     $('btn-shop-link').addEventListener('click', () => this.showShop());
+    // Phones and tablets can play full screen where the browser allows it.
+    const fs = $('btn-fullscreen');
+    fs.hidden = !document.fullscreenEnabled || !window.matchMedia('(pointer: coarse)').matches;
+    fs.addEventListener('click', () => toggleFullscreen());
+    document.addEventListener('fullscreenchange', () => { fs.textContent = document.fullscreenElement ? 'Leave full screen' : 'Full screen'; });
     // Rows in the panel open their cards beside it.
     for (const b of document.querySelectorAll('.menu-row[data-side]')) b.addEventListener('click', () => this.setSide(b.dataset.side, b.getAttribute('aria-expanded') !== 'true'));
     for (const b of document.querySelectorAll('[data-side-close]')) b.addEventListener('click', () => this.setSide(b.dataset.sideClose, false));
@@ -212,7 +228,9 @@ class UI {
     } catch (e) { /* storage unavailable */ }
     $('btn-tutorial').classList.toggle('nudge', !tutDone);
     if (!tutDone) $('btn-tutorial').textContent = 'New here? Play the tutorial';
-    const gfx = P.gfx === 'low' ? 'low' : 'high';
+    // With no saved choice, phones with little memory or few cores start on Low.
+    const weak = window.matchMedia('(pointer: coarse)').matches && ((navigator.deviceMemory || 8) <= 4 || (navigator.hardwareConcurrency || 8) <= 4);
+    const gfx = P.gfx === 'low' || (!P.gfx && weak) ? 'low' : 'high';
     document.querySelector(`input[name=gfx][value=${gfx}]`).checked = true;
     this.r.setQuality(gfx);
     for (const r of document.querySelectorAll('input[name=gfx]')) r.addEventListener('change', () => this.setGraphics(r.value));
@@ -597,7 +615,22 @@ class UI {
       if (!li || !this.game) return;
       const p = this.game.players[Number(li.dataset.pid)];
       if (p && p.alive) this.r.centerOn(p.label.x, p.label.y, Math.max(this.r.cam.zoom, 2.5));
+      if (this.compact()) this.setBoardOpen(false);
     });
+    // Phones: the nations list opens from your rank, and a button finds your nation.
+    $('btn-board').addEventListener('click', () => this.setBoardOpen(!$('hud').classList.contains('board-open')));
+    $('btn-home').addEventListener('click', () => {
+      if (!this.game || !this.me) return;
+      const L = this.me.label;
+      this.r.centerOn(L.x, L.y, Math.max(this.r.cam.zoom, 3));
+    });
+  }
+
+  // The compact phone layout is in use (see the matching media query in style.css).
+  compact() { return window.matchMedia('(max-width: 760px), (max-height: 520px)').matches; }
+  setBoardOpen(open) {
+    $('hud').classList.toggle('board-open', open);
+    $('btn-board').setAttribute('aria-expanded', String(open));
   }
 
   drawBuildIcons() {
@@ -703,9 +736,10 @@ class UI {
     $('v-land').textContent = fmtPct(share * 100);
     $('v-tiles').textContent = `${fmt(me.tiles)} tiles`;
     $('v-landbar').style.width = `${Math.min(100, share * 100)}%`;
-    $('v-time').textContent = g.mode.endYear
-      ? `${fmtTime(Math.max(0, (g.mode.endYear - START_YEAR) * g.mode.secPerYear - g.time))} left`
-      : fmtTime(g.time);
+    // "left" drops away on phones, where the row is short of room.
+    const clock = g.mode.endYear ? fmtTime(Math.max(0, (g.mode.endYear - START_YEAR) * g.mode.secPerYear - g.time)) : fmtTime(g.time);
+    const clockHtml = g.mode.endYear ? `${clock}<span class="lf"> left</span>` : clock;
+    if (clockHtml !== this.clockHtml) { $('v-time').innerHTML = clockHtml; $('v-time').title = g.mode.endYear ? `${clock} left` : ''; this.clockHtml = clockHtml; }
     $('v-popcap').textContent = `/ ${fmt(me.popCap)}`;
     const pg = $('v-popgrowth');
     pg.textContent = `${me.popGrowth >= 0 ? '+' : ''}${fmt(me.popGrowth * 60)}/min`;
@@ -788,6 +822,7 @@ class UI {
     }
     const html = rows.join('');
     if (html !== this.boardHtml) { $('board-list').innerHTML = html; this.boardHtml = html; }
+    $('my-rank').textContent = myRank >= 0 ? myRank + 1 : '–';
   }
 
   updateFronts() {
@@ -1062,6 +1097,14 @@ class UI {
 
     const el = $('ctx');
     el.innerHTML = `<div class="ctx-head"><b>${esc(title)}</b><span>${esc(sub)}</span></div>`;
+    // Touch screens have no hover, so the menu carries what the tooltip would say.
+    if (this.touchUi && !water) {
+      const { rows } = this.tileInfo(tile);
+      const info = document.createElement('div');
+      info.className = 'ctx-info';
+      info.innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
+      el.appendChild(info);
+    }
     // Buildings and missiles carry the same icon as on the map and in the bottom bar; when any
     // item has one, the rest keep the same indent so the labels line up.
     const icons = items.some((it) => it.icon);
@@ -1135,7 +1178,9 @@ class UI {
     const born = now, life = A.life * 1000;
     el.addEventListener('click', (ev) => {
       const b = ev.target.closest('button[data-a]');
-      if (!b || !this.game) return;
+      // A tap on the card itself dismisses it.
+      if (!b) { el.remove(); return; }
+      if (!this.game) return;
       const a = b.dataset.a;
       if (a === 'show') {
         const t = this.alertTarget(e, A.show), W = this.game.W;
@@ -1157,7 +1202,8 @@ class UI {
     el.dataset.kind = e.alert;
     box.prepend(el);
     const cards = box.querySelectorAll('.toast.alert');
-    for (let k = MAX_ALERTS; k < cards.length; k++) cards[k].remove();
+    for (let k = this.compact() ? 2 : MAX_ALERTS; k < cards.length; k++) cards[k].remove();
+    if (A.threat && A.tone === 'bad') buzz([30, 40, 30]);
     // The map already marks where unrest is brewing; a revolt gets a flare of its own.
     if (A.flare && e.at >= 0) this.r.alerts.push({ tile: e.at, label: A.title, until: now + 15000 });
     if (A.flash) {
@@ -1187,14 +1233,10 @@ class UI {
     return p && p.alive && p.label.tile >= 0 ? p.label.tile : -1;
   }
 
-  // ---------- tooltip ----------
-  updateTooltip() {
-    const tt = $('tooltip');
+  // What the tooltip says about a tile: its owner and their figures, how they stand toward you,
+  // control, terrain and any building. On touch screens the long-press menu shows it too.
+  tileInfo(tile) {
     const g = this.game;
-    if (!g || !this.mouse.inside || !$('ctx').hidden || this.modalOpen) { tt.hidden = true; return; }
-    const tile = this.r.screenToTile(this.mouse.x, this.mouse.y);
-    this.r.hoverTile = tile;
-    if (tile < 0 || g.isWater(tile)) { tt.hidden = true; return; }
     const o = g.owner[tile];
     const ter = TERRAIN[g.map.terrain[tile]];
     const rows = [];
@@ -1231,6 +1273,18 @@ class UI {
     if (site) rows.push(['Building', `${site.upgrade >= 0 ? `${BUILDINGS[site.type].name}, upgrading to level ${site.level}` : `${BUILDINGS[site.type].name} under construction`}, ${Math.ceil(site.left / TPS)}s left`]);
     else if (bi >= 0) { const b = g.buildings[bi]; rows.push(['Building', `${BUILDINGS[b.type].name}${b.level > 1 ? `, level ${b.level}` : ''}`]); }
 
+    return { head, rows, o };
+  }
+
+  // ---------- tooltip ----------
+  updateTooltip() {
+    const tt = $('tooltip');
+    const g = this.game;
+    if (!g || !this.mouse.inside || !$('ctx').hidden || this.modalOpen) { tt.hidden = true; return; }
+    const tile = this.r.screenToTile(this.mouse.x, this.mouse.y);
+    this.r.hoverTile = tile;
+    if (tile < 0 || g.isWater(tile)) { tt.hidden = true; return; }
+    const { head, rows, o } = this.tileInfo(tile);
     let hint = '';
     const mode = this.r.mode, me = this.me;
     if (mode && mode.kind === 'spawn') hint = g.canSpawnAt(tile) ? 'Click to found your nation here' : 'Already claimed';
@@ -1266,7 +1320,8 @@ class UI {
     }, { passive: false });
 
     cv.addEventListener('pointerdown', (e) => {
-      cv.setPointerCapture(e.pointerId);
+      try { cv.setPointerCapture(e.pointerId); } catch (err) { /* the pointer is already gone */ }
+      this.touchUi = e.pointerType !== 'mouse';
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (this.pointers.size === 1) {
         const ctxOpen = !$('ctx').hidden;
@@ -1277,6 +1332,7 @@ class UI {
           this.longTimer = setTimeout(() => {
             if (this.down && !this.down.moved) {
               this.down.long = true;
+              buzz(12);
               this.openCtx(this.r.screenToTile(this.down.x, this.down.y), this.down.x, this.down.y);
             }
           }, 480);
@@ -1483,8 +1539,8 @@ class UI {
     if (!cols) return;
     const row = cols.querySelector('tbody tr'), head = cols.querySelector('thead');
     const pager = body.querySelector('.pager');
-    const room = cols.clientHeight + (pager ? 0 : 44) - (head ? head.offsetHeight : 30);
-    const per = Math.max(4, Math.floor(room / (row ? row.offsetHeight : 40)));
+    const room = cols.clientHeight + (pager ? 0 : 58) - (head ? head.offsetHeight : 30) - 4;
+    const per = Math.max(3, Math.floor(room / (row ? row.offsetHeight : 40)));
     if (per !== this.diplPer) {
       this.diplPer = per;
       $('modal-body').innerHTML = this.nationHtml();
@@ -1903,6 +1959,7 @@ class UI {
         <p class="field-note">Cards for attacks, fleets, missiles, revolts and lost capitals are threats; alliances, trade and conquests are the rest. Everything is still written in the chronicle.</p>
       </div>
       <div class="modal-actions">
+        ${document.fullscreenEnabled ? `<button type="button" class="ghost" data-act="fullscreen">${document.fullscreenElement ? 'Leave full screen' : 'Full screen'}</button>` : ''}
         <button type="button" class="ghost" data-act="help">How to play</button>
         <button type="button" class="ghost" data-act="menu">${mp ? 'Leave match' : 'Quit to main menu'}</button>
         <button type="button" class="primary" data-close>Resume</button>
@@ -1915,6 +1972,7 @@ class UI {
         const b = e.target.closest('button[data-act]');
         if (!b) return;
         if (b.dataset.act === 'help') { this.closeModal(); this.showHelp(); }
+        if (b.dataset.act === 'fullscreen') { toggleFullscreen(); this.closeModal(); }
         if (b.dataset.act === 'menu') this.backToMenu();
       },
     });
