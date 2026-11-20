@@ -7,6 +7,7 @@
 // highlighted control, and a test for when it's done.
 
 const TUT_DONE_KEY = 'borderfall.tutorialDone';
+const OPTIONAL_SECONDS = 150;   // an optional objective moves on by itself after this long
 
 const tutTribe = (c, spot) => c.ui.game.players.find((p) => p && p.tutSpot === spot);
 const tutShare = (c) => c.ui.game.landShare(c.me);
@@ -71,7 +72,7 @@ const LESSON = {
     },
     {
       title: 'Build a city',
-      text: () => 'Choose Build city in that menu, or press 1 (or click City in the bottom bar) and then click your land. Cities house people and earn money: watch what yours earns rise above it.',
+      text: () => 'Choose Build city in that menu, or press 1 (or click City in the bottom bar) and then click your land. Building takes ten seconds; the ring around it fills as the work goes on. Cities house people and earn money: watch what yours earns rise above it.',
       target: () => document.querySelector('#builds .bbtn'),
       done: (c) => c.me.counts.city >= 1,
     },
@@ -153,7 +154,7 @@ const GUIDE = {
     },
     {
       title: 'Build your first city',
-      text: () => 'A city costs $2M. It houses 20,000 people, earns money and extends your administration. Build it well inside your land: press 1, or right-click your land.',
+      text: () => 'A city costs $2M and takes ten seconds to build. It houses 20,000 people, earns money and extends your administration. Build it well inside your land: press 1, or right-click your land.',
       target: () => document.querySelector('#builds .bbtn'),
       done: (c) => c.me.counts.city >= 1,
       progress: (c) => `Treasury ${fmtMoney(c.me.gold)}`,
@@ -344,7 +345,7 @@ class Coach {
     const steps = this.plan.steps;
     while (k < steps.length - 1 && steps[k].skip && steps[k].skip(this)) k++;
     this.step = k;
-    this.mem = {};
+    this.mem = { since: this.ui.game ? this.ui.game.time : 0 };
     const s = this.current;
     if (s.final) { this.complete(); return; }
     if (s.enter) s.enter(this);
@@ -426,6 +427,8 @@ class Coach {
     if (s.progress) { const el = document.getElementById('tut-progress'); if (el) el.textContent = s.progress(this); }
     if (s.marks) this.updateMarks();
     if (s.done && s.done(this)) { this.advance(); return; }
+    // Optional objectives don't hold the advisor up for long.
+    if (s.optional && this.ui.game.time - (this.mem.since || 0) > OPTIONAL_SECONDS) { this.advance(); return; }
     if (this.plan.tips && !this.tip && this.me.spawned && !s.final) {
       for (const t of this.plan.tips) {
         if (this.tipsSeen.has(t.id)) continue;

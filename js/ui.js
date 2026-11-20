@@ -22,6 +22,14 @@ function persTag(p) {
   return `<span class="pi" title="Computer nation, ${I.label.toLowerCase()}: ${I.desc}" aria-label="Computer nation, ${I.label.toLowerCase()}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="${I.path}"/></svg></span>`;
 }
 
+// Small icons for how a nation stands toward you; see STANCE_ICON.
+function stanceTags(g, myId, p) {
+  return stanceOf(g, myId, p).map((k) => {
+    const S = STANCE_ICON[k];
+    return `<span class="si ${S.css}" title="${S.label}" aria-label="${S.label}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="${S.path}"/></svg></span>`;
+  }).join('');
+}
+
 function fmtDuration(sec) {
   if (!isFinite(sec)) return 'a long time';
   if (sec < 60) return `${Math.max(1, sec)}s`;
@@ -746,7 +754,7 @@ class UI {
     $('board-count').textContent = tribes ? `${alive.length} left, ${tribes} tribes` : `${alive.length} left`;
     const rows = [];
     const row = (p, rank) => {
-      const ally = (g.isAllied(this.myId, p.id) ? '<span class="ally">Ally</span>' : p.human && p.id !== this.myId ? '<span class="ally pl">Player</span>' : '') + persTag(p);
+      const ally = (p.human && p.id !== this.myId ? '<span class="ally pl">Player</span>' : '') + persTag(p) + stanceTags(g, this.myId, p);
       const share = g.landShare(p) * 100;
       return `<li data-pid="${p.id}" class="${p.id === this.myId ? 'me' : ''}" style="--c:${rgbCss(p.color)}"><span class="rk">${rank}</span><span class="nm">${esc(p.name)}${ally}</span><span class="ld">${fmtPct(share)}</span><span class="tr">${fmt(p.troops)}</span></li>`;
     };
@@ -816,6 +824,7 @@ class UI {
       li.append(yr, document.createTextNode(e.text));
       li.dataset.t = String(performance.now());
       log.appendChild(li);
+      if ((e.kind === 'revolt' || e.kind === 'warn') && e.at >= 0 && e.to === this.myId) this.alert(e.text, e.at, e.kind);
     }
     while (log.children.length > 6) log.firstChild.remove();
     const now = performance.now();
@@ -838,7 +847,8 @@ class UI {
         el = document.createElement('div');
         el.className = 'toast';
         el.style.setProperty('--c', rgbCss(p.color));
-        el.innerHTML = `<p><b>${esc(p.name)}</b> proposes an alliance. Allies can't attack each other.</p><div class="acts"><button type="button" class="primary" data-a="1">Accept</button><button type="button" class="ghost" data-a="0">Decline</button></div><div class="timer"></div>`;
+        const renew = g.isAllied(this.myId, r.from);
+        el.innerHTML = `<p><b>${esc(p.name)}</b> ${renew ? 'proposes to renew your alliance for five more minutes.' : 'proposes an alliance for five minutes. Allies can\'t attack each other.'}</p><div class="acts"><button type="button" class="primary" data-a="1">Accept</button><button type="button" class="ghost" data-a="0">Decline</button></div><div class="timer"></div>`;
         el.addEventListener('click', (e) => {
           const b = e.target.closest('button[data-a]');
           if (!b || !this.game) return;
@@ -971,10 +981,22 @@ class UI {
     }
     if (me.alive && !water) {
       if (o === my) {
+        // What stands here already: a site to call off, or a building to tear down.
+        const site = this.siteNear(tile), own = this.buildingNear(tile);
+        if (site) {
+          items.push({ label: `Cancel ${BUILDINGS[site.type].name.toLowerCase()} (${Math.ceil(site.left / TPS)}s left)`, icon: site.type, cost: site.cost ? `+${fmtMoney(nicePrice(site.cost * 0.5))}` : '', danger: true,
+            title: 'Stops the work and pays back half of what it cost.', act: () => this.cmd('demolish', { tile: site.tile }) });
+        } else if (own) {
+          items.push({ label: `Demolish ${BUILDINGS[own.type].name.toLowerCase()}${own.level > 1 ? ` (level ${own.level})` : ''}`, icon: own.type, cost: `+${fmtMoney(nicePrice(BUILDINGS[own.type].base * own.level * DEMOLISH_REFUND))}`, danger: true,
+            title: 'Tears it down for a quarter of its price, freeing the ground.', act: () => this.cmd('demolish', { tile: own.tile }) });
+        }
+        if (site || own) items.push({ sep: true });
         for (const type of BUILD_ORDER) {
           if (!g.buildingAvailable(type)) continue;
           const err = g.canBuild(me, type, tile);
-          items.push({ label: `Build ${BUILDINGS[type].name.toLowerCase()}`, icon: type, cost: fmtMoney(g.buildCost(me, type)), disabled: !!err, title: err || BUILDINGS[type].desc,
+          const up = g.stackTarget(me, type, tile);
+          items.push({ label: up ? `Upgrade ${BUILDINGS[type].name.toLowerCase()} to level ${up.level + 1}` : `Build ${BUILDINGS[type].name.toLowerCase()}`, icon: type, cost: fmtMoney(g.buildCost(me, type)), disabled: !!err,
+            title: err || `${BUILDINGS[type].desc} Takes ${BUILD_SECONDS[type]}s to build.`,
             act: () => this.cmd('build', { type, tile }) });
         }
       } else if (!g.isAllied(my, o)) {
@@ -997,8 +1019,10 @@ class UI {
         const p = g.players[o];
         items.push({ sep: true });
         if (g.isAllied(my, o)) {
-          const amt = Math.floor(me.troops * 0.25);
+          const amt = Math.floor(me.troops * 0.25), left = g.allianceLeft(my, o);
           items.push({ label: `Send ${fmt(amt)} troops`, act: () => this.cmd('troops', { to: o, ratio: 0.25 }) });
+          items.push({ label: left <= RENEW_SECONDS ? `Renew alliance (${fmtTime(left)} left)` : `Alliance ends in ${fmtTime(left)}`, disabled: left > RENEW_SECONDS,
+            title: 'Alliances last five minutes. You can renew one in its last two.', act: () => this.cmd('ally', { to: o }) });
           items.push({ label: 'Break alliance', danger: true, act: () => this.cmd('unally', { to: o }) });
         } else {
           if (!p.tribe) items.push({ label: 'Propose alliance', act: () => this.cmd('ally', { to: o }) });
@@ -1046,6 +1070,61 @@ class UI {
 
   closeCtx() { $('ctx').hidden = true; }
 
+  // Your construction site or building at (or right next to) a tile.
+  siteNear(tile) {
+    const g = this.game, W = g.W, x0 = tile % W, y0 = (tile - x0) / W;
+    return (g.sites || []).find((x) => x.owner === this.myId && Math.max(Math.abs(x.tile % W - x0), Math.abs(Math.floor(x.tile / W) - y0)) <= 1) || null;
+  }
+  buildingNear(tile) {
+    const g = this.game, W = g.W, x0 = tile % W, y0 = (tile - x0) / W;
+    for (let y = y0 - 1; y <= y0 + 1; y++) {
+      for (let x = x0 - 1; x <= x0 + 1; x++) {
+        if (x < 0 || y < 0 || x >= W || y >= g.H) continue;
+        const bi = g.bldAt[y * W + x];
+        if (bi >= 0 && g.buildings[bi].alive && g.buildings[bi].owner === this.myId) return g.buildings[bi];
+      }
+    }
+    return null;
+  }
+
+  // An alert card for something happening in your land, with a button to look at it; revolts
+  // also flare on the map and flash the screen.
+  alert(text, tile, kind) {
+    const box = $('toasts');
+    const el = document.createElement('div');
+    el.className = `toast alert ${kind}`;
+    el.innerHTML = `<p><b>${kind === 'revolt' ? 'Revolt' : 'Unrest'}</b> ${esc(text.replace(/^Revolt! /, ''))}</p><div class="acts"><button type="button" class="primary" data-a="show">Show me</button><button type="button" class="ghost" data-a="close">Dismiss</button></div><div class="timer"></div>`;
+    const born = performance.now(), life = kind === 'revolt' ? 20000 : 12000;
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-a]');
+      if (!b) return;
+      if (b.dataset.a === 'show' && tile >= 0 && this.game) {
+        const W = this.game.W;
+        this.r.centerOn(tile % W + 0.5, Math.floor(tile / W) + 0.5, Math.max(this.r.cam.zoom, 3));
+      }
+      el.remove();
+    });
+    const tick = () => {
+      if (!el.isConnected) return;
+      const f = 1 - (performance.now() - born) / life;
+      if (f <= 0) { el.remove(); return; }
+      el.querySelector('.timer').style.width = `${f * 100}%`;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    // A revolt supersedes the warnings that came before it.
+    if (kind === 'revolt') for (const w of box.querySelectorAll('.toast.alert.warn')) w.remove();
+    box.prepend(el);
+    // The map already marks where unrest is brewing; a revolt gets a flare of its own.
+    if (tile >= 0 && kind === 'revolt') this.r.alerts.push({ tile, label: 'Revolt', until: performance.now() + 15000 });
+    if (kind === 'revolt') {
+      const f = $('flash');
+      f.classList.remove('boom');
+      void f.offsetWidth;
+      f.classList.add('boom');
+    }
+  }
+
   // ---------- tooltip ----------
   updateTooltip() {
     const tt = $('tooltip');
@@ -1060,7 +1139,7 @@ class UI {
     let head;
     if (o) {
       const p = g.players[o];
-      head = `<span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}${o === this.myId ? ' (you)' : p.human ? ' (player)' : ''}${persTag(p)}`;
+      head = `<span class="dot" style="background:${rgbCss(p.color)}"></span>${esc(p.name)}${o === this.myId ? ' (you)' : p.human ? ' (player)' : ''}${persTag(p)}${stanceTags(g, this.myId, p)}`;
       if (persOf(p)) rows.push(['Led by', `Computer, ${PERSONALITY_ICON[persOf(p)].label.toLowerCase()}`]);
       else if (p.tribe) rows.push(['Led by', 'A tribe']);
       rows.push(['Troops', fmt(p.troops)]);
@@ -1073,19 +1152,22 @@ class UI {
         rows.push(['Control here', `<span class="${c < 50 ? 'rel-bad' : ''}">${c}%${c < 50 ? (c <= 20 ? ' (occupied)' : ' (restless)') : ''}</span>`]);
       }
       if (o !== this.myId) {
-        if (g.isAllied(this.myId, o)) rows.push(['Status', '<span class="rel-good">Your ally</span>']);
+        if (g.isAllied(this.myId, o)) rows.push(['Status', `<span class="rel-good">Your ally, ${fmtTime(g.allianceLeft(this.myId, o))} left</span>`]);
         else if (!p.human) {
           const v = g.getRel(o, this.myId);
           const [lbl, cls] = relLabel(v);
           rows.push(['Toward you', `<span class="${cls}">${lbl}</span>`]);
         }
+        if (!p.tribe && g.refusesTrade(p, this.me)) rows.push(['Trade', '<span class="rel-bad">Refuses to trade with you</span>']);
       }
     } else {
       head = g.fallout[tile] ? 'Scorched land' : 'Unclaimed land';
     }
     rows.push(['Terrain', `${ter.name}${ter.def !== 1 ? ` (defense ×${ter.def})` : ''}`]);
     const bi = g.bldAt[tile];
-    if (bi >= 0) rows.push(['Building', BUILDINGS[g.buildings[bi].type].name]);
+    const site = this.siteNear(tile);
+    if (site) rows.push(['Building', `${site.upgrade >= 0 ? `${BUILDINGS[site.type].name}, upgrading to level ${site.level}` : `${BUILDINGS[site.type].name} under construction`}, ${Math.ceil(site.left / TPS)}s left`]);
+    else if (bi >= 0) { const b = g.buildings[bi]; rows.push(['Building', `${BUILDINGS[b.type].name}${b.level > 1 ? `, level ${b.level}` : ''}`]); }
 
     let hint = '';
     const mode = this.r.mode, me = this.me;
@@ -1331,8 +1413,8 @@ class UI {
     this.fitDiplomacy();
   }
 
-  // Diplomacy shows as many rows as the window has room for, in two columns when it is wide,
-  // and pages through the rest.
+  // Diplomacy shows as many rows as the window has room for and pages through the rest; its
+  // column heads for buildings carry their icons.
   fitDiplomacy() {
     const body = $('modal-body').querySelector('.nation-body');
     const cols = body && body.querySelector('.dipl-cols');
@@ -1341,11 +1423,12 @@ class UI {
     const pager = body.querySelector('.pager');
     const room = cols.clientHeight + (pager ? 0 : 44) - (head ? head.offsetHeight : 30);
     const per = Math.max(4, Math.floor(room / (row ? row.offsetHeight : 40)));
-    const n = body.clientWidth >= 980 ? 2 : 1;
-    if (per === this.diplPer && n === this.diplCols) return;
-    this.diplPer = per;
-    this.diplCols = n;
-    $('modal-body').innerHTML = this.nationHtml();
+    if (per !== this.diplPer) {
+      this.diplPer = per;
+      $('modal-body').innerHTML = this.nationHtml();
+    }
+    const color = this.me.color;
+    for (const cv of $('modal-body').querySelectorAll('canvas[data-bi]')) drawBuildingIcon(cv.getContext('2d'), cv.dataset.bi, 20, 20, 30, color, false);
   }
 
   onNationClick(e) {
@@ -1357,6 +1440,8 @@ class UI {
     if (chg) { this.ideoChanging = chg.dataset.ideoChange === '1'; this.nationMsg = ''; this.renderNation(); return; }
     const eraTab = e.target.closest('[data-era]');
     if (eraTab) { this.techEra = Number(eraTab.dataset.era); this.nationMsg = ''; this.renderNation(); return; }
+    const srt = e.target.closest('[data-dsort]');
+    if (srt) { this.diplSort = srt.dataset.dsort; this.diplPage = 0; this.nationMsg = ''; this.renderNation(); return; }
     const pg = e.target.closest('[data-dpage]');
     if (pg) { this.diplPage = (this.diplPage || 0) + Number(pg.dataset.dpage); this.nationMsg = ''; this.renderNation(); return; }
     const tech = e.target.closest('[data-tech]');
@@ -1404,8 +1489,9 @@ class UI {
     }
     const act = e.target.closest('[data-gov]');
     if (act && me.alive) {
-      const res = act.dataset.gov === 'martial' ? this.cmd('martial', { on: !me.martial }, true) : this.cmd('celebrate', {}, true);
-      this.nationMsg = !res ? 'Order sent.' : res.bad ? res.msg : act.dataset.gov === 'celebrate' ? 'Celebrations begin across the land.' : me.martial ? 'Martial law declared.' : 'Martial law lifted.';
+      const kind = act.dataset.gov;
+      const res = kind === 'martial' ? this.cmd('martial', { on: !me.martial }, true) : kind === 'tax' ? this.cmd('taxrelief', { on: !me.taxRelief }, true) : this.cmd('celebrate', {}, true);
+      this.nationMsg = !res ? 'Order sent.' : res.bad ? res.msg : kind === 'celebrate' ? 'Celebrations begin across the land.' : kind === 'tax' ? (me.taxRelief ? 'Taxes lowered.' : 'Taxes restored.') : me.martial ? 'Martial law declared.' : 'Martial law lifted.';
       this.nationMsgBad = !!(res && res.bad);
       this.renderNation();
     }
@@ -1562,50 +1648,62 @@ class UI {
       <div class="tech-grid">${cards}</div>`;
   }
 
-  // Diplomacy: every nation, its stance toward you, and alliances. fitDiplomacy sets how many
-  // rows and columns fit; the rest are on further pages.
+  // Diplomacy as a leaderboard: every nation ranked, with its land, army, people, income,
+  // buildings and research, how it stands toward you, and alliances. Columns sort on click;
+  // fitDiplomacy sets how many rows fit, and the rest are on further pages.
   diplHtml() {
-    const g = this.game, my = this.myId;
-    const nations = g.players.filter((p) => p && p.alive && p.spawned && !p.tribe && p.id !== my).sort((a, b) => b.tiles - a.tiles);
-    const atWar = new Set();
-    for (const a of g.attacks) {
-      if (a.dead) continue;
-      if (a.attacker === my) atWar.add(a.target);
-      if (a.target === my) atWar.add(a.attacker);
-    }
-    const allies = nations.filter((p) => g.isAllied(my, p.id)).length;
+    const g = this.game, my = this.myId, me = this.me;
+    const all = g.players.filter((p) => p && p.alive && p.spawned && !p.tribe);
+    const techs = (p) => (p.id === my || !this.isClient() ? p.techs.size : p.techCount || 0);
+    const KEYS = {
+      land: (p) => p.tiles, troops: (p) => p.troops, pop: (p) => p.pop, income: (p) => p.grossIncome || 0,
+      city: (p) => p.counts.city, harbor: (p) => p.counts.harbor, factory: (p) => p.counts.factory, techs,
+    };
+    const sortKey = KEYS[this.diplSort] ? this.diplSort : 'land';
+    all.sort((a, b) => KEYS[sortKey](b) - KEYS[sortKey](a) || b.tiles - a.tiles);
+    const rankOf = new Map(all.slice().sort((a, b) => b.tiles - a.tiles).map((p, k) => [p.id, k + 1]));
+    const allies = all.filter((p) => g.isAllied(my, p.id)).length;
     const row = (p) => {
-      let st, cls, acts;
-      if (g.isAllied(my, p.id)) {
-        st = 'Ally'; cls = 'st-ally';
-        acts = `<button type="button" class="ghost" data-dip="unally" data-to="${p.id}" title="Others will trust you less, and your land is easier to take for a while.">Break alliance</button>`;
+      const mine = p.id === my;
+      let acts = '', feel;
+      if (mine) feel = '<span class="st-neutral">You</span>';
+      else if (g.isAllied(my, p.id)) {
+        const left = g.allianceLeft(my, p.id);
+        feel = `<span class="st-ally">Ally</span> <span class="fine-t">${fmtTime(left)}</span>`;
+        acts = left <= RENEW_SECONDS
+          ? `<button type="button" class="ghost" data-dip="ally" data-to="${p.id}" title="Alliances last five minutes; renew this one for five more.">Renew</button>`
+          : `<button type="button" class="ghost" data-dip="unally" data-to="${p.id}" title="Others will trust you less, and your land is easier to take for a while.">Break</button>`;
       } else {
-        st = atWar.has(p.id) ? 'At war' : 'Neutral'; cls = atWar.has(p.id) ? 'st-war' : 'st-neutral';
+        const [lbl, cls] = p.human ? ['Player', ''] : relLabel(g.getRel(p.id, my));
+        feel = g.atWar(p.id, my) ? '<span class="st-war">At war</span>' : `<span class="${cls}">${lbl}</span>`;
         acts = `<button type="button" class="ghost" data-dip="ally" data-to="${p.id}">Propose alliance</button>`;
       }
-      const feel = p.human ? 'Player' : relLabel(g.getRel(p.id, my))[0];
-      const ideo = p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : '<span class="st-neutral">None yet</span>';
-      return `<tr><td class="nm"><span class="dot" style="background:${rgbCss(p.color)}"></span><span>${esc(p.name)}</span>${persTag(p)}</td><td class="num">${fmtPct(g.landShare(p) * 100)}</td><td class="c-ideo">${ideo}</td><td class="c-st ${cls}">${st}</td><td>${feel}</td><td><div class="dipl-actions">${acts}</div></td></tr>`;
+      const ideo = p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : '<span class="st-neutral">None</span>';
+      const inc = p.grossIncome ? fmtMoney(nicePrice(p.grossIncome * 60)) : '—';
+      return `<tr class="${mine ? 'me' : ''}"><td class="rk">${rankOf.get(p.id)}</td>
+        <td class="nm"><span class="dot" style="background:${rgbCss(p.color)}"></span><span>${esc(p.name)}</span>${persTag(p)}${stanceTags(g, my, p)}</td>
+        <td class="num">${fmtPct(g.landShare(p) * 100)}</td><td class="num">${fmt(p.troops)}</td><td class="num c-pop">${fmt(p.pop)}</td>
+        <td class="num c-inc">${inc}</td>
+        <td class="num c-b">${p.counts.city}</td><td class="num c-b">${p.counts.harbor}</td><td class="num c-b">${p.counts.factory}</td>
+        <td class="num c-tech">${techs(p)}</td><td class="c-ideo">${ideo}</td><td class="c-feel">${feel}</td>
+        <td><div class="dipl-actions">${acts}</div></td></tr>`;
     };
-    const table = (list) => `<table class="dipl-table"><thead><tr><th>Nation</th><th class="num">Land</th><th class="c-ideo">Ideology</th><th class="c-st">Status</th><th>Feeling</th><th></th></tr></thead><tbody>${list.map(row).join('') || '<tr><td colspan="6">No other nations remain.</td></tr>'}</tbody></table>`;
-    const per = this.diplPer || 12, cols = this.diplCols || 1, size = per * cols;
-    const pages = Math.max(1, Math.ceil(nations.length / size));
+    const head = (key, label, cls = 'num', title = '') => `<th class="${cls}${sortKey === key ? ' on' : ''}"${title ? ` title="${title}"` : ''}><button type="button" data-dsort="${key}">${label}</button></th>`;
+    const icon = (key, title) => `<th class="num c-b${sortKey === key ? ' on' : ''}" title="${title}, sorted by count"><button type="button" data-dsort="${key}" aria-label="${title}"><canvas data-bi="${key}" width="40" height="40"></canvas></button></th>`;
+    const thead = `<thead><tr><th class="rk">#</th><th>Nation</th>${head('land', 'Land')}${head('troops', 'Troops')}${head('pop', 'People', 'num c-pop')}${head('income', 'Income/min', 'num c-inc')}${icon('city', 'Cities')}${icon('harbor', 'Harbors')}${icon('factory', 'Factories')}${head('techs', 'Techs', 'num c-tech', 'Technologies known')}<th class="c-ideo">Ideology</th><th class="c-feel">Toward you</th><th></th></tr></thead>`;
+    const per = this.diplPer || 12;
+    const pages = Math.max(1, Math.ceil(all.length / per));
     const page = Math.min(this.diplPage || 0, pages - 1);
     this.diplPage = page;
-    const slice = nations.slice(page * size, (page + 1) * size);
-    let tables = '';
-    for (let c = 0; c < cols; c++) {
-      const part = slice.slice(c * per, (c + 1) * per);
-      if (c && !part.length) break;
-      tables += table(part);
-    }
+    const slice = all.slice(page * per, (page + 1) * per);
     const pager = pages > 1 ? `<div class="pager">
         <button type="button" class="ghost" data-dpage="-1"${page === 0 ? ' disabled' : ''}>Previous</button>
         <span>Page ${page + 1} of ${pages}</span>
         <button type="button" class="ghost" data-dpage="1"${page === pages - 1 ? ' disabled' : ''}>Next</button>
       </div>` : '';
-    const lede = `${nations.length} ${nations.length === 1 ? 'nation remains' : 'nations remain'}${allies ? `, ${allies} of them allied with you` : ''}. Allies can't attack each other, and nations that like you are more willing to ally. Gifts of money warm them; attacking them, or breaking an alliance, does the opposite.`;
-    return `<p class="dipl-progress">${esc(lede)}</p><div class="dipl-cols" style="--cols:${cols}">${tables}</div>${pager}`;
+    const refusing = all.filter((p) => p.id !== my && g.refusesTrade(p, me)).length;
+    const lede = `${all.length - 1} other ${all.length === 2 ? 'nation remains' : 'nations remain'}${allies ? `, ${allies} allied with you` : ''}${refusing ? `, ${refusing} refusing to trade with you` : ''}. Alliances last five minutes and can be renewed in their last two. Nations that dislike you, or are at war with you, close their harbors to your trade. Click a column to sort.`;
+    return `<p class="dipl-progress">${esc(lede)}</p><div class="dipl-cols"><table class="dipl-table board-table">${thead}<tbody>${slice.map(row).join('')}</tbody></table></div>${pager}`;
   }
 
   // Government: stability, administration and policies (Realistic only), and national priority.
@@ -1707,6 +1805,10 @@ class UI {
         <div class="policy">
           <div><b>Martial law</b><p>+15 stability. Income −25% and population growth −30% while it lasts.</p></div>
           <button type="button" class="${me.martial ? 'primary' : 'ghost'}" data-gov="martial">${me.martial ? 'Lift martial law' : 'Declare martial law'}</button>
+        </div>
+        <div class="policy">
+          <div><b>Tax relief</b><p>+8 stability, families grow 25% faster. Income −25% while it lasts.</p></div>
+          <button type="button" class="${me.taxRelief ? 'primary' : 'ghost'}" data-gov="tax">${me.taxRelief ? 'Restore taxes' : 'Lower taxes'}</button>
         </div>
         <div class="policy">
           <div><b>Celebration</b><p>+15 stability, fading over a minute. Costs ${fmtMoney(cc)}.${cdLeft ? ` Ready again in ${cdLeft}s.` : ''}</p></div>

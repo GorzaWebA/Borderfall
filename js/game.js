@@ -7,8 +7,8 @@ const ATTACK_SPEED = 0.22;      // share of a front that tries to advance each t
 const NEUTRAL_COST = 3;         // troops per plains tile of unclaimed land
 const NEUTRAL_SPEED = 0.75;     // settling is steady, so troops last instead of vanishing in a burst
 const MAX_LEVEL = 5;            // buildings stack up to this level
-const BLD_EARN = { city: 10, factory: 25 };   // earnings per level, before the income multiplier
-const RP_PRICE = 6000;          // dollars of research budget per research point
+const BLD_EARN = { city: 5, factory: 12.5 };  // earnings per level, before the income multiplier
+const RP_PRICE = 4000;          // dollars of research budget per research point
 const TECH_KNOWN_COST = 0.065;  // each known technology raises the cost of the next by 6.5%
 const TRIBE_NAMES = ['Ash Clan', 'Bramble Folk', 'Cinder Kin', 'Dune Riders', 'Elk Clan', 'Fen Dwellers', 'Grey Wolves',
   'Hearth Clan', 'Iron Hills', 'Juniper Folk', 'Kestrel Clan', 'Lake People', 'Moss Clan', 'Night Herders', 'Oak Clan',
@@ -40,17 +40,25 @@ const MISSILE_R_OUT = 12;
 const FALLOUT_SECONDS = 35;
 const BUILD_SPACING = 3;        // Chebyshev distance kept clear around buildings
 const REBEL_SLOTS = 10;         // extra nation slots for breakaway states
-const ADMIN_RADIUS = { capital: 30, city: 18, courthouse: 34 };
+// Every building brings order to the land around it, cities and courthouses most of all.
+const ADMIN_RADIUS = { capital: 30, city: 18, courthouse: 34, fort: 16, barracks: 10, harbor: 10, university: 12, factory: 12, aa: 8, silo: 6 };
+const PACIFY_RADIUS = 7;          // a finished building settles the land this close at once
+// Seconds a building takes to go up; each level of an upgrade takes a quarter longer.
+const BUILD_SECONDS = { city: 10, barracks: 6, fort: 8, harbor: 10, university: 12, courthouse: 12, factory: 15, aa: 10, silo: 20 };
+const DEMOLISH_REFUND = 0.25;     // share of a building's base price paid back per level
+const ALLIANCE_SECONDS = 300;     // alliances lapse after five minutes unless renewed
+const RENEW_SECONDS = 120;        // an alliance can be renewed in its last two minutes
+const TAX_RELIEF_INCOME = 0.75;   // income while tax relief is in force
 const REVOLT_BELOW = 30;
 
 const BUILDINGS = {
-  city: { name: 'City', base: 1000 * MONEY, step: 650 * MONEY, key: '1', desc: 'Houses 20K people, earns $1.2M/min and extends your administration.' },
+  city: { name: 'City', base: 1000 * MONEY, step: 650 * MONEY, key: '1', desc: 'Houses 20K people, earns $600K/min and extends your administration.' },
   barracks: { name: 'Barracks', base: 900 * MONEY, step: 500 * MONEY, key: '2', tech: 'drill', desc: 'Recruiting +25%. 0.5% more of your people can serve.' },
   fort: { name: 'Fortress', base: 700 * MONEY, step: 350 * MONEY, key: '3', radius: 9, desc: 'Land within 9 tiles costs attackers double and falls half as fast.' },
-  harbor: { name: 'Harbor', base: 900 * MONEY, step: 450 * MONEY, key: '4', coastal: true, desc: 'Coast only. Earns trade income from every harbor in the world. +2 fleets.' },
+  harbor: { name: 'Harbor', base: 900 * MONEY, step: 450 * MONEY, key: '4', coastal: true, desc: 'Coast only. Earns trade income from the harbors of every nation that will trade with you. +2 fleets.' },
   university: { name: 'University', base: 1100 * MONEY, step: 600 * MONEY, key: '5', tech: 'printing', desc: '+2 research per second.' },
   courthouse: { name: 'Courthouse', base: 1200 * MONEY, step: 700 * MONEY, key: '6', tech: 'bureaucracy', politics: true, desc: 'Administers 350 more tiles and brings land within 34 tiles under full control.' },
-  factory: { name: 'Factory', base: 2500 * MONEY, step: 1200 * MONEY, key: '7', tech: 'steam', desc: 'Earns $3M/min. Recruiting +15%.' },
+  factory: { name: 'Factory', base: 2500 * MONEY, step: 1200 * MONEY, key: '7', tech: 'steam', desc: 'Earns $1.5M/min. Recruiting +15%.' },
   aa: { name: 'Air Defense', base: 2500 * MONEY, step: 1250 * MONEY, key: '8', tech: 'radar', radius: 22, desc: 'Shoots down one enemy missile aimed within 22 tiles every 12s.' },
   silo: { name: 'Missile Silo', base: 5000 * MONEY, step: 2500 * MONEY, key: '9', tech: 'rocketry', desc: 'Launches missiles that wipe out troops and scorch land. 20s reload.' },
 };
@@ -73,7 +81,8 @@ class Player {
     this.effValue = 0;              // land value weighted by control
     this.focus = 0.5;               // 0 = all army, 1 = all economy
     this.counts = {};
-    for (const k of BUILD_ORDER) this.counts[k] = 0;
+    this.pending = {};              // buildings under construction, by type
+    for (const k of BUILD_ORDER) { this.counts[k] = 0; this.pending[k] = 0; }
     this.blds = [];
     this.allies = new Set();
     this.bbox = [1e9, 1e9, -1, -1];
@@ -115,6 +124,9 @@ class Player {
     this.celebrateReadyAt = 0;
     this.rebelOf = 0;
     this.unrestWarnedAt = -1e9;
+    this.unrest = -1;               // the tile where unrest is worst, if a revolt is brewing
+    this.taxRelief = false;
+    this.tradeHarbors = 0;          // harbors of nations that trade with this one
     this.peer = null;              // multiplayer peer id for remote humans
     this.tribe = false;
     this.science = 0.2;            // share of income spent on research
@@ -144,6 +156,8 @@ class Game {
     this.falloutList = [];
     this.players = [null];
     this.buildings = [];
+    this.sites = [];                // buildings under construction
+    this.allyUntil = new Map();     // alliance pair key -> tick it lapses
     this.attacks = [];
     this.ships = [];
     this.missiles = [];
@@ -379,9 +393,10 @@ class Game {
       }
     }
   }
-  // to: 0 for everyone or a player id; skip: player ids who get their own version.
-  log(text, kind = 'info', to = 0, skip = null) {
-    this.events.push({ id: ++this.eventSeq, text, kind, time: this.time, to, skip });
+  // to: 0 for everyone or a player id; skip: player ids who get their own version; at: a tile the
+  // message is about, for alerts that can show you where.
+  log(text, kind = 'info', to = 0, skip = null, at = -1) {
+    this.events.push({ id: ++this.eventSeq, text, kind, time: this.time, to, skip, at });
     if (this.events.length > 200) this.events.shift();
   }
   humans() { return this.players.filter((p) => p && p.human); }
@@ -399,12 +414,31 @@ class Game {
   stabFactor(p) { return this.politics ? 0.6 + 0.8 * p.stability / 100 : 1; }
   // Dollars per second per unit of earnings, after focus, technology, stability and martial law.
   incomeMult(p) {
-    return MONEY * (0.4 + 1.2 * p.focus) * (1 + p.mods.gold) * this.stabFactor(p) * (p.martial ? 0.75 : 1) * (p.diffMult || 1);
+    return MONEY * (0.4 + 1.2 * p.focus) * (1 + p.mods.gold) * this.stabFactor(p) * (p.martial ? 0.75 : 1) *
+      (p.taxRelief ? TAX_RELIEF_INCOME : 1) * (p.diffMult || 1);
   }
-  // A harbor earns a little on its own and more for every other harbor in the world to trade with.
+  // A harbor earns a little on its own and more for every foreign harbor that will trade with it.
   harborEarn(p) {
-    const others = Math.min(12, this.totalHarbors - p.counts.harbor);
-    return (6 + 1.5 * Math.max(0, others)) * (1 + p.mods.trade);
+    return (3 + 0.8 * Math.min(12, p.tradeHarbors || 0)) * (1 + p.mods.trade);
+  }
+  // At war: either side has an offensive running against the other.
+  atWar(a, b) {
+    for (const x of this.attacks) if (!x.dead && ((x.attacker === a && x.target === b) || (x.attacker === b && x.target === a))) return true;
+    return false;
+  }
+  // Nations that are hostile toward you, or at war with you, close their harbors to your ships.
+  refusesTrade(q, p) {
+    if (!q || !p || q === p || q.tribe || this.isAllied(q.id, p.id)) return false;
+    return this.getRel(q.id, p.id) <= -20 || this.atWar(q.id, p.id);
+  }
+  // Once a second: which harbors each nation can trade with.
+  updateTrade() {
+    for (const p of this.players) {
+      if (!p || !p.alive || !p.counts.harbor) { if (p) p.tradeHarbors = 0; continue; }
+      let n = 0;
+      for (const q of this.players) if (q && q.alive && q !== p && q.counts.harbor && !this.refusesTrade(q, p)) n += q.counts.harbor;
+      p.tradeHarbors = n;
+    }
   }
   // What one building brings in, in dollars per second.
   buildingIncome(p, b) {
@@ -433,7 +467,7 @@ class Game {
   }
   buildCost(p, type) {
     const b = BUILDINGS[type];
-    return nicePrice((b.base + b.step * p.counts[type]) * Math.max(0.5, 1 + p.mods.buildCost));
+    return nicePrice((b.base + b.step * (p.counts[type] + (p.pending[type] || 0))) * Math.max(0.5, 1 + p.mods.buildCost));
   }
   buildingAvailable(type) { return !BUILDINGS[type].politics || this.politics; }
   buildingUnlocked(p, type) {
@@ -587,7 +621,7 @@ class Game {
       else if (a.target === p.id) { this.players[a.attacker].troops += a.troops; a.troops = 0; a.dead = true; }
     }
     for (const s of this.ships) if (s.owner === p.id) s.dead = true;
-    for (const q of this.players) if (q) q.allies.delete(p.id);
+    for (const q of this.players) if (q) { q.allies.delete(p.id); this.allyUntil.delete(this.allyKey(p.id, q.id)); }
     p.allies.clear();
     const loot = p.gold;
     if (by) { by.gold += p.gold; by.kills++; }
@@ -870,9 +904,15 @@ class Game {
       case 'build': {
         const err = this.build(pid, a.type, a.tile);
         if (err || !BUILDINGS[a.type]) return r(err);
-        const lb = this.lastBuild;
-        return r('', lb && lb.upgraded ? `${BUILDINGS[a.type].name} upgraded to level ${lb.level}.` : `${BUILDINGS[a.type].name} built.`);
+        const lb = this.lastBuild, name = BUILDINGS[a.type].name;
+        return r('', lb.upgraded ? `Upgrading the ${name.toLowerCase()} to level ${lb.level}: ready in ${lb.seconds}s.` : `${name} under construction: ready in ${lb.seconds}s.`);
       }
+      case 'demolish': {
+        const err = this.demolish(pid, a.tile);
+        const d = this.lastDemolish;
+        return r(err, d ? `${d.site ? `${d.name} cancelled` : `${d.name} demolished`}. ${fmtMoney(nicePrice(d.refund))} recovered.` : '');
+      }
+      case 'taxrelief': return r(this.setTaxRelief(pid, !!a.on));
       case 'missile': return r(this.launchMissile(pid, a.tile), 'Missile away.');
       case 'retreat': return this.retreat(a.id, pid) ? r('', 'Troops pulled back. 20% were lost in the retreat.') : r('That offensive has already ended.');
       case 'ally': return r(this.requestAlliance(pid, a.to));
@@ -1090,6 +1130,7 @@ class Game {
     if (def.tech && !p.techs.has(def.tech)) return `Research ${TECH_BY_ID[def.tech].name} first.`;
     const stack = this.stackTarget(p, type, t);
     if (stack) {
+      if (this.sites.some((x) => x.upgrade === stack.id)) return `This ${def.name.toLowerCase()} is already being upgraded.`;
       if (stack.level >= MAX_LEVEL) return `This ${def.name.toLowerCase()} is already at level ${MAX_LEVEL}.`;
       if (!ignoreGold && p.gold < this.buildCost(p, type)) return `Needs ${fmtMoney(this.buildCost(p, type))}.`;
       return '';
@@ -1102,33 +1143,116 @@ class Game {
         if (this.bldAt[y * W + x] >= 0) return 'Too close to another building.';
       }
     }
+    for (const x of this.sites) {
+      if (x.upgrade < 0 && Math.max(Math.abs(x.tile % W - x0), Math.abs(Math.floor(x.tile / W) - y0)) <= r) return 'Too close to another building.';
+    }
     if (!ignoreGold && p.gold < this.buildCost(p, type)) return `Needs ${fmtMoney(this.buildCost(p, type))}.`;
     return '';
   }
 
+  // Building starts a construction site, paid for up front; it starts working when it's finished.
   build(pid, type, t) {
     const p = this.players[pid];
     const err = this.canBuild(p, type, t);
     if (err) return err;
-    p.gold -= this.buildCost(p, type);
+    const cost = this.buildCost(p, type);
+    p.gold -= cost;
     const stack = this.stackTarget(p, type, t);
-    if (stack) {
-      stack.level++;
+    const level = stack ? stack.level + 1 : 1;
+    const total = Math.round(BUILD_SECONDS[type] * (1 + 0.25 * (level - 1)) * TPS);
+    const site = { id: this.idSeq++, owner: pid, type, tile: stack ? stack.tile : t, upgrade: stack ? stack.id : -1, level, left: total, total, cost };
+    this.sites.push(site);
+    p.pending[type]++;
+    this.lastBuild = { upgraded: !!stack, level, seconds: Math.round(total / TPS) };
+    return '';
+  }
+
+  // Every tick: work on the construction sites. A site whose land is lost is lost with it.
+  stepSites() {
+    if (!this.sites.length) return;
+    let done = false;
+    for (const x of this.sites) {
+      const p = this.players[x.owner];
+      const b = x.upgrade >= 0 ? this.buildings[x.upgrade] : null;
+      if (!p.alive || this.owner[x.tile] !== x.owner || (b && (!b.alive || b.owner !== x.owner))) {
+        x.dead = true; done = true;
+        p.pending[x.type] = Math.max(0, p.pending[x.type] - 1);
+        if (p.human && p.alive) this.log(`The ${BUILDINGS[x.type].name.toLowerCase()} you were building was lost with its land.`, 'bad', p.id);
+        continue;
+      }
+      if (--x.left <= 0) { this.finishSite(x); x.dead = true; done = true; }
+    }
+    if (done) this.sites = this.sites.filter((x) => !x.dead);
+  }
+
+  finishSite(x) {
+    const p = this.players[x.owner], type = x.type;
+    p.pending[type] = Math.max(0, p.pending[type] - 1);
+    if (x.upgrade >= 0) {
+      const b = this.buildings[x.upgrade];
+      b.level++;
       p.counts[type]++;
-      this.lastBuild = { upgraded: true, level: stack.level };
-      if (this.net) this.net.bld.add(stack.id);
-      if (this.politics && (type === 'city' || type === 'courthouse')) this.computeAdmin();
+      if (this.net) this.net.bld.add(b.id);
+    } else {
+      const t = x.tile, cx = t % this.W, cy = (t - cx) / this.W;
+      const b = { id: this.buildings.length, type, tile: t, x: cx, y: cy, owner: p.id, cooldown: 0, alive: true, builtAt: this.tick, level: 1 };
+      this.buildings.push(b);
+      this.bldAt[t] = b.id;
+      p.counts[type]++;
+      p.blds.push(b);
+      if (this.net) this.net.bld.add(b.id);
+    }
+    if (this.politics) { this.pacify(x.tile, x.owner); this.computeAdmin(); }
+    if (p.human) this.log(x.upgrade >= 0 ? `${BUILDINGS[type].name} upgraded to level ${x.level}.` : `${BUILDINGS[type].name} finished.`, 'good', p.id);
+  }
+
+  // A new building settles the land around it: restless and occupied tiles nearby calm down at once.
+  pacify(t, pid) {
+    const W = this.W, H = this.H, x0 = t % W, y0 = (t - x0) / W, R = PACIFY_RADIUS;
+    for (let y = Math.max(0, y0 - R); y <= Math.min(H - 1, y0 + R); y++) {
+      for (let x = Math.max(0, x0 - R); x <= Math.min(W - 1, x0 + R); x++) {
+        const i = y * W + x;
+        if (this.owner[i] !== pid || (x - x0) ** 2 + (y - y0) ** 2 > R * R) continue;
+        const c = this.control[i];
+        if (c < 100) this.setControl(i, Math.min(100, c + 30));
+      }
+    }
+  }
+
+  // Tear down one of your buildings, or call off one under construction, for part of its price.
+  demolish(pid, t) {
+    const p = this.players[pid];
+    if (t < 0 || t >= this.N) return 'Nothing to demolish there.';
+    const W = this.W, x0 = t % W, y0 = (t - x0) / W;
+    const near = (tile) => Math.max(Math.abs(tile % W - x0), Math.abs(Math.floor(tile / W) - y0)) <= 1;
+    const k = this.sites.findIndex((x) => x.owner === pid && near(x.tile));
+    if (k >= 0) {
+      const x = this.sites[k];
+      this.sites.splice(k, 1);
+      p.pending[x.type] = Math.max(0, p.pending[x.type] - 1);
+      const back = Math.round(x.cost * 0.5);
+      p.gold += back;
+      this.lastDemolish = { name: BUILDINGS[x.type].name, refund: back, site: true };
       return '';
     }
-    this.lastBuild = { upgraded: false, level: 1 };
-    const x = t % this.W, y = (t - x) / this.W;
-    const b = { id: this.buildings.length, type, tile: t, x, y, owner: pid, cooldown: 0, alive: true, builtAt: this.tick, level: 1 };
-    this.buildings.push(b);
-    this.bldAt[t] = b.id;
-    p.counts[type]++;
-    p.blds.push(b);
+    let b = null;
+    for (let y = y0 - 1; y <= y0 + 1 && !b; y++) {
+      for (let x = x0 - 1; x <= x0 + 1 && !b; x++) {
+        const bi = y >= 0 && x >= 0 && x < W && y < this.H ? this.bldAt[y * W + x] : -1;
+        if (bi >= 0 && this.buildings[bi].alive && this.buildings[bi].owner === pid) b = this.buildings[bi];
+      }
+    }
+    if (!b) return 'There is no building of yours there.';
+    const back = Math.round(BUILDINGS[b.type].base * b.level * DEMOLISH_REFUND);
+    p.counts[b.type] -= b.level;
+    const i = p.blds.indexOf(b);
+    if (i >= 0) p.blds.splice(i, 1);
+    b.alive = false;
+    this.bldAt[b.tile] = -1;
+    p.gold += back;
     if (this.net) this.net.bld.add(b.id);
-    if (this.politics && (type === 'city' || type === 'courthouse')) this.computeAdmin();
+    if (this.politics && ADMIN_RADIUS[b.type]) this.computeAdmin();
+    this.lastDemolish = { name: BUILDINGS[b.type].name, refund: back, site: false };
     return '';
   }
 
@@ -1249,7 +1373,10 @@ class Game {
   requestAlliance(from, to) {
     const A = this.players[from], B = this.players[to];
     if (!A || !B || !A.alive || !B.alive || from === to) return 'Not possible.';
-    if (this.isAllied(from, to)) return `Already allied with ${B.name}.`;
+    if (this.isAllied(from, to)) {
+      const left = this.allianceLeft(from, to);
+      if (left > RENEW_SECONDS) return `Your alliance with ${B.name} has ${fmtTime(left)} to run. You can renew it in its last two minutes.`;
+    }
     const key = from * 1000 + to;
     const cd = this.reqCooldown.get(key) || 0;
     if (cd > this.tick) return `Wait ${Math.ceil((cd - this.tick) / TPS)}s before asking ${B.name} again.`;
@@ -1284,8 +1411,34 @@ class Game {
     }
   }
 
+  allyKey(a, b) { return Math.min(a, b) * this.P + Math.max(a, b); }
+  // Seconds an alliance has left to run.
+  allianceLeft(a, b) {
+    const until = this.allyUntil.get(this.allyKey(a, b));
+    return until === undefined ? 0 : Math.max(0, Math.ceil((until - this.tick) / TPS));
+  }
+  // Once a second: alliances lapse after five minutes unless they have been renewed.
+  expireAlliances() {
+    for (const [k, until] of this.allyUntil) {
+      if (this.tick < until) continue;
+      this.allyUntil.delete(k);
+      const a = Math.floor(k / this.P), b = k % this.P, A = this.players[a], B = this.players[b];
+      if (!A || !B || !A.allies.has(b)) continue;
+      A.allies.delete(b); B.allies.delete(a);
+      if (A.human) this.log(`Your alliance with ${B.name} has expired. Propose a new one to renew it.`, 'info', a);
+      if (B.human) this.log(`Your alliance with ${A.name} has expired. Propose a new one to renew it.`, 'info', b);
+    }
+  }
+
   formAlliance(a, b) {
     const A = this.players[a], B = this.players[b];
+    const renewal = this.isAllied(a, b);
+    this.allyUntil.set(this.allyKey(a, b), this.tick + ALLIANCE_SECONDS * TPS);
+    if (renewal) {
+      if (A.human) this.log(`You renewed your alliance with ${B.name} for another five minutes.`, 'good', a);
+      if (B.human) this.log(`You renewed your alliance with ${A.name} for another five minutes.`, 'good', b);
+      return;
+    }
     A.allies.add(b); B.allies.add(a);
     this.addRel(a, b, 15); this.addRel(b, a, 15);
     for (const x of this.attacks) {
@@ -1294,8 +1447,8 @@ class Game {
         this.players[x.attacker].troops += x.troops; x.troops = 0; x.dead = true;
       }
     }
-    if (A.human) this.log(`You are now allied with ${B.name}.`, 'good', a);
-    if (B.human) this.log(`You are now allied with ${A.name}.`, 'good', b);
+    if (A.human) this.log(`You are now allied with ${B.name} for five minutes.`, 'good', a);
+    if (B.human) this.log(`You are now allied with ${A.name} for five minutes.`, 'good', b);
     if (this.concernsHuman(a, b)) this.log(`${A.name} and ${B.name} formed an alliance.`, 'info', 0, [a, b]);
   }
 
@@ -1303,6 +1456,7 @@ class Game {
     const A = this.players[a], B = this.players[b];
     if (!this.isAllied(a, b)) return;
     A.allies.delete(b); B.allies.delete(a);
+    this.allyUntil.delete(this.allyKey(a, b));
     A.traitorUntil = this.tick + 45 * TPS;
     for (const q of this.players) if (q && q.id !== a) this.addRel(q.id, a, -18);
     this.addRel(b, a, -50);
@@ -1356,6 +1510,14 @@ class Game {
     if (p.human) this.log(on ? 'Martial law declared. Order improves, but trade and growth suffer.' : 'Martial law lifted.', 'info', pid);
     return '';
   }
+  // Tax relief: less income, more contentment, and families grow faster.
+  setTaxRelief(pid, on) {
+    const p = this.players[pid];
+    if (!this.politics) return 'There are no politics in Blitz.';
+    p.taxRelief = !!on;
+    if (p.human) this.log(on ? 'Taxes lowered. Your people are happier and families grow faster, but income falls.' : 'Taxes restored.', 'info', pid);
+    return '';
+  }
   celebrateCost(p) { return nicePrice(Math.max(400 * MONEY, p.income * 25)); }
   celebrate(pid) {
     const p = this.players[pid];
@@ -1382,8 +1544,8 @@ class Game {
       if (!p || !p.alive) continue;
       if (p.capital >= 0 && own[p.capital] === p.id) seed(p.capital, ADMIN_RADIUS.capital);
       for (const b of p.blds) {
-        if (b.type === 'city') seed(b.tile, ADMIN_RADIUS.city + 3 * ((b.level || 1) - 1));
-        else if (b.type === 'courthouse') seed(b.tile, ADMIN_RADIUS.courthouse + 3 * ((b.level || 1) - 1));
+        const r = ADMIN_RADIUS[b.type];
+        if (r) seed(b.tile, r + 3 * ((b.level || 1) - 1));
       }
     }
     for (let s = MAX; s > MIN; s--) {
@@ -1420,7 +1582,8 @@ class Game {
       const target = this.maxControl(t);
       let c = C[t];
       if (c < target) {
-        const nc = Math.min(target, c + 1);
+        // Land well inside the reach of a capital or building integrates twice as fast.
+        const nc = Math.min(target, c + (this.adminSlack[t] >= 6 ? 2 : 1));
         if (c < 50 && nc >= 50) { this.markDirty(t); if (this.net) this.net.ctl.push(t, nc); }
         c = nc;
       } else if (c > target) {
@@ -1448,11 +1611,21 @@ class Game {
     const share = this.landShare(p);
     // Strain climbs steeply past half the world, so runaway empires stall short of 70%.
     const size = Math.min(55, share * 56 + Math.max(0, share - 0.45) * 80 + Math.max(0, share - 0.55) * 100);
-    const f = [['Base', 62]];
+    // Troops at home keep order; a nation that has sent its army away feels it.
+    const ranks = p.troops / Math.max(1, this.troopCap(p));
+    const garrison = clamp((ranks - 0.35) * 14, -5, 6);
+    // People with room to grow (new land, new cities) are content; a nation that has lost the
+    // land or cities that fed its people is overcrowded and restless.
+    const crowd = p.pop / Math.max(1, p.popCap);
+    const fed = crowd <= 1 ? clamp((1 - crowd) / 0.15 * 4, 0, 4) : -clamp((crowd - 1.03) * 60, 0, 12);
+    const f = [['Base', 58]];
     const techStab = p.mods.stability - p.ideoStab;
     if (Math.abs(techStab) >= 0.5) f.push(['Technology', techStab]);
     if (Math.abs(p.ideoStab) >= 0.5) f.push([p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : 'Ideology', p.ideoStab]);
     if (p.martial) f.push(['Martial law', 15]);
+    if (p.taxRelief) f.push(['Tax relief', 8]);
+    if (Math.abs(garrison) >= 0.5) f.push([garrison > 0 ? 'Garrisons at home' : 'Army away from home', garrison]);
+    if (Math.abs(fed) >= 0.5) f.push([fed > 0 ? 'Room to grow' : 'Overcrowding', fed]);
     if (p.boost >= 0.5) f.push(['Celebrations', p.boost]);
     if (over >= 0.5) f.push(['Overextension', -over]);
     if (ctrl >= 0.5) f.push(['Unintegrated land', -ctrl]);
@@ -1469,11 +1642,13 @@ class Game {
     p.shock = Math.max(0, p.shock - 0.2);
   }
 
-  // A restless, poorly controlled region breaks away as a new nation.
-  revolt(p) {
+  // The most restless spot: poorly controlled land far from the capital. Sampled, so it is cheap.
+  findUnrest(p) {
     const W = this.W, own = this.owner, C = this.control, bb = p.bbox, rng = this.rng;
     const bw = bb[2] - bb[0] + 1, bh = bb[3] - bb[1] + 1;
-    if (bw <= 0 || bh <= 0) return false;
+    if (bw <= 0 || bh <= 0) return -1;
+    // Keep warning about the same place while it stays restless.
+    if (p.unrest >= 0 && own[p.unrest] === p.id && C[p.unrest] < 70) return p.unrest;
     const cx = p.capital % W, cy = Math.floor(p.capital / W);
     let seed = -1, best = -1e9;
     for (let k = 0; k < 400; k++) {
@@ -1483,6 +1658,24 @@ class Game {
       const s = -C[t] + Math.hypot(x - cx, y - cy) * 0.3;
       if (s > best) { best = s; seed = t; }
     }
+    return seed;
+  }
+
+  // Which way a tile lies from a nation's capital, as a reader would say it: "north-east".
+  compass(p, t) {
+    const W = this.W, cx = p.capital % W, cy = Math.floor(p.capital / W), dx = t % W - cx, dy = Math.floor(t / W) - cy;
+    if (Math.hypot(dx, dy) < 8) return 'heartland';
+    const a = (Math.atan2(-dy, dx) * 180 / Math.PI + 360) % 360;
+    return ['east', 'north-east', 'north', 'north-west', 'west', 'south-west', 'south', 'south-east'][Math.round(a / 45) % 8];
+  }
+
+  // A restless, poorly controlled region breaks away as a new nation.
+  revolt(p) {
+    const W = this.W, own = this.owner, C = this.control, bb = p.bbox, rng = this.rng;
+    const bw = bb[2] - bb[0] + 1, bh = bb[3] - bb[1] + 1;
+    if (bw <= 0 || bh <= 0) return false;
+    // The region players were warned about, if it's still restless.
+    let seed = p.unrest >= 0 && own[p.unrest] === p.id && C[p.unrest] < 80 && p.unrest !== p.capital ? p.unrest : this.findUnrest(p);
     if (seed < 0) return false;
     const sx = seed % W, sy = (seed - sx) / W, R2 = 14 * 14;
     const st = this.nextStamp(), Q = this.bfsQueue, S = this.bfsStamp;
@@ -1528,11 +1721,11 @@ class Game {
       this.rel[id * this.P + p.id] = -90;
       this.rel[p.id * this.P + id] = -90;
       r.label = { x: sx + 0.5, y: sy + 0.5, size: 3, tile: seed };
-      if (p.human) this.log(`${r.name} rose in revolt and broke away from your nation.`, 'bad', p.id);
+      if (p.human) this.log(`Revolt! ${r.name} rose up in the ${this.compass(p, seed)} and broke away from your nation, taking ${fmt(region.length)} tiles.`, 'revolt', p.id, null, seed);
       if (this.concernsHuman(p.id, p.id)) this.log(`${r.name} broke away from ${p.name} in a revolt.`, 'info', 0, [p.id]);
     } else {
       for (const t of region) this.setOwner(t, 0);
-      if (p.human) this.log('A region rose in revolt and fell into anarchy.', 'bad', p.id);
+      if (p.human) this.log(`Revolt! A region in the ${this.compass(p, seed)} rose up and fell into anarchy.`, 'revolt', p.id, null, seed);
     }
     this.computeAdmin();
     return true;
@@ -1626,7 +1819,7 @@ class Game {
       let pg;
       if (p.pop < cap) {
         pg = (5 + M.popGrowth * (1 + p.mods.popGrowth) * p.pop * (1 - p.pop / cap)) *
-          (M.politics ? 0.5 + p.stability / 100 : 1) * (p.martial ? 0.7 : 1) * p.diffMult;
+          (M.politics ? 0.5 + p.stability / 100 : 1) * (p.martial ? 0.7 : 1) * (p.taxRelief ? 1.25 : 1) * p.diffMult;
       } else {
         pg = (cap - p.pop) * 0.03;
       }
@@ -1644,7 +1837,7 @@ class Game {
       p.growth = g;
       // Workers pay taxes; cities, harbors and factories add their own earnings.
       const workers = Math.max(0, p.pop - p.troops - p.field);
-      const inc = (5 + workers * 0.00025 + p.counts.city * BLD_EARN.city + p.counts.harbor * this.harborEarn(p) +
+      const inc = (3 + workers * 0.0002 + p.counts.city * BLD_EARN.city + p.counts.harbor * this.harborEarn(p) +
         p.counts.factory * BLD_EARN.factory) * this.incomeMult(p);
       // Research is funded from income; nothing is spent while there's nothing to research.
       const spend = p.research ? inc * p.science : 0;
@@ -1765,14 +1958,24 @@ class Game {
           if (this.rng() < chance && this.revolt(p)) p.lastRevolt = this.tick;
         }
       }
+      // Where a revolt would break out, found ahead of time so players can be warned and act.
+      if (this.tick % (5 * TPS) === 0) {
+        for (let k = 1; k < NP; k++) {
+          const p = this.players[k];
+          if (!p.alive || !p.spawned || p.tribe) continue;
+          p.unrest = p.stability < REVOLT_BELOW + 12 && p.tiles > 120 ? this.findUnrest(p) : -1;
+        }
+      }
       for (const h of this.humans()) {
-        if (h.alive && h.stability < REVOLT_BELOW + 5 && this.time - h.unrestWarnedAt > 45) {
+        if (h.alive && h.unrest >= 0 && h.stability < REVOLT_BELOW + 6 && this.time - h.unrestWarnedAt > 45) {
           h.unrestWarnedAt = this.time;
-          this.log(`Unrest is spreading (stability ${Math.round(h.stability)}). Below ${REVOLT_BELOW}, poorly controlled regions may revolt.`, 'bad', h.id);
+          this.log(`Unrest is spreading in the ${this.compass(h, h.unrest)} (stability ${Math.round(h.stability)}). Below ${REVOLT_BELOW}, that region may break away. A building there settles the land around it.`, 'warn', h.id, null, h.unrest);
         }
       }
     }
 
+    this.updateTrade();
+    this.expireAlliances();
     this.requests = this.requests.filter((r) => r.expires > this.tick && this.players[r.from].alive);
     this.effects = this.effects.filter((e) => this.time - e.at < 4);
     this.checkGameOver();
@@ -1951,6 +2154,7 @@ class Game {
     this.stepMissiles();
     if (this.missiles.some((m) => m.dead)) this.missiles = this.missiles.filter((m) => !m.dead);
     for (const b of this.buildings) if (b.alive && b.cooldown > 0) b.cooldown--;
+    this.stepSites();
     this.economy();
     if (this.tick % TPS === 0) this.perSecond();
     if (this.tick % (TPS * 2) === 5) this.computeLabels();

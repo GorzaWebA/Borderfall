@@ -331,6 +331,7 @@ class Net {
       c: N.ctl.length ? packPairs(N.ctl) : '',
       f: N.fo.length ? packPairs(N.fo) : '',
       b: [...N.bld].map((id) => { const b = g.buildings[id]; return [b.id, b.type, b.tile, b.owner, b.alive ? 1 : 0, b.cooldown, b.level || 1]; }),
+      si: g.sites.map((x) => [x.id, x.owner, x.type, x.tile, x.upgrade, x.level, x.left, x.total]),
       ns: N.ships.map((s) => [s.id, s.owner, s.target, s.troops, s.speed, s.landing, s.path]),
       s: g.ships.filter((s) => !s.dead).map((s) => [s.id, Math.round(s.pos * 10) / 10, Math.round(s.troops)]),
       nm: N.missiles.map((m) => [m.id, m.owner, m.sx, m.sy, m.tx, m.ty, m.tile, m.dur, m.rOut]),
@@ -341,7 +342,7 @@ class Net {
       p: g.players.slice(1).map((p) => [p.id, p.alive ? 1 : 0, p.spawned ? 1 : 0, Math.round(p.troops), p.tiles, Math.round(p.pop),
         Math.round(p.label.x * 10) / 10, Math.round(p.label.y * 10) / 10, Math.round(p.label.size * 10) / 10, p.label.tile, p.capital,
         [...p.allies], p.human ? 1 : 0, p.peakTiles, p.kills, p.tribe ? Math.round(p.gold) : 0, p.ideology || '',
-        p.ai && p.ai.pers ? p.ai.pers.key : '']),
+        p.ai && p.ai.pers ? p.ai.pers.key : '', Math.round(p.grossIncome || 0), p.techs.size, p.techs.has('railroad') ? 1 : 0]),
       // Nations that appeared mid-game (breakaway rebels), so guests can draw and list them.
       xp: g.players.length > this.startCount ? g.players.slice(this.startCount).map((p) => this.playerInfo(p)) : null,
       tr: g.treaty && g.treaty.open ? [g.treaty.id, g.treaty.closesAt, [...g.treaty.votes]] : null,
@@ -352,7 +353,7 @@ class Net {
       const ev = g.events.filter((e) => e.id > c.lastEvent && (e.to ? e.to === c.pid : !(e.skip && e.skip.includes(c.pid))));
       if (g.events.length) c.lastEvent = g.events[g.events.length - 1].id;
       const msg = Object.assign({}, common, {
-        ev: ev.map((e) => [e.id, e.text, e.kind]),
+        ev: ev.map((e) => [e.id, e.text, e.kind, e.at === undefined ? -1 : e.at]),
         rq: g.requests.filter((r) => r.to === c.pid).map((r) => [r.id, r.from, r.expires, r.kind]),
         // Sampled border tiles of every front this player is fighting on, for the map markers.
         fr: g.attacks.filter((a) => !a.dead && a.target && (a.attacker === c.pid || a.target === c.pid)).map((a) => {
@@ -369,6 +370,8 @@ class Net {
           coastal: p.coastal, mods: p.mods, field: p.field, traitorUntil: p.traitorUntil,
           science: p.science, researchSpend: p.researchSpend, grossIncome: p.grossIncome,
           ideology: p.ideology, ideologyAt: p.ideologyAt, doctrines: [...p.doctrines], ideoStab: p.ideoStab,
+          pending: p.pending, taxRelief: p.taxRelief, unrest: p.unrest, tradeHarbors: p.tradeHarbors,
+          allyLeft: [...p.allies].map((a) => [a, g.allianceLeft(p.id, a)]),
         },
       });
       if (now() - c.slow > 1000) {
@@ -434,6 +437,7 @@ class Net {
     if (u.c) unpackPairs(u.c, (t, c) => { g.control[t] = c; g.markDirty(t); });
     if (u.f) unpackPairs(u.f, (t, v) => { g.fallout[t] = v ? FALLOUT_SECONDS : 0; g.markDirty(t); });
     for (const [id, type, tile, owner, alive, cd, level] of u.b) this.mirrorBuilding(g, id, type, tile, owner, alive, cd, level);
+    if (u.si) g.sites = u.si.map(([id, owner, type, tile, upgrade, level, left, total]) => ({ id, owner, type, tile, upgrade, level, left, total }));
     if (u.b.length) g.totalHarbors = g.buildings.reduce((n, b) => n + (b.alive && b.type === 'harbor' ? b.level || 1 : 0), 0);
     for (const [id, owner, target, troops, speed, landing, path] of u.ns) {
       g.ships.push({ id, owner, target, troops, speed, landing, path, pos: 0, dead: false });
@@ -459,7 +463,7 @@ class Net {
     if (u.fr) for (const [id, ...tiles] of u.fr) { const a = g.attacks.find((x) => x.id === id); if (a) a.fs = tiles; }
     if (u.xp) for (const q of u.xp) if (!g.players[q.id]) this.addMirrorPlayer(g, q);
     for (const row of u.p) {
-      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, stash, ideo, pers] = row;
+      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, stash, ideo, pers, inc, ntech, rail] = row;
       const p = g.players[id];
       if (!p) continue;
       p.alive = !!alive; p.spawned = !!spawned; p.troops = troops; p.tiles = tiles; p.pop = pop;
@@ -468,11 +472,14 @@ class Net {
       if (p.tribe) p.gold = stash || 0;
       if (id !== ui.myId) p.ideology = ideo || null;
       p.persKey = pers || '';
+      if (id !== ui.myId) { p.grossIncome = inc || 0; p.techCount = ntech || 0; p.railKnown = !!rail; }
     }
     Object.assign(me, u.me);
+    // Alliance timers, rebuilt from what is left of each, so the game's helpers work here too.
+    g.allyUntil = new Map((u.me.allyLeft || []).map(([a, left]) => [g.allyKey(ui.myId, a), g.tick + left * TPS]));
     me.techs = new Set(u.me.techs);
     me.doctrines = new Set(u.me.doctrines || []);
-    for (const [id, text, kind] of u.ev) g.events.push({ id, text, kind, time: g.time, to: 0 });
+    for (const [id, text, kind, at] of u.ev) g.events.push({ id, text, kind, time: g.time, to: 0, at: at === undefined ? -1 : at });
     if (g.events.length > 200) g.events.splice(0, g.events.length - 200);
     g.requests = u.rq.map(([id, from, expires, kind]) => ({ id, from, to: ui.myId, expires, kind }));
     if (u.rel) u.rel.forEach((v, k) => { g.rel[(k + 1) * g.P + ui.myId] = v; });

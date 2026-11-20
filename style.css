@@ -498,6 +498,12 @@ input[type=range]::-moz-range-thumb {
 .pi { display: inline-flex; vertical-align: -2px; margin-left: 6px; color: var(--brass-hi); }
 .pi svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 #tooltip .tt-head .pi, .dipl-table .pi { color: var(--sepia); }
+/* How a nation stands toward you: ally, hostile, refusing to trade. */
+.si { display: inline-flex; vertical-align: -2px; margin-left: 5px; }
+.si svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.si.ally { color: var(--verdigris-hi); }
+.si.hostile { color: var(--vermilion-hi); }
+.si.notrade { color: #c8a77a; }
 #board-list .ld, #board-list .tr { font-size: 14px; text-align: right; }
 #board-list .tr { color: var(--sepia); min-width: 40px; }
 #board-list li.sep { display: block; padding: 0; height: 1px; background: var(--rule); margin: 4px 0; cursor: default; }
@@ -568,7 +574,8 @@ input[type=range]::-moz-range-thumb {
 }
 #log .yr { font-family: var(--font-book); font-style: italic; font-weight: 500; color: var(--sepia); }
 #log li.good .yr { color: var(--verdigris-hi); }
-#log li.bad .yr { color: var(--vermilion-hi); }
+#log li.bad .yr, #log li.revolt .yr, #log li.warn .yr { color: var(--vermilion-hi); }
+#log li.revolt { box-shadow: inset 3px 0 0 var(--vermilion); }
 #log li.old { opacity: 0.55; }
 #log li { animation: slideIn 0.3s ease-out; }
 .toast { animation: slideDown 0.3s ease-out; }
@@ -671,6 +678,11 @@ input[type=range]::-moz-range-thumb {
 .toast .acts { display: flex; gap: 8px; }
 .toast .acts button { flex: 1; padding: 6px 10px; font-size: 15px; }
 .toast .timer { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--brass); }
+.toast.alert { --c: var(--vermilion); }
+.toast.alert b { color: var(--vermilion-hi); margin-right: 4px; }
+.toast.alert .timer { background: var(--vermilion); }
+.toast.alert.warn { --c: #d9a04a; }
+.toast.alert.warn b { color: #f0c36a; }
 
 /* The general peace proposal: a centred card with the standings and two choices. */
 #treaty {
@@ -866,7 +878,7 @@ input[type=range]::-moz-range-thumb {
   .tabs kbd, .nation-close kbd { display: none; }
   .modal-card.paged { padding: 16px 14px 14px; }
   .modal-card.paged .nation-top h2 { font-size: 28px; }
-  .dipl-table .c-ideo, .dipl-table .c-st { display: none; }
+  .dipl-table .c-ideo, .dipl-table .c-st, .board-table .c-inc, .board-table .c-b, .board-table .c-feel { display: none; }
   .help-page { columns: 1; }
 }
 .tech-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; align-content: start; }
@@ -930,6 +942,21 @@ input[type=range]::-moz-range-thumb {
 
 .dipl-progress { padding: 8px 12px; border-radius: var(--r-ctl); border: 1px solid var(--rule-strong); margin: 0; color: var(--paper-2); }
 .dipl-cols > table { align-self: start; }
+/* The leaderboard: sortable columns, your own row picked out, buildings by icon. */
+.board-table th button { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.board-table th.on button { color: var(--brass-hi); font-weight: 600; }
+.board-table th.on { box-shadow: inset 0 -2px 0 var(--brass); }
+.board-table th.num { text-align: right; }
+.board-table th canvas { width: 20px; height: 20px; vertical-align: middle; }
+.board-table td.rk, .board-table th.rk { width: 28px; color: var(--sepia); font-family: var(--font-book); font-style: italic; }
+.board-table td.num { font-variant-numeric: lining-nums tabular-nums; white-space: nowrap; }
+.board-table td.c-b { color: var(--paper-2); }
+.board-table tr.me td { background: rgba(201, 162, 79, 0.1); }
+.board-table tr.me td.nm { color: var(--brass-hi); font-weight: 700; }
+.board-table td.c-feel { white-space: nowrap; }
+.fine-t { color: var(--sepia); font-size: 13px; font-variant-numeric: tabular-nums; }
+@media (max-width: 1180px) { .board-table .c-pop, .board-table .c-tech { display: none; } }
+@media (max-width: 980px) { .board-table .c-ideo { display: none; } }
 .tab-dipl .dipl-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 0 26px; align-content: start; overflow: hidden; }
 .dipl-table td.nm { white-space: nowrap; }
 .dipl-table td.nm > span:not(.dot):not(.pi) { display: inline-block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
