@@ -6,7 +6,7 @@
 
 A real-time world conquest strategy game that runs in your browser, alone or with friends. Found a nation in the year 1500, carry it through the centuries with technology, population growth and politics, and hold 70% of the land to win.
 
-No install, no account. Works on desktop and mobile browsers. On your first visit the game offers its two-part tutorial: a three-minute lesson on the controls on a small practice island, then a guided game in which an advisor sets objectives through most of a real match. Neither can be won by conquest: each ends with a closing screen when its last step is done, and you can play on in the guided game's world as an ordinary match.
+No install, no account. Works on desktop and mobile browsers, in portrait and landscape: on a phone the HUD folds into a slim row of figures and controls, the nations list opens from your rank, press-and-hold opens an options sheet, and the game can run full screen or be added to your home screen like an app. On your first visit the game offers its two-part tutorial: a three-minute lesson on the controls on a small practice island, then a guided game in which an advisor sets objectives through most of a real match. Neither can be won by conquest: each ends with a closing screen when its last step is done, and you can play on in the guided game's world as an ordinary match.
 
 ![Europe in 1633: your figures and wars on the left, time, screens and nations on the right, merchant ships and war fleets at sea, money rising from your buildings, and the build dock below](docs/screenshot.jpg)
 
@@ -68,6 +68,7 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 - A controls lesson and a guided game for your first time.
 - Every screen fits the window without scrolling: Technology, Government, Ideology and Diplomacy are tabs of one frame, How to play is split into pages, and the start screen's options open in cards beside it.
 - Alert cards for what matters: attacks on you, incoming fleets and missiles, revolts and unrest, a lost capital, alliances accepted, declined, ending, expired or broken, harbors closed to your trade, and conquests. Each has a button to act on it (show me, renew, propose again, send a gift). Choose all, threats only or none in the menu.
+- Built for touch as well as mouse: tap to act, press and hold for options (with what a tooltip would show), drag and pinch the map, finger-sized buttons, room left for notches, short vibrations for long-press and threats where phones support them, and a web app manifest for installing to the home screen.
 - High and Low graphics. Low draws at 30 fps and native resolution with simpler effects, for phones and older computers.
 - Pause and 1×, 2×, 4× speed in single player.
 
@@ -145,6 +146,7 @@ js/shop.js      land patterns, crowns and the shop
 js/main.js      game loop
 vendor/         bundled Trystero peer-to-peer library (MIT)
 maps/*.js       real-world maps, one character per tile, loaded only when picked
+manifest.webmanifest, icons/   install to a phone's home screen (opens full screen)
 ```
 
 ## Map data

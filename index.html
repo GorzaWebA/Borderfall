@@ -6,7 +6,14 @@
   <title>Borderfall</title>
   <meta name="description" content="Borderfall is a real-time world conquest strategy game that runs in your browser. Expand, build, sail and strike against AI nations.">
   <meta name="theme-color" content="#241e19">
+  <!-- Added to a home screen, the game opens full screen like an app. -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Borderfall">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700;800&family=Alegreya:ital,wght@0,500;0,700;0,800;1,400;1,500&family=Alegreya+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -174,6 +181,7 @@
         <button type="button" class="text-btn" id="btn-tutorial">Tutorials</button>
         <button type="button" class="text-btn" id="btn-help">How to play</button>
         <button type="button" class="text-btn" id="btn-shop-link">Shop</button>
+        <button type="button" class="text-btn" id="btn-fullscreen" hidden>Full screen</button>
       </div>
     </div>
   </section>
@@ -226,19 +234,25 @@
       <div class="cmd-time">
         <span id="v-time">0:00</span>
         <div class="speed" role="group" aria-label="Game speed">
-          <button type="button" data-speed="0" title="Pause (Space)">Pause</button>
+          <button type="button" data-speed="0" title="Pause (Space)" aria-label="Pause"><span class="lf">Pause</span><span class="ls" aria-hidden="true">II</span></button>
           <button type="button" data-speed="1" class="on">1×</button>
           <button type="button" data-speed="2">2×</button>
           <button type="button" data-speed="4">4×</button>
         </div>
       </div>
       <div class="cmd-nav">
-        <button type="button" data-open="tech" title="Research and the research budget (T)">Technology <kbd>T</kbd></button>
-        <button type="button" data-open="gov" title="Ideology, national priority and, in Realistic, stability (G)">Government <kbd>G</kbd></button>
-        <button type="button" data-open="dipl" title="Every nation, its stance toward you, alliances (P)">Diplomacy <kbd>P</kbd></button>
-        <button type="button" id="btn-menu" title="Pause, graphics, help, quit (Esc)">Menu <kbd>Esc</kbd></button>
+        <button type="button" data-open="tech" title="Research and the research budget (T)"><span class="lf">Technology</span><span class="ls">Tech</span> <kbd>T</kbd></button>
+        <button type="button" data-open="gov" title="National priority and, in Realistic, stability and policies (G)"><span class="lf">Government</span><span class="ls">Gov</span> <kbd>G</kbd></button>
+        <button type="button" data-open="dipl" title="Every nation ranked, its stance toward you, alliances (P)"><span class="lf">Diplomacy</span><span class="ls">Diplo</span> <kbd>P</kbd></button>
+        <button type="button" id="btn-menu" title="Pause, graphics, alerts, help, quit (Esc)">Menu <kbd>Esc</kbd></button>
       </div>
     </nav>
+
+    <!-- Phones: the nations list folds away behind your rank, and a button finds your nation. -->
+    <div id="phone-tools">
+      <button type="button" id="btn-board" class="panel" aria-expanded="false" aria-controls="board" title="Nations">#<b id="my-rank">1</b></button>
+      <button type="button" id="btn-home" class="panel" title="Find my nation" aria-label="Find my nation"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5V4.5M8 11.5V14.5M1.5 8H4.5M11.5 8H14.5M8 4.5A3.5 3.5 0 1 0 8 11.5A3.5 3.5 0 1 0 8 4.5Z"/></svg></button>
+    </div>
 
     <aside id="board" class="panel">
       <h2>Nations <span id="board-count"></span></h2>
@@ -363,7 +377,7 @@
           <h3>Controls</h3>
           <dl class="keys">
             <dt>Click</dt><dd>Attack, sail, place a building, or fire</dd>
-            <dt>Right-click / long-press</dt><dd>Options for that spot</dd>
+            <dt>Right-click / press and hold</dt><dd>Options for that spot (on touch screens, with what you'd see by hovering)</dd>
             <dt>Drag, wheel, pinch</dt><dd>Move and zoom the map</dd>
             <dt>1 – 9</dt><dd>Choose a building to place</dd>
             <dt>T</dt><dd>Open the technology tree</dd>
@@ -376,6 +390,10 @@
             <dt>H</dt><dd>Jump to your nation</dd>
             <dt>Esc</dt><dd>Cancel, or open the menu</dd>
           </dl>
+        </section>
+        <section>
+          <h3>Phones and tablets</h3>
+          <p>Tap to attack, settle or place a building; press and hold for the options sheet; drag to move and pinch to zoom. On a phone the figures sit in one row at the top with the time, speed and screens under them. Tap your rank (#) for the nations list and the crosshair to find your nation. Menu (Esc) can switch to full screen where the browser allows it, and adding the game to your home screen opens it full screen like an app. Phones with little memory start on Low graphics.</p>
         </section>
         <section>
           <h3>Alerts</h3>
