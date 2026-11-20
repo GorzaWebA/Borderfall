@@ -188,6 +188,8 @@ class AIController {
     const g = this.g, p = this.p;
     if (!p.martial && p.stability < 36) g.setMartial(p.id, true);
     else if (p.martial && p.stability > 62) g.setMartial(p.id, false);
+    if (!p.taxRelief && p.stability < 42) g.setTaxRelief(p.id, true);
+    else if (p.taxRelief && p.stability > 60) g.setTaxRelief(p.id, false);
     if (p.stability < 34 && p.gold > g.celebrateCost(p) * 1.5) g.celebrate(p.id);
     // Calm down taxes and levies when things get shaky.
     if (p.stability < 45) p.focus = 0.5;
@@ -213,7 +215,10 @@ class AIController {
   }
 
   chooseBuilding() {
-    const g = this.g, p = this.p, c = p.counts, P = this.pers, D = this.diff;
+    const g = this.g, p = this.p, P = this.pers, D = this.diff;
+    // Buildings already under construction count as built.
+    const c = {};
+    for (const k of BUILD_ORDER) c[k] = p.counts[k] + (p.pending[k] || 0);
     const opts = [];
     const ok = (t) => g.buildingUnlocked(p, t);
     const overextended = g.politics && p.tiles > p.adminCap * 0.9;
@@ -355,6 +360,11 @@ class AIController {
         return;
       }
     }
+    // Renew alliances worth keeping before they lapse.
+    for (const a of p.allies) {
+      const left = g.allianceLeft(p.id, a);
+      if (left > 0 && left <= 90 && g.getRel(p.id, a) > 10 * (2 - P.loyalty) && !g.players[a].tribe) { g.requestAlliance(p.id, a); return; }
+    }
     if (p.allies.size >= 3) return;
     const leader = this.findLeader();
     const cands = [];
@@ -396,8 +406,8 @@ class AIController {
   }
 }
 
-// Tribes: small local clans. They settle nearby wilds, defend themselves and raid weaker
-// tribes now and then, but never build, research, or join alliances.
+// Tribes: local clans. They keep settling the wilds around them for as long as there are any,
+// defend themselves now and then, and rarely pick a fight; they never build, research, or ally.
 class TribeAI {
   constructor(game, p) {
     this.g = game;
@@ -417,18 +427,22 @@ class TribeAI {
     if (!p.alive || !p.spawned || !g.started) return;
     const ratio = p.troops / g.troopCap(p);
     const nb = g.neighbors[p.id];
+    const busy = g.attacks.some((a) => !a.dead && a.attacker === p.id);
+    // Strike back only sometimes, and only against an attack they clearly outnumber.
     for (const a of g.attacks) {
-      if (a.dead || a.target !== p.id || g.tick - (a.startedAt || 0) < 6 * TPS) continue;
-      if (p.troops > a.troops * 1.2 && ratio > 0.3) { g.launchAttack(p.id, a.attacker, Math.min(p.troops * 0.4, a.troops * 1.4)); return; }
+      if (a.dead || a.target !== p.id || g.tick - (a.startedAt || 0) < 8 * TPS) continue;
+      if (p.troops > a.troops * 1.6 && ratio > 0.4 && rng() < 0.3) { g.launchAttack(p.id, a.attacker, Math.min(p.troops * 0.3, a.troops * 1.2)); return; }
     }
-    if ((nb.get(0) || 0) > 0 && p.tiles < 160 && ratio > 0.6 && !g.attacks.some((a) => !a.dead && a.attacker === p.id)) {
-      g.launchAttack(p.id, 0, p.troops * 0.2);
+    // Settle empty land without limit, a little at a time.
+    if ((nb.get(0) || 0) > 0 && ratio > 0.5 && !busy) {
+      g.launchAttack(p.id, 0, p.troops * 0.18);
       return;
     }
-    if (g.time > 60 && ratio > 0.8 && rng() < 0.15) {
+    // Very occasionally raid a much weaker tribe next door.
+    if (g.time > 90 && ratio > 0.85 && !busy && rng() < 0.04) {
       for (const [o] of nb) {
         const q = g.players[o];
-        if (o && q && q.alive && q.tribe && !g.isFriendly(p.id, o) && q.troops < p.troops * 0.6) { g.launchAttack(p.id, o, p.troops * 0.3); return; }
+        if (o && q && q.alive && q.tribe && !g.isFriendly(p.id, o) && q.troops < p.troops * 0.5) { g.launchAttack(p.id, o, p.troops * 0.25); return; }
       }
     }
   }

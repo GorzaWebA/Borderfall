@@ -42,6 +42,8 @@ const SHIP_ART = {
 
 class Renderer {
   constructor(canvas) {
+    this.rails = new Map();       // player id -> { key, lines } road and rail networks
+    this.alerts = [];             // map flares for revolts: { tile, label, until }
     this.cv = canvas;
     this.ctx = canvas.getContext('2d');
     this.dpr = 1;
@@ -105,6 +107,8 @@ class Renderer {
 
   setGame(game) {
     this.game = game;
+    this.rails = new Map();
+    this.alerts = [];
     this.resetTrade();
     this.redrawAll();
   }
@@ -330,9 +334,12 @@ class Renderer {
     const g = this.game;
     if (!g) return;
     this.updateTrade(now);
+    this.drawRails(ox, oy, z);
     this.drawTrade(ox, oy, z);
     this.drawFronts(ox, oy, z, now);
+    this.drawUnrest(ox, oy, z, now);
     this.drawBuildings(ox, oy, z);
+    this.drawSites(ox, oy, z);
     this.drawCapitals(ox, oy, z);
     this.drawShips(ox, oy, z, alpha);
     this.drawPopups(ox, oy, z, now);
@@ -450,6 +457,209 @@ class Renderer {
       const sx = ox + (b.x + 0.5) * z, sy = oy + (b.y + 0.5) * z;
       if (!this.visible(sx, sy, size)) continue;
       drawBuildingIcon(ctx, b.type, sx, sy, size, g.players[b.owner].color, b.cooldown > 0 && (b.type === 'silo' || b.type === 'aa'), lvl, low);
+    }
+  }
+
+  // Buildings under construction: a faded token with a ring that fills as the work goes on.
+  drawSites(ox, oy, z) {
+    const ctx = this.ctx, g = this.game, W = this.map.W;
+    if (!g.sites || !g.sites.length) return;
+    const low = this.quality === 'low';
+    const base = clamp(z * 3, 13, 120);
+    for (const x of g.sites) {
+      const tx = x.tile % W, ty = (x.tile - tx) / W;
+      const size = low ? Math.min(base, 16) : base;
+      const sx = ox + (tx + 0.5) * z, sy = oy + (ty + 0.5) * z;
+      if (!this.visible(sx, sy, size)) continue;
+      const owner = g.players[x.owner];
+      if (x.upgrade < 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        drawBuildingIcon(ctx, x.type, sx, sy, size, owner.color, true, 1, low);
+        ctx.restore();
+      }
+      const f = clamp(1 - x.left / x.total, 0, 1), r = size * 0.64, lw = Math.max(2, size * 0.1);
+      ctx.lineCap = 'butt';
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.lineWidth = lw + 2;
+      ctx.strokeStyle = 'rgba(28,20,14,0.65)';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2);
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = '#e6c779';
+      ctx.stroke();
+    }
+  }
+
+  // ---------- roads and railways ----------
+  // Each nation's capital, cities, factories and harbors are joined by the shortest network
+  // that links them all, laid over its own land: roads at first, railway track once it knows
+  // Railroads. Networks are rebuilt now and then as borders and buildings change, one per frame.
+  drawRails(ox, oy, z) {
+    const ctx = this.ctx, g = this.game;
+    if (z < 1.1 || (this.quality === 'low' && z < 2)) return;
+    this.railBudget = 1;
+    for (let k = 1; k < g.players.length; k++) {
+      const p = g.players[k];
+      if (!p || !p.alive || !p.spawned || p.tribe || p.blds.length === 0) continue;
+      const bb = p.bbox;
+      const x0 = ox + bb[0] * z, y0 = oy + bb[1] * z, x1 = ox + (bb[2] + 1) * z, y1 = oy + (bb[3] + 1) * z;
+      if (x1 < 0 || y1 < 0 || x0 > this.cw || y0 > this.ch) continue;
+      const R = this.railNet(p);
+      if (!R || !R.lines.length) continue;
+      const rail = (p.techs && p.techs.has('railroad')) || p.railKnown;
+      const trace = () => {
+        ctx.beginPath();
+        for (const line of R.lines) {
+          ctx.moveTo(ox + line[0] * z, oy + line[1] * z);
+          for (let i = 2; i < line.length; i += 2) ctx.lineTo(ox + line[i] * z, oy + line[i + 1] * z);
+        }
+      };
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'butt';
+      if (rail) {
+        // Sleepers as a dashed band, then the track over them.
+        trace();
+        if (z >= 2.5) {
+          ctx.setLineDash([Math.max(1.2, z * 0.14), Math.max(2.4, z * 0.36)]);
+          ctx.lineWidth = Math.max(3, z * 0.62);
+          ctx.strokeStyle = 'rgba(58,42,28,0.75)';
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        ctx.lineWidth = Math.max(1.2, z * 0.17);
+        ctx.strokeStyle = 'rgba(34,26,20,0.95)';
+        ctx.stroke();
+      } else {
+        trace();
+        ctx.setLineDash([Math.max(2, z * 0.7), Math.max(1.5, z * 0.45)]);
+        ctx.lineWidth = Math.max(1, z * 0.2);
+        ctx.strokeStyle = 'rgba(112,82,46,0.7)';
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  railNet(p) {
+    const g = this.game;
+    let key = `${p.capital}|${Math.floor(g.tick / (8 * TPS))}`;
+    for (const b of p.blds) if (RAIL_TYPES.has(b.type)) key += `,${b.tile}`;
+    const R = this.rails.get(p.id);
+    if (R && R.key === key) return R;
+    if (this.railBudget <= 0) return R || null;
+    this.railBudget--;
+    const fresh = { key, lines: this.buildRails(p) };
+    this.rails.set(p.id, fresh);
+    return fresh;
+  }
+
+  buildRails(p) {
+    const g = this.game, W = g.W, own = g.owner;
+    const nodes = [];
+    if (p.capital >= 0 && own[p.capital] === p.id) nodes.push(p.capital);
+    for (const b of p.blds) if (b.alive && RAIL_TYPES.has(b.type) && !nodes.includes(b.tile)) nodes.push(b.tile);
+    const n = nodes.length;
+    if (n < 2) return [];
+    // Prim's spanning tree over straight-line distances.
+    const inT = new Uint8Array(n), best = new Float64Array(n).fill(Infinity), from = new Int32Array(n).fill(-1);
+    best[0] = 0;
+    const edges = [];
+    for (let it = 0; it < n; it++) {
+      let u = -1;
+      for (let i = 0; i < n; i++) if (!inT[i] && (u < 0 || best[i] < best[u])) u = i;
+      inT[u] = 1;
+      if (from[u] >= 0) edges.push([nodes[from[u]], nodes[u]]);
+      const ux = nodes[u] % W, uy = (nodes[u] - ux) / W;
+      for (let i = 0; i < n; i++) {
+        if (inT[i]) continue;
+        const x = nodes[i] % W, y = (nodes[i] - x) / W, d = (x - ux) ** 2 + (y - uy) ** 2;
+        if (d < best[i]) { best[i] = d; from[i] = u; }
+      }
+    }
+    const lines = [];
+    for (const [a, b] of edges) {
+      const path = this.landPath(p.id, a, b);
+      if (path) lines.push(simplifyPath(path, 0.8));
+    }
+    return lines;
+  }
+
+  // Shortest path over a nation's own land between two tiles, moving in eight directions but
+  // never cutting a corner, searched within a box around the two ends. Tile centres, flat.
+  landPath(pid, a, b) {
+    const g = this.game, W = g.W, H = g.H, own = g.owner;
+    const ax = a % W, ay = (a - ax) / W, bx = b % W, by = (b - bx) / W;
+    if (Math.hypot(ax - bx, ay - by) > 180) return null;
+    const pad = 14;
+    const x0 = Math.max(0, Math.min(ax, bx) - pad), x1 = Math.min(W - 1, Math.max(ax, bx) + pad);
+    const y0 = Math.max(0, Math.min(ay, by) - pad), y1 = Math.min(H - 1, Math.max(ay, by) + pad);
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1, N = bw * bh;
+    if (!this._lp || this._lp.length < N) { this._lp = new Int32Array(N); this._lq = new Int32Array(N); }
+    const prev = this._lp, Q = this._lq;
+    prev.fill(-2, 0, N);
+    const ok = (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1 && own[y * W + x] === pid && !g.isWater(y * W + x);
+    const start = (ay - y0) * bw + (ax - x0), goal = (by - y0) * bw + (bx - x0);
+    let qh = 0, qt = 0;
+    Q[qt++] = start; prev[start] = -1;
+    const DX = [1, -1, 0, 0, 1, 1, -1, -1], DY = [0, 0, 1, -1, 1, -1, 1, -1];
+    while (qh < qt && prev[goal] === -2) {
+      const i = Q[qh++], x = i % bw + x0, y = ((i / bw) | 0) + y0;
+      for (let d = 0; d < 8; d++) {
+        const nx = x + DX[d], ny = y + DY[d];
+        if (!ok(nx, ny)) continue;
+        if (d >= 4 && (!ok(nx, y) || !ok(x, ny))) continue;
+        const j = (ny - y0) * bw + (nx - x0);
+        if (prev[j] !== -2) continue;
+        prev[j] = i;
+        Q[qt++] = j;
+      }
+    }
+    if (prev[goal] === -2) return null;
+    const out = [];
+    for (let i = goal; i !== -1; i = prev[i]) out.push(i % bw + x0 + 0.5, ((i / bw) | 0) + y0 + 0.5);
+    return out;
+  }
+
+  // Where unrest is brewing in your land, and where a revolt has just broken out.
+  drawUnrest(ox, oy, z, now) {
+    const ctx = this.ctx, g = this.game, W = this.map.W, me = g.players[this.myId];
+    const spots = [];
+    this.alerts = this.alerts.filter((a) => a.until > now);
+    if (me && me.alive && me.unrest >= 0 && g.politics && !this.alerts.length) spots.push({ t: me.unrest, label: 'Unrest', r: 9, strong: false });
+    for (const a of this.alerts) spots.push({ t: a.tile, label: a.label, r: 13, strong: true });
+    if (!spots.length) return;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 240);
+    for (const s of spots) {
+      const x = s.t % W, y = (s.t - x) / W;
+      const sx = ox + (x + 0.5) * z, sy = oy + (y + 0.5) * z, r = Math.max(16, s.r * z) * (1 + pulse * 0.08);
+      if (!this.visible(sx, sy, r + 40)) continue;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(214,90,60,${(s.strong ? 0.16 : 0.08) + pulse * 0.08})`;
+      ctx.fill();
+      ctx.setLineDash(s.strong ? [] : [8, 6]);
+      ctx.lineDashOffset = -now / 70;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(28,20,14,0.8)';
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#e07a5f';
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = `700 14px ${FONT_NUM}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(28,20,14,0.9)';
+      ctx.strokeText(s.label, sx, sy - r - 5);
+      ctx.fillStyle = '#f0a08a';
+      ctx.fillText(s.label, sx, sy - r - 5);
+      ctx.restore();
     }
   }
 
@@ -618,7 +828,8 @@ class Renderer {
       const due = T.next.get(h.id);
       if (due === undefined) { T.next.set(h.id, nowS + 2 + Math.random() * 12); continue; }
       if (nowS < due) continue;
-      const partners = harbors.filter((x) => x !== h && x.owner !== h.owner);
+      const A = g.players[h.owner];
+      const partners = harbors.filter((x) => x !== h && x.owner !== h.owner && !g.refusesTrade(g.players[x.owner], A) && !g.refusesTrade(A, g.players[x.owner]));
       const pool = partners.length ? partners : harbors.filter((x) => x !== h);
       const to = pool[Math.floor(Math.random() * pool.length)];
       const route = this.seaRoute(h.tile, to.tile);
@@ -814,6 +1025,15 @@ class Renderer {
       if (PERSONALITY_ICON[pers] && fs >= 12 && !p.human) {
         const u = fs * 0.62;
         drawPersIcon(ctx, PERSONALITY_ICON[pers].path, sx - w / 2 - u * 0.95 + shift, ny - u / 2 - fs * 0.04, u);
+      }
+      // How they stand toward you, after the name: ally, hostile, refusing to trade.
+      if (!mine && !tribe && fs >= 12) {
+        const u = fs * 0.6;
+        let ix = sx + w / 2 + shift * 0.2 + u * 0.3;
+        for (const k of stanceOf(g, this.myId, p)) {
+          drawPersIcon(ctx, STANCE_ICON[k].path, ix, ny - u / 2 - fs * 0.04, u, STANCE_ICON[k].ink);
+          ix += u * 1.1;
+        }
       }
       const troopFs = Math.max(8, fs * 0.72);
       ctx.font = `italic 500 ${troopFs}px ${FONT_BOOK}`;
@@ -1092,7 +1312,7 @@ function drawFrontTag(ctx, x, y, label, edge, incoming) {
 
 // A personality icon on the map: the stroked path in ink over a paper halo, u pixels square.
 const PERS_PATHS = new Map();
-function drawPersIcon(ctx, d, x, y, u) {
+function drawPersIcon(ctx, d, x, y, u, ink = INK) {
   let path = PERS_PATHS.get(d);
   if (!path) { path = new Path2D(d); PERS_PATHS.set(d, path); }
   ctx.save();
@@ -1104,7 +1324,50 @@ function drawPersIcon(ctx, d, x, y, u) {
   ctx.strokeStyle = 'rgba(243,234,214,0.85)';
   ctx.stroke(path);
   ctx.lineWidth = 2;
-  ctx.strokeStyle = INK;
+  ctx.strokeStyle = ink;
   ctx.stroke(path);
   ctx.restore();
+}
+
+// Buildings joined by roads and railways.
+const RAIL_TYPES = new Set(['city', 'factory', 'harbor']);
+
+// How another nation stands toward you, as small icons: allied (linked rings), hostile (a flame),
+// and refusing to trade with you (a struck-through anchor).
+const STANCE_ICON = {
+  ally: { label: 'Ally', ink: '#1f6b52', css: 'ally', path: 'M2 8A3.6 3.6 0 1 0 9.2 8A3.6 3.6 0 1 0 2 8ZM6.8 8A3.6 3.6 0 1 0 14 8A3.6 3.6 0 1 0 6.8 8Z' },
+  hostile: { label: 'Hostile toward you', ink: '#a8321c', css: 'hostile', path: 'M8 1.5C8.6 4.5 12.5 6.2 12.5 10.2A4.5 4.5 0 0 1 3.5 10.2C3.5 7.6 5.4 6.6 6 4.6C6.9 6 7.6 6.3 8 1.5Z' },
+  notrade: { label: 'Refuses to trade with you', ink: '#5a4630', css: 'notrade', path: 'M8 2.5A1.4 1.4 0 1 0 8 5.3A1.4 1.4 0 1 0 8 2.5ZM8 5.3V13.5M5.2 7.6H10.8M3.6 10.2C4.2 12.6 6 13.6 8 13.6C10 13.6 11.8 12.6 12.4 10.2M2 14L14 2' },
+};
+function stanceOf(g, myId, p) {
+  const out = [];
+  if (!g || !p || p.id === myId || p.tribe || !myId) return out;
+  const me = g.players[myId];
+  if (g.isAllied(myId, p.id)) { out.push('ally'); return out; }
+  if (g.getRel(p.id, myId) <= -40 || g.attacks.some((a) => !a.dead && a.attacker === p.id && a.target === myId)) out.push('hostile');
+  if (me && g.refusesTrade(p, me)) out.push('notrade');
+  return out;
+}
+
+// Ramer-Douglas-Peucker on a flat [x0, y0, x1, y1, ...] list, so tile paths draw as smooth lines.
+function simplifyPath(pts, eps) {
+  const n = pts.length / 2;
+  if (n <= 2) return pts;
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const stack = [[0, n - 1]];
+  while (stack.length) {
+    const [i, j] = stack.pop();
+    const ax = pts[2 * i], ay = pts[2 * i + 1], bx = pts[2 * j], by = pts[2 * j + 1];
+    const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+    let best = -1, bd = eps;
+    for (let k = i + 1; k < j; k++) {
+      const d = Math.abs((pts[2 * k] - ax) * dy - (pts[2 * k + 1] - ay) * dx) / len;
+      if (d > bd) { bd = d; best = k; }
+    }
+    if (best >= 0) { keep[best] = 1; stack.push([i, best], [best, j]); }
+  }
+  const out = [];
+  for (let k = 0; k < n; k++) if (keep[k]) out.push(pts[2 * k], pts[2 * k + 1]);
+  return out;
 }

@@ -48,18 +48,18 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 - **Expand.** Click land to send troops into it (10% of your troops by default). Settling empty land is steady and cheap, and your border grows toward the spot you click. Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with the troops fighting there on a tag.
 - **Encircle.** Completely surround a patch of land and it becomes yours, unless it belongs to an ally.
 - **Finish them off.** A nation or tribe beaten down to a small remnant of its former size surrenders: whoever has been taking its land annexes the rest, with its treasury. No hunting down the last few pixels. The same rule applies to you.
-- **Absorb tribes.** Weak grey tribes hold scattered land at the start; their troops and treasure show under their name. They never build or research, so they're easy pickings, and whoever absorbs one takes its stores. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
+- **Absorb tribes.** Weak grey tribes hold scattered land at the start and keep settling the wilds around them, but rarely attack anyone; their troops and treasure show under their name. They never build or research, so they're easy pickings, and whoever absorbs one takes its stores. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
 - **Grow your people.** Population grows toward what your land and cities can feed. Only a share can serve as soldiers (8% in 1500, up to 23% by the World Wars); the rest work and pay taxes. Soldiers killed in battle are gone for good.
-- **Manage your treasury.** Money comes in dollars at a realistic scale: you start with $1.2 million, a city costs $2 million, and a missile $8 million.
+- **Manage your treasury.** Money comes in dollars at a realistic scale: you start with $1.2 million, a city costs $2 million and earns about $600K a minute, and a missile costs $8 million. Most income is your workers' taxes, so your population is your economy.
 - **Watch the money come in.** Your cities, harbors and factories show what they earn above them as it arrives. In Government, set your national priority: lean toward the army and troops refill faster, toward the economy and money comes in faster.
 - **Research.** Set a research budget at the top of the Technology screen: the share of your income spent on research. 51 technologies across six eras, from Military Drill and Craft Guilds to Railroads, the Telegraph, Machine Guns and Nuclear Fission, shown one era at a time with your progress through each. Click the year to open it and choose what comes next.
-- **Keep order (Realistic).** Stability depends on your technology, how far you've outgrown your administration, occupied land, war losses, taxes and levies, and the size of your empire. Conquered land shows hatched until it integrates. Below 30 stability, restless regions break away as new nations. Declare martial law or hold a celebration when things get tense.
+- **Keep order (Realistic).** Stability depends on your technology, how far you've outgrown your administration, occupied land, war losses, taxes and levies, troops kept at home, whether your people have room to grow, and the size of your empire. Conquered land shows hatched until it integrates. Every building settles the land around it, so building in a restless region calms it. When a revolt is brewing the map marks where and warns you; below 30 stability that region breaks away, with an alert that shows you where. Declare martial law, lower taxes or hold a celebration when things get tense.
 - **Choose an ideology.** On the Ideology screen (`I`): Crown, Commerce, Militarism, Reason or Frontier, each with strengths and weaknesses, or Moderation, the balanced one. Each has a tree of six doctrines bought with money; the first opens two branches and the last needs both.
-- **Build and stack.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos, from the bottom bar or by right-clicking your land, where each comes with its icon and price. Most unlock through technology. Build on top of one of your own buildings of the same type to stack it up to level 5; every level adds its full effect again.
+- **Build and stack.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos, from the bottom bar or by right-clicking your land, where each comes with its icon and price. Most unlock through technology. Buildings take time to go up (a city ten seconds), and you can demolish one for a quarter of its price. Build on top of one of your own buildings of the same type to stack it up to level 5; every level adds its full effect again. Roads join your capital, cities, factories and harbors, and turn into railways once you know Railroads.
 - **Sail.** Click land across the water, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first (faster with naval technology), ride at anchor briefly, then put their troops ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors.
 - **Strike.** Missiles wipe out troops and scorch land for a while; the screen shakes when one hits you. Air defense can shoot them down.
 - **End the war.** Near the end of the game the great powers twice propose a general peace. If every player signs, the game ends and the largest nation wins; otherwise the war goes on.
-- **Negotiate.** Propose alliances, send money to win favor, reinforce allies, or betray them at a cost. Nations remember who attacked them and gang up on whoever grows too big.
+- **Negotiate.** Propose alliances, send money to win favor, reinforce allies, or betray them at a cost. Alliances last five minutes and can be renewed in their last two. Icons beside each name show who is allied with you, who is hostile, and who refuses to trade with you; nations that refuse close their harbors to your trade. Diplomacy ranks every nation by land, troops, people, income, buildings and research. Nations remember who attacked them and gang up on whoever grows too big.
 
 ## Features
 
@@ -79,8 +79,8 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 | Drag, mouse wheel, pinch | Move and zoom the map |
 | `1`–`9` | Choose a building to place (hold Shift to place several) |
 | `T` | Open the technology tree |
-| `P` | Open diplomacy: alliances and how every nation feels about you |
-| `G` | Open government: national priority, plus stability, administration and policies in Realistic |
+| `P` | Open diplomacy: a leaderboard of every nation, how each feels about you, and alliances |
+| `G` | Open government: national priority, plus stability, administration and policies (martial law, tax relief, celebrations) in Realistic |
 | `I` | Open ideology: choose one and buy its doctrines |
 | `M` | Aim a missile |
 | `Q` / `E` | Lower or raise the share of troops sent per attack |
@@ -93,13 +93,13 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 | Building | Cost | Unlocked by | What it does |
 | --- | --- | --- | --- |
-| City | $2M | — | Houses 20K people, earns $1.2M/min, extends administration |
+| City | $2M | — | Houses 20K people, earns $600K/min, extends administration |
 | Barracks | $1.8M | Military Drill | Recruiting +25%, 0.5% more people can serve |
 | Fortress | $1.4M | — | Land within 9 tiles costs attackers double and falls half as fast |
-| Harbor | $1.8M | — | Coast only. Trade income from every harbor in the world, +2 fleets |
+| Harbor | $1.8M | — | Coast only. Trade income from the harbors of nations that trade with you, +2 fleets |
 | University | $2.2M | Printing Press | +2 research per second |
 | Courthouse | $2.4M | Bureaucracy | Realistic only. Administers more land and brings it under control |
-| Factory | $5M | Steam Power | Earns $3M/min, recruiting +15% |
+| Factory | $5M | Steam Power | Earns $1.5M/min, recruiting +15% |
 | Air Defense | $5M | Radar | Shoots down one enemy missile aimed within 22 tiles every 12s |
 | Missile Silo | $10M | Rocketry | Launches missiles (20s reload) |
 
