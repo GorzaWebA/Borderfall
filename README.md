@@ -67,6 +67,7 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 - Six terrain types that change how fast fronts move, how costly land is, and how much it's worth.
 - A controls lesson and a guided game for your first time.
 - Every screen fits the window without scrolling: Technology, Government, Ideology and Diplomacy are tabs of one frame, How to play is split into pages, and the start screen's options open in cards beside it.
+- Alert cards for what matters: attacks on you, incoming fleets and missiles, revolts and unrest, a lost capital, alliances accepted, declined, ending, expired or broken, harbors closed to your trade, and conquests. Each has a button to act on it (show me, renew, propose again, send a gift). Choose all, threats only or none in the menu.
 - High and Low graphics. Low draws at 30 fps and native resolution with simpler effects, for phones and older computers.
 - Pause and 1×, 2×, 4× speed in single player.
 

@@ -353,7 +353,7 @@ class Net {
       const ev = g.events.filter((e) => e.id > c.lastEvent && (e.to ? e.to === c.pid : !(e.skip && e.skip.includes(c.pid))));
       if (g.events.length) c.lastEvent = g.events[g.events.length - 1].id;
       const msg = Object.assign({}, common, {
-        ev: ev.map((e) => [e.id, e.text, e.kind, e.at === undefined ? -1 : e.at]),
+        ev: ev.map((e) => [e.id, e.text, e.kind, e.at === undefined ? -1 : e.at, e.alert || '', e.who || 0]),
         rq: g.requests.filter((r) => r.to === c.pid).map((r) => [r.id, r.from, r.expires, r.kind]),
         // Sampled border tiles of every front this player is fighting on, for the map markers.
         fr: g.attacks.filter((a) => !a.dead && a.target && (a.attacker === c.pid || a.target === c.pid)).map((a) => {
@@ -479,7 +479,8 @@ class Net {
     g.allyUntil = new Map((u.me.allyLeft || []).map(([a, left]) => [g.allyKey(ui.myId, a), g.tick + left * TPS]));
     me.techs = new Set(u.me.techs);
     me.doctrines = new Set(u.me.doctrines || []);
-    for (const [id, text, kind, at] of u.ev) g.events.push({ id, text, kind, time: g.time, to: 0, at: at === undefined ? -1 : at });
+    // Events sent here are all meant for this player.
+    for (const [id, text, kind, at, alert, who] of u.ev) g.events.push({ id, text, kind, time: g.time, to: ui.myId, at: at === undefined ? -1 : at, alert: alert || '', who: who || 0 });
     if (g.events.length > 200) g.events.splice(0, g.events.length - 200);
     g.requests = u.rq.map(([id, from, expires, kind]) => ({ id, from, to: ui.myId, expires, kind }));
     if (u.rel) u.rel.forEach((v, k) => { g.rel[(k + 1) * g.P + ui.myId] = v; });

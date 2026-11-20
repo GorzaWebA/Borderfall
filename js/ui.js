@@ -45,6 +45,26 @@ function relLabel(v) {
   return ['Hostile', 'rel-bad'];
 }
 
+// Alert cards. tone sets the colour; threat ones still show with "Threats only"; show is where
+// "Show me" goes; act adds a button; life is seconds on screen; quiet is how long repeats from
+// the same nation are held back.
+const ALERTS = {
+  attack: { title: 'Under attack', tone: 'bad', threat: true, show: 'front', life: 9, quiet: 45 },
+  fleet: { title: 'Fleet incoming', tone: 'bad', threat: true, show: 'at', life: 10, quiet: 30 },
+  missile: { title: 'Missile', tone: 'bad', threat: true, show: 'at', life: 9, quiet: 10 },
+  capital: { title: 'Capital lost', tone: 'bad', threat: true, show: 'capital', life: 12 },
+  betrayed: { title: 'Betrayed', tone: 'bad', threat: true, show: 'who', life: 10 },
+  revolt: { title: 'Revolt', tone: 'bad', threat: true, show: 'at', life: 20, flare: true, flash: true },
+  unrest: { title: 'Unrest', tone: 'warn', threat: true, show: 'at', life: 12 },
+  expiring: { title: 'Alliance ending', tone: 'warn', act: 'renew', life: 15 },
+  embargo: { title: 'Trade closed', tone: 'warn', show: 'who', life: 9, quiet: 60 },
+  declined: { title: 'Alliance declined', tone: 'info', act: 'gift', life: 10 },
+  expired: { title: 'Alliance over', tone: 'info', act: 'propose', life: 10 },
+  allied: { title: 'Alliance', tone: 'good', life: 6 },
+  conquest: { title: 'Conquest', tone: 'good', show: 'who', life: 7 },
+};
+const MAX_ALERTS = 3;
+
 const PREFS_VERSION = 2;
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem('borderfall.prefs') || '{}') || {}; } catch (e) { return {}; }
@@ -71,6 +91,7 @@ class UI {
     this.toastEls = new Map();
     this.noticeTimer = 0;
     this.prefs = loadPrefs();
+    this.alertSeen = new Map();     // alert key -> when it last showed, to hold back repeats
     this.shop = loadShop();
     this.color = PLAYER_COLORS.some((c) => c.hex === this.prefs.color) ? this.prefs.color : PLAYER_COLORS[0].hex;
     this.genTimer = 0;
@@ -824,7 +845,7 @@ class UI {
       li.append(yr, document.createTextNode(e.text));
       li.dataset.t = String(performance.now());
       log.appendChild(li);
-      if ((e.kind === 'revolt' || e.kind === 'warn') && e.at >= 0 && e.to === this.myId) this.alert(e.text, e.at, e.kind);
+      if (e.alert && e.to === this.myId) this.showAlert(e);
     }
     while (log.children.length > 6) log.firstChild.remove();
     const now = performance.now();
@@ -1087,21 +1108,40 @@ class UI {
     return null;
   }
 
-  // An alert card for something happening in your land, with a button to look at it; revolts
-  // also flare on the map and flash the screen.
-  alert(text, tile, kind) {
+  // An alert card for an event that matters to you: what happened, and a button to act on it
+  // (look at it, renew an alliance, send a gift). Threats are red, warnings amber, good news
+  // green. Repeats from the same nation are held back, and only a few cards show at once.
+  showAlert(e) {
+    const A = ALERTS[e.alert], g = this.game;
+    if (!A || !g || !this.me || !this.me.alive) return;
+    const mode = this.prefs.alerts || 'all';
+    if (mode === 'off' || (mode === 'threats' && !A.threat)) return;
+    const key = `${e.alert}:${e.who || e.at}`, now = performance.now();
+    if (now - (this.alertSeen.get(key) || -1e9) < (A.quiet || 8) * 1000) return;
+    this.alertSeen.set(key, now);
     const box = $('toasts');
     const el = document.createElement('div');
-    el.className = `toast alert ${kind}`;
-    el.innerHTML = `<p><b>${kind === 'revolt' ? 'Revolt' : 'Unrest'}</b> ${esc(text.replace(/^Revolt! /, ''))}</p><div class="acts"><button type="button" class="primary" data-a="show">Show me</button><button type="button" class="ghost" data-a="close">Dismiss</button></div><div class="timer"></div>`;
-    const born = performance.now(), life = kind === 'revolt' ? 20000 : 12000;
-    el.addEventListener('click', (e) => {
-      const b = e.target.closest('button[data-a]');
-      if (!b) return;
-      if (b.dataset.a === 'show' && tile >= 0 && this.game) {
-        const W = this.game.W;
-        this.r.centerOn(tile % W + 0.5, Math.floor(tile / W) + 0.5, Math.max(this.r.cam.zoom, 3));
-      }
+    el.className = `toast alert ${A.tone}`;
+    const who = e.who ? g.players[e.who] : null;
+    const acts = [];
+    if (A.show && this.alertTarget(e, A.show) >= 0) acts.push(['show', 'Show me', 'primary']);
+    if (A.act === 'renew' && who && who.alive) acts.push(['ally', 'Renew alliance', acts.length ? 'ghost' : 'primary']);
+    if (A.act === 'propose' && who && who.alive) acts.push(['ally', 'Propose again', 'ghost']);
+    if (A.act === 'gift' && who && who.alive && this.me.gold >= 1) acts.push(['gift', `Send ${fmtMoney(nicePrice(this.me.gold * 0.1))}`, 'ghost']);
+    acts.push(['close', 'Dismiss', 'ghost']);
+    el.innerHTML = `<p><b>${A.title}</b> ${esc(e.text.replace(/^Revolt! /, ''))}</p>
+      <div class="acts">${acts.map(([a, label, cls]) => `<button type="button" class="${cls}" data-a="${a}">${esc(label)}</button>`).join('')}</div><div class="timer"></div>`;
+    if (who) el.style.setProperty('--who', rgbCss(who.color));
+    const born = now, life = A.life * 1000;
+    el.addEventListener('click', (ev) => {
+      const b = ev.target.closest('button[data-a]');
+      if (!b || !this.game) return;
+      const a = b.dataset.a;
+      if (a === 'show') {
+        const t = this.alertTarget(e, A.show), W = this.game.W;
+        if (t >= 0) this.r.centerOn(t % W + 0.5, Math.floor(t / W) + 0.5, Math.max(this.r.cam.zoom, 3));
+      } else if (a === 'ally') this.cmd('ally', { to: e.who });
+      else if (a === 'gift') this.cmd('gold', { to: e.who, ratio: 0.1 });
       el.remove();
     });
     const tick = () => {
@@ -1113,16 +1153,38 @@ class UI {
     };
     requestAnimationFrame(tick);
     // A revolt supersedes the warnings that came before it.
-    if (kind === 'revolt') for (const w of box.querySelectorAll('.toast.alert.warn')) w.remove();
+    if (e.alert === 'revolt') for (const w of box.querySelectorAll('.toast.alert[data-kind="unrest"]')) w.remove();
+    el.dataset.kind = e.alert;
     box.prepend(el);
+    const cards = box.querySelectorAll('.toast.alert');
+    for (let k = MAX_ALERTS; k < cards.length; k++) cards[k].remove();
     // The map already marks where unrest is brewing; a revolt gets a flare of its own.
-    if (tile >= 0 && kind === 'revolt') this.r.alerts.push({ tile, label: 'Revolt', until: performance.now() + 15000 });
-    if (kind === 'revolt') {
+    if (A.flare && e.at >= 0) this.r.alerts.push({ tile: e.at, label: A.title, until: now + 15000 });
+    if (A.flash) {
       const f = $('flash');
       f.classList.remove('boom');
       void f.offsetWidth;
       f.classList.add('boom');
     }
+  }
+
+  // Where "Show me" goes for an alert: the event's tile, the front where a nation attacks you,
+  // your capital, or the other nation.
+  alertTarget(e, how) {
+    const g = this.game, W = g.W;
+    if (how === 'at') return e.at;
+    if (how === 'capital') return this.me.capital;
+    if (how === 'front') {
+      const a = g.attacks.find((x) => !x.dead && x.attacker === e.who && x.target === this.myId);
+      const tiles = a && (a.fs || a.frontier);
+      if (tiles && tiles.length) {
+        let cx = 0, cy = 0;
+        for (const t of tiles) { cx += t % W; cy += Math.floor(t / W); }
+        return Math.round(cy / tiles.length) * W + Math.round(cx / tiles.length);
+      }
+    }
+    const p = e.who ? g.players[e.who] : null;
+    return p && p.alive && p.label.tile >= 0 ? p.label.tile : -1;
   }
 
   // ---------- tooltip ----------
@@ -1834,6 +1896,12 @@ class UI {
           <label><input type="radio" name="gfx2" value="low"${q === 'low' ? ' checked' : ''}><span>Low, for older devices</span></label>
         </div>
       </div>
+      <div class="field"><span>Alerts</span>
+        <div class="segmented">
+          ${[['all', 'All'], ['threats', 'Threats only'], ['off', 'Off']].map(([v, l]) => `<label><input type="radio" name="alerts" value="${v}"${(this.prefs.alerts || 'all') === v ? ' checked' : ''}><span>${l}</span></label>`).join('')}
+        </div>
+        <p class="field-note">Cards for attacks, fleets, missiles, revolts and lost capitals are threats; alliances, trade and conquests are the rest. Everything is still written in the chronicle.</p>
+      </div>
       <div class="modal-actions">
         <button type="button" class="ghost" data-act="help">How to play</button>
         <button type="button" class="ghost" data-act="menu">${mp ? 'Leave match' : 'Quit to main menu'}</button>
@@ -1842,6 +1910,8 @@ class UI {
       onClick: (e) => {
         const gq = e.target.closest('input[name=gfx2]');
         if (gq) { this.setGraphics(gq.value); return; }
+        const al = e.target.closest('input[name=alerts]');
+        if (al) { this.prefs.alerts = al.value; savePrefs(this.prefs); return; }
         const b = e.target.closest('button[data-act]');
         if (!b) return;
         if (b.dataset.act === 'help') { this.closeModal(); this.showHelp(); }

@@ -24,6 +24,8 @@ const CITY_POP = 20000;
 const CAPITAL_POP = 10000;
 const SPAWN_RADIUS = 5;
 const WIN_SHARE = 0.7;
+// How a relation reads in a sentence ("They feel wary toward you").
+function relWord(v) { return v >= 40 ? 'friendly' : v >= 10 ? 'warm' : v > -10 ? 'neutral' : v > -40 ? 'wary' : 'hostile'; }
 // A nation or tribe beaten down to a scrap of its former size surrenders the rest to whoever has
 // been taking its land, so nobody has to hunt down the last few pixels. Shares of its peak size:
 const REMNANT_SHARE = { tribe: 0.3, nation: 0.05, human: 0.03 };
@@ -158,6 +160,7 @@ class Game {
     this.buildings = [];
     this.sites = [];                // buildings under construction
     this.allyUntil = new Map();     // alliance pair key -> tick it lapses
+    this.allyWarned = new Set();    // alliances whose players were told they end in a minute
     this.attacks = [];
     this.ships = [];
     this.missiles = [];
@@ -393,10 +396,12 @@ class Game {
       }
     }
   }
-  // to: 0 for everyone or a player id; skip: player ids who get their own version; at: a tile the
-  // message is about, for alerts that can show you where.
-  log(text, kind = 'info', to = 0, skip = null, at = -1) {
-    this.events.push({ id: ++this.eventSeq, text, kind, time: this.time, to, skip, at });
+  // to: 0 for everyone or a player id; skip: player ids who get their own version. extra marks
+  // messages that also raise an alert card: { alert: its type (see ALERTS in ui.js), at: a tile
+  // to show, who: the other nation involved }.
+  log(text, kind = 'info', to = 0, skip = null, extra = null) {
+    const x = extra || {};
+    this.events.push({ id: ++this.eventSeq, text, kind, time: this.time, to, skip, at: x.at === undefined ? -1 : x.at, alert: x.alert || '', who: x.who || 0 });
     if (this.events.length > 200) this.events.shift();
   }
   humans() { return this.players.filter((p) => p && p.human); }
@@ -436,7 +441,20 @@ class Game {
     for (const p of this.players) {
       if (!p || !p.alive || !p.counts.harbor) { if (p) p.tradeHarbors = 0; continue; }
       let n = 0;
-      for (const q of this.players) if (q && q.alive && q !== p && q.counts.harbor && !this.refusesTrade(q, p)) n += q.counts.harbor;
+      // Players hear when a trading partner closes its harbors to them; those already closed
+      // when they build their first harbor are noted quietly.
+      const first = p.human && !p.embargoes;
+      if (first) p.embargoes = new Set();
+      for (const q of this.players) {
+        if (!q || !q.alive || q === p || !q.counts.harbor) continue;
+        const shut = this.refusesTrade(q, p);
+        if (!shut) n += q.counts.harbor;
+        if (!p.human) continue;
+        if (shut && !p.embargoes.has(q.id)) {
+          p.embargoes.add(q.id);
+          if (!first) this.log(`${q.name} closed its harbors to your trade.${this.atWar(q.id, p.id) ? ' You are at war.' : ''}`, 'bad', p.id, null, { alert: 'embargo', who: q.id });
+        } else if (!shut) p.embargoes.delete(q.id);
+      }
       p.tradeHarbors = n;
     }
   }
@@ -630,7 +648,7 @@ class Game {
     p.pop = 0;
     if (p.human) this.log(`Your nation has fallen${by ? ' to ' + by.name : ''}.`, 'bad', p.id);
     if (p.tribe) { if (by && by.human) this.log(`You absorbed the ${p.name} and took ${fmtMoney(nicePrice(loot))} from its stores.`, 'good', by.id); return; }
-    if (by && by.human) this.log(`You conquered ${p.name} and seized ${fmtMoney(nicePrice(loot))} from its treasury.`, 'good', by.id);
+    if (by && by.human) this.log(`You conquered ${p.name} and seized ${fmtMoney(nicePrice(loot))} from its treasury.`, 'good', by.id, null, { alert: 'conquest', who: p.id });
     this.log(`${p.name} was destroyed${by ? ' by ' + by.name : ''}.`, 'info', 0, [p.id, by ? by.id : 0]);
   }
 
@@ -708,7 +726,7 @@ class Game {
         if (atk.troops < 1) break;
       }
       this.addRel(tId, aId, -8);
-      if (D.human && atk.troops >= 1) this.log(`${A.name} attacks with ${fmt(atk.troops)} troops.`, 'bad', D.id);
+      if (D.human && atk.troops >= 1) this.log(`${A.name} attacks with ${fmt(atk.troops)} troops.`, 'bad', D.id, null, A.tribe ? null : { alert: 'attack', who: aId });
       if (atk.troops < 1) return true;
     }
     this.attacks.push(atk);
@@ -1065,7 +1083,7 @@ class Game {
     if (tOwner) {
       const D = this.players[tOwner];
       this.addRel(tOwner, aId, -10);
-      if (D.human) this.log(`A fleet from ${A.name} sails for your coast with ${fmt(amount)} troops.`, 'bad', D.id);
+      if (D.human) this.log(`A fleet from ${A.name} sails for your coast with ${fmt(amount)} troops.`, 'bad', D.id, null, { alert: 'fleet', at: landing, who: aId });
     }
     return '';
   }
@@ -1301,7 +1319,7 @@ class Game {
     for (const q of this.players) if (q && q.id !== aId) this.addRel(q.id, aId, -6);
     for (const v of victims) {
       this.addRel(v, aId, -40);
-      if (this.players[v].human) this.log(`${A.name} launched a missile at you.`, 'bad', v);
+      if (this.players[v].human) this.log(`${A.name} launched a missile at you.`, 'bad', v, null, { alert: 'missile', at: t, who: aId });
     }
     this.missiles.push(m);
     if (this.net) this.net.missiles.push(m);
@@ -1391,7 +1409,7 @@ class Game {
     if (ok) {
       this.formAlliance(from, to);
     } else if (A.human) {
-      this.log(`${B.name} declined your alliance (relation ${Math.round(this.getRel(to, from))}).`, 'info', from);
+      this.log(`${B.name} declined your alliance. They feel ${relWord(this.getRel(to, from))} toward you; gifts and peace warm them.`, 'info', from, null, { alert: 'declined', who: to });
     }
     return '';
   }
@@ -1407,7 +1425,7 @@ class Game {
     else {
       this.addRel(r.from, pid, -8);
       this.log(`You turned down ${A.name}.`, 'info', pid);
-      if (A.human) this.log(`${this.players[pid].name} declined your alliance.`, 'info', A.id);
+      if (A.human) this.log(`${this.players[pid].name} declined your alliance.`, 'info', A.id, null, { alert: 'declined', who: pid });
     }
   }
 
@@ -1420,13 +1438,23 @@ class Game {
   // Once a second: alliances lapse after five minutes unless they have been renewed.
   expireAlliances() {
     for (const [k, until] of this.allyUntil) {
-      if (this.tick < until) continue;
+      // A minute before an alliance lapses, players in it are told, with a way to renew.
+      if (this.tick < until) {
+        if (until - this.tick <= 60 * TPS && !this.allyWarned.has(k)) {
+          this.allyWarned.add(k);
+          const a = Math.floor(k / this.P), b = k % this.P, A = this.players[a], B = this.players[b];
+          if (A && A.human && A.alive) this.log(`Your alliance with ${B.name} ends in a minute. Renew it to keep it.`, 'info', a, null, { alert: 'expiring', who: b });
+          if (B && B.human && B.alive) this.log(`Your alliance with ${A.name} ends in a minute. Renew it to keep it.`, 'info', b, null, { alert: 'expiring', who: a });
+        }
+        continue;
+      }
       this.allyUntil.delete(k);
       const a = Math.floor(k / this.P), b = k % this.P, A = this.players[a], B = this.players[b];
       if (!A || !B || !A.allies.has(b)) continue;
       A.allies.delete(b); B.allies.delete(a);
-      if (A.human) this.log(`Your alliance with ${B.name} has expired. Propose a new one to renew it.`, 'info', a);
-      if (B.human) this.log(`Your alliance with ${A.name} has expired. Propose a new one to renew it.`, 'info', b);
+      this.allyWarned.delete(k);
+      if (A.human) this.log(`Your alliance with ${B.name} has expired. Propose a new one to renew it.`, 'info', a, null, { alert: 'expired', who: b });
+      if (B.human) this.log(`Your alliance with ${A.name} has expired. Propose a new one to renew it.`, 'info', b, null, { alert: 'expired', who: a });
     }
   }
 
@@ -1434,9 +1462,10 @@ class Game {
     const A = this.players[a], B = this.players[b];
     const renewal = this.isAllied(a, b);
     this.allyUntil.set(this.allyKey(a, b), this.tick + ALLIANCE_SECONDS * TPS);
+    this.allyWarned.delete(this.allyKey(a, b));
     if (renewal) {
-      if (A.human) this.log(`You renewed your alliance with ${B.name} for another five minutes.`, 'good', a);
-      if (B.human) this.log(`You renewed your alliance with ${A.name} for another five minutes.`, 'good', b);
+      if (A.human) this.log(`You renewed your alliance with ${B.name} for another five minutes.`, 'good', a, null, { alert: 'allied', who: b });
+      if (B.human) this.log(`You renewed your alliance with ${A.name} for another five minutes.`, 'good', b, null, { alert: 'allied', who: a });
       return;
     }
     A.allies.add(b); B.allies.add(a);
@@ -1447,8 +1476,8 @@ class Game {
         this.players[x.attacker].troops += x.troops; x.troops = 0; x.dead = true;
       }
     }
-    if (A.human) this.log(`You are now allied with ${B.name} for five minutes.`, 'good', a);
-    if (B.human) this.log(`You are now allied with ${A.name} for five minutes.`, 'good', b);
+    if (A.human) this.log(`You are now allied with ${B.name} for five minutes.`, 'good', a, null, { alert: 'allied', who: b });
+    if (B.human) this.log(`You are now allied with ${A.name} for five minutes.`, 'good', b, null, { alert: 'allied', who: a });
     if (this.concernsHuman(a, b)) this.log(`${A.name} and ${B.name} formed an alliance.`, 'info', 0, [a, b]);
   }
 
@@ -1457,12 +1486,13 @@ class Game {
     if (!this.isAllied(a, b)) return;
     A.allies.delete(b); B.allies.delete(a);
     this.allyUntil.delete(this.allyKey(a, b));
+    this.allyWarned.delete(this.allyKey(a, b));
     A.traitorUntil = this.tick + 45 * TPS;
     for (const q of this.players) if (q && q.id !== a) this.addRel(q.id, a, -18);
     this.addRel(b, a, -50);
     if (this.politics) A.shock += 8;
     if (A.human) this.log(`You broke your alliance with ${B.name}. Others will trust you less, and your land is easier to take for 45s.`, 'bad', a);
-    if (B.human) this.log(`${A.name} broke its alliance with you.`, 'bad', b);
+    if (B.human) this.log(`${A.name} broke its alliance with you.`, 'bad', b, null, { alert: 'betrayed', who: a });
     if (this.concernsHuman(a, b)) this.log(`${A.name} broke its alliance with ${B.name}.`, 'info', 0, [a, b]);
   }
 
@@ -1721,11 +1751,11 @@ class Game {
       this.rel[id * this.P + p.id] = -90;
       this.rel[p.id * this.P + id] = -90;
       r.label = { x: sx + 0.5, y: sy + 0.5, size: 3, tile: seed };
-      if (p.human) this.log(`Revolt! ${r.name} rose up in the ${this.compass(p, seed)} and broke away from your nation, taking ${fmt(region.length)} tiles.`, 'revolt', p.id, null, seed);
+      if (p.human) this.log(`Revolt! ${r.name} rose up in the ${this.compass(p, seed)} and broke away from your nation, taking ${fmt(region.length)} tiles.`, 'revolt', p.id, null, { alert: 'revolt', at: seed, who: id });
       if (this.concernsHuman(p.id, p.id)) this.log(`${r.name} broke away from ${p.name} in a revolt.`, 'info', 0, [p.id]);
     } else {
       for (const t of region) this.setOwner(t, 0);
-      if (p.human) this.log(`Revolt! A region in the ${this.compass(p, seed)} rose up and fell into anarchy.`, 'revolt', p.id, null, seed);
+      if (p.human) this.log(`Revolt! A region in the ${this.compass(p, seed)} rose up and fell into anarchy.`, 'revolt', p.id, null, { alert: 'revolt', at: seed });
     }
     this.computeAdmin();
     return true;
@@ -1969,7 +1999,7 @@ class Game {
       for (const h of this.humans()) {
         if (h.alive && h.unrest >= 0 && h.stability < REVOLT_BELOW + 6 && this.time - h.unrestWarnedAt > 45) {
           h.unrestWarnedAt = this.time;
-          this.log(`Unrest is spreading in the ${this.compass(h, h.unrest)} (stability ${Math.round(h.stability)}). Below ${REVOLT_BELOW}, that region may break away. A building there settles the land around it.`, 'warn', h.id, null, h.unrest);
+          this.log(`Unrest is spreading in the ${this.compass(h, h.unrest)} (stability ${Math.round(h.stability)}). Below ${REVOLT_BELOW}, that region may break away. A building there settles the land around it.`, 'warn', h.id, null, { alert: 'unrest', at: h.unrest });
         }
       }
     }
@@ -2002,7 +2032,7 @@ class Game {
     if (this.politics) p.shock = Math.min(40, p.shock + 20);
     if (p.human && this.time - (p.capitalLogAt || -1e9) > 20) {
       p.capitalLogAt = this.time;
-      this.log(this.politics ? 'Your capital fell. The government moved, and the country is in turmoil.' : 'Your capital fell. The government moved to safer ground.', 'bad', p.id);
+      this.log(this.politics ? 'Your capital fell. The government moved, and the country is in turmoil.' : 'Your capital fell. The government moved to safer ground.', 'bad', p.id, null, { alert: 'capital', at: best });
     }
     if (this.politics) this.computeAdmin();
   }
