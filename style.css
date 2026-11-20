@@ -678,11 +678,16 @@ input[type=range]::-moz-range-thumb {
 .toast .acts { display: flex; gap: 8px; }
 .toast .acts button { flex: 1; padding: 6px 10px; font-size: 15px; }
 .toast .timer { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--brass); }
-.toast.alert { --c: var(--vermilion); }
-.toast.alert b { color: var(--vermilion-hi); margin-right: 4px; }
-.toast.alert .timer { background: var(--vermilion); }
-.toast.alert.warn { --c: #d9a04a; }
-.toast.alert.warn b { color: #f0c36a; }
+/* Alert cards: red for threats, amber for warnings, brass for news, green for good news, with a
+   stripe in the colour of the other nation involved. */
+.toast.alert { --c: var(--vermilion); --tone: var(--vermilion-hi); padding: 9px 12px 11px; box-shadow: inset 4px 0 0 var(--who, transparent), 0 12px 30px rgba(10, 7, 4, 0.45); }
+.toast.alert p { margin: 0 0 8px; font-size: 14.5px; }
+.toast.alert b { color: var(--tone); margin-right: 4px; font-size: 16px; }
+.toast.alert .timer { background: var(--c); }
+.toast.alert .acts button { padding: 4px 8px; font-size: 13.5px; }
+.toast.alert.warn { --c: #d9a04a; --tone: #f0c36a; }
+.toast.alert.info { --c: var(--brass); --tone: var(--brass-hi); }
+.toast.alert.good { --c: var(--verdigris); --tone: var(--verdigris-hi); }
 
 /* The general peace proposal: a centred card with the standings and two choices. */
 #treaty {
@@ -789,6 +794,7 @@ input[type=range]::-moz-range-thumb {
 .result-stats span { display: block; color: var(--sepia); font-family: var(--font-book); font-style: italic; font-size: 14px; }
 .result-stats b { font-size: 26px; font-weight: 800; font-variant-numeric: lining-nums tabular-nums; }
 .result-lede { color: var(--paper-2); margin: 0 0 12px; font-size: 16px; }
+#modal-body > .field + .field { margin-top: 16px; }
 .kicker { margin: 0 0 4px; font-family: var(--font-book); font-style: italic; font-size: 15px; color: var(--brass-hi); }
 
 .modal-card.wide { width: min(1180px, 100%); }
