@@ -225,7 +225,7 @@ class Net {
     });
     this.room.on('start', (d) => this.onStart(d));
     this.room.on('u', (d) => this.onUpdate(d));
-    this.room.on('r', (d) => { if (d.msg) this.ui.notice(d.msg, d.bad); });
+    this.room.on('r', (d) => { if (d.msg) this.ui.notice(d.msg, d.bad, d.warn); });
     this.room.onLeave((id) => { if (id === this.hostId) this.ui.netClosed('The host left, so the match has ended.'); });
     const hello = () => this.room.send('hello', this.me());
     this.room.onJoin(hello);
@@ -285,7 +285,7 @@ class Net {
     const g = this.game;
     if (d.n === 'spawn' && g.started) return;
     const res = g.command(pid, d.n, d.a || {});
-    this.room.send('r', { q: d.q, msg: res.msg, bad: res.bad }, from);
+    this.room.send('r', { q: d.q, msg: res.msg, bad: res.bad, warn: res.warn }, from);
   }
 
   onPeerGone(id) {

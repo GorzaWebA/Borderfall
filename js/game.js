@@ -26,6 +26,14 @@ const SPAWN_RADIUS = 5;
 const WIN_SHARE = 0.7;
 // How a relation reads in a sentence ("They feel wary toward you").
 function relWord(v) { return v >= 40 ? 'friendly' : v >= 10 ? 'warm' : v > -10 ? 'neutral' : v > -40 ? 'wary' : 'hostile'; }
+// Below this share of the troop limit, sending more troops away brings a warning.
+const LOW_TROOPS = 0.15;
+// Tribes: troops at most TRIBE_TROOPS plus a few per tile, and their stores fill at half the rate.
+const TRIBE_TROOPS = 800;
+const TRIBE_TROOPS_PER_TILE = 2.5;
+const TRIBE_INCOME = 0.5;
+// Stability from recent victories, at most; it fades by 0.08 a second.
+const GLORY_MAX = 12;
 // A nation or tribe beaten down to a scrap of its former size surrenders the rest to whoever has
 // been taking its land, so nobody has to hunt down the last few pixels. Shares of its peak size:
 const REMNANT_SHARE = { tribe: 0.3, nation: 0.05, human: 0.03 };
@@ -123,6 +131,7 @@ class Player {
     this.boost = 0;
     this.shock = 0;
     this.weariness = 0;
+    this.glory = 0;                 // recent victories: land, capitals and nations taken in war
     this.celebrateReadyAt = 0;
     this.rebelOf = 0;
     this.unrestWarnedAt = -1e9;
@@ -146,7 +155,7 @@ class Game {
     this.map = map;
     this.W = map.W; this.H = map.H; this.N = map.N;
     this.settings = settings;
-    this.modeKey = MODES[settings.mode] ? settings.mode : 'realistic';
+    this.modeKey = MODES[settings.mode] ? settings.mode : 'blitz';
     this.mode = MODES[this.modeKey];
     this.rng = makeRng((map.seed ^ 0x5bd1e995) >>> 0);
     this.owner = new Uint16Array(this.N);
@@ -370,6 +379,47 @@ class Game {
   isAllied(a, b) { return a > 0 && b > 0 && a !== b && this.players[a].allies.has(b); }
   // Allies never attack each other.
   isFriendly(a, b) { return this.isAllied(a, b); }
+  // The other nations (not tribes) fighting a nation right now, by land or with a fleet on its way.
+  attackersOf(qId, except = 0) {
+    const s = new Set();
+    for (const a of this.attacks) {
+      if (!a.dead && a.target === qId && a.attacker !== except && !this.players[a.attacker].tribe) s.add(a.attacker);
+    }
+    for (const sh of this.ships) {
+      if (!sh.dead && sh.target === qId && sh.owner !== except && !this.players[sh.owner].tribe) s.add(sh.owner);
+    }
+    return s;
+  }
+  // The ally of pId that qId is attacking, if any: the war pId would join to defend a friend.
+  allyUnderAttack(pId, qId) {
+    const P = this.players[pId];
+    if (!P || !P.allies.size) return 0;
+    for (const a of this.attacks) if (!a.dead && a.attacker === qId && P.allies.has(a.target)) return a.target;
+    return 0;
+  }
+  // ", Altuq's ally," when the attacker is defending a friend the target is at war with.
+  allyNote(aId, tId) {
+    const f = this.allyUnderAttack(aId, tId);
+    return f ? `, ${this.players[f].name}'s ally,` : '';
+  }
+  // When a nation is attacked, its allies take it badly; the attacker hears who might join in.
+  angerAllies(aId, tId) {
+    const D = this.players[tId], A = this.players[aId];
+    if (!D || D.tribe || !D.allies.size) return;
+    const names = [];
+    for (const k of D.allies) {
+      if (k === aId) continue;
+      // Resentment only goes so far on a friend's behalf: wary, not hostile.
+      if (this.getRel(k, aId) > -30) this.addRel(k, aId, -6);
+      names.push(this.players[k].name);
+    }
+    if (!A.human || !names.length) return;
+    A.alliesWarned = A.alliesWarned || new Map();
+    if (this.time - (A.alliesWarned.get(tId) ?? -1e9) < 90) return;
+    A.alliesWarned.set(tId, this.time);
+    const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+    this.log(`${D.name} is allied with ${list}. ${names.length > 1 ? 'They' : 'It'} may come to its defense.`, 'warn', aId, null, { alert: 'allies', who: tId });
+  }
   isTarget(i, t) {
     return this.owner[i] === t && (t !== 0 || (this.map.terrain[i] > T_SEA && this.fallout[i] === 0));
   }
@@ -420,7 +470,7 @@ class Game {
   // Dollars per second per unit of earnings, after focus, technology, stability and martial law.
   incomeMult(p) {
     return MONEY * (0.4 + 1.2 * p.focus) * (1 + p.mods.gold) * this.stabFactor(p) * (p.martial ? 0.75 : 1) *
-      (p.taxRelief ? TAX_RELIEF_INCOME : 1) * (p.diffMult || 1);
+      (p.taxRelief ? TAX_RELIEF_INCOME : 1) * (p.diffMult || 1) * (p.tribe ? TRIBE_INCOME : 1);
   }
   // A harbor earns a little on its own and more for every foreign harbor that will trade with it.
   harborEarn(p) {
@@ -464,7 +514,9 @@ class Game {
     return per * (b.level || 1) * this.incomeMult(p);
   }
   troopCap(p) {
-    return (500 + p.pop * (p.mods.mobil + 0.005 * Math.min(p.counts.barracks, 6))) * Math.max(0.5, 1 + p.mods.troopCap);
+    const cap = (500 + p.pop * (p.mods.mobil + 0.005 * Math.min(p.counts.barracks, 6))) * Math.max(0.5, 1 + p.mods.troopCap);
+    // Tribes spread over as much land as they can settle, but their war bands stay small.
+    return p.tribe ? Math.min(cap, TRIBE_TROOPS + p.tiles * TRIBE_TROOPS_PER_TILE) : cap;
   }
   popCapOf(p) {
     const capitalOk = p.capital >= 0 && this.owner[p.capital] === p.id;
@@ -490,7 +542,7 @@ class Game {
   buildingAvailable(type) { return !BUILDINGS[type].politics || this.politics; }
   buildingUnlocked(p, type) {
     const d = BUILDINGS[type];
-    return this.buildingAvailable(type) && (!d.tech || p.techs.has(d.tech));
+    return this.buildingAvailable(type) && (!d.tech || this.mode.openBuildings || p.techs.has(d.tech));
   }
   casualties(p, n) {
     if (n <= 0) return;
@@ -571,9 +623,10 @@ class Game {
   completeTech(p, t) {
     p.techs.add(t.id);
     delete p.progress[t.id];
-    if (t.fx) for (const k in t.fx) p.mods[k] += t.fx[k];
+    const fx = techFx(t, this.mode);
+    if (fx) for (const k in fx) p.mods[k] += fx[k];
     p.research = null;
-    if (p.human) this.log(`Researched ${t.name}. ${t.desc}`, 'good', p.id);
+    if (p.human) this.log(`Researched ${t.name}. ${techDesc(t, this.mode)}`, 'good', p.id);
   }
   autoPickResearch(p) {
     const av = this.availableTechs(p);
@@ -595,6 +648,8 @@ class Game {
     if (po) {
       po.tiles--; po.value -= v; po.effValue -= v * this.controlFactor(oldC);
       if (newOwner) { po.lastHitBy = newOwner; po.lastHitAt = this.tick; }
+      // Winning a war lifts spirits at home.
+      if (pn && this.politics) pn.glory = Math.min(GLORY_MAX, pn.glory + (po.tribe ? 0.01 : 0.03));
     }
     this.control[t] = newOwner ? newC : 0;
     if (pn) {
@@ -642,7 +697,7 @@ class Game {
     for (const q of this.players) if (q) { q.allies.delete(p.id); this.allyUntil.delete(this.allyKey(p.id, q.id)); }
     p.allies.clear();
     const loot = p.gold;
-    if (by) { by.gold += p.gold; by.kills++; }
+    if (by) { by.gold += p.gold; by.kills++; if (this.politics) by.glory = Math.min(GLORY_MAX, by.glory + (p.tribe ? 2 : 8)); }
     p.gold = 0;
     p.troops = 0;
     p.pop = 0;
@@ -726,7 +781,8 @@ class Game {
         if (atk.troops < 1) break;
       }
       this.addRel(tId, aId, -8);
-      if (D.human && atk.troops >= 1) this.log(`${A.name} attacks with ${fmt(atk.troops)} troops.`, 'bad', D.id, null, A.tribe ? null : { alert: 'attack', who: aId });
+      if (!A.tribe) this.angerAllies(aId, tId);
+      if (D.human && atk.troops >= 1) this.log(`${A.name}${this.allyNote(aId, tId)} attacks with ${fmt(atk.troops)} troops.`, 'bad', D.id, null, A.tribe ? null : { alert: 'attack', who: aId });
       if (atk.troops < 1) return true;
     }
     this.attacks.push(atk);
@@ -893,14 +949,21 @@ class Game {
     const who = o ? this.players[o].name : 'unclaimed land';
     const x = tile % this.W, focus = [x, (tile - x) / this.W];
     if (this.landReachable(pid, tile) && this.launchAttack(pid, o, amount, { focus })) {
-      return { msg: o ? `Attacking ${who} with ${fmt(amount)} troops.` : `Settling toward that spot with ${fmt(amount)} troops.` };
+      return { msg: o ? `Attacking ${who} with ${fmt(amount)} troops.` : `Settling toward that spot with ${fmt(amount)} troops.`, warn: this.lowTroops(me) };
     }
     // A nation beyond empty land on your own landmass: settle the land in between, toward them.
     if (o && this.landReachable(pid, tile, true) && this.launchAttack(pid, 0, amount, { focus })) {
-      return { msg: `Settling toward ${who} with ${fmt(amount)} troops. Attack them once your borders meet.` };
+      return { msg: `Settling toward ${who} with ${fmt(amount)} troops. Attack them once your borders meet.`, warn: this.lowTroops(me) };
     }
     const err = this.launchNaval(pid, tile, amount);
-    return err ? { msg: err, bad: true } : { msg: `Fleet sailing to ${who} with ${fmt(amount)} troops.` };
+    return err ? { msg: err, bad: true } : { msg: `Fleet sailing to ${who} with ${fmt(amount)} troops.`, warn: this.lowTroops(me) };
+  }
+
+  // A warning when sending troops has left too few at home to defend or to regrow quickly.
+  lowTroops(p) {
+    const cap = this.troopCap(p);
+    if (p.troops >= cap * LOW_TROOPS) return '';
+    return `Only ${fmt(p.troops)} troops left at home. They regrow fastest at about 40% of your limit.`;
   }
 
   // Every player action enters here, from the local UI, a tutorial, or a remote client.
@@ -917,7 +980,8 @@ class Game {
         const amount = Math.floor(p.troops * clamp(Number(a.ratio) || 0, 0.01, 1));
         const err = this.launchNaval(pid, a.tile, amount);
         const o = this.owner[a.tile];
-        return r(err, `Fleet sailing to ${o ? this.players[o].name : 'unclaimed land'} with ${fmt(amount)} troops.`);
+        if (err) return r(err);
+        return { msg: `Fleet sailing to ${o ? this.players[o].name : 'unclaimed land'} with ${fmt(amount)} troops.`, warn: this.lowTroops(p) };
       }
       case 'build': {
         const err = this.build(pid, a.type, a.tile);
@@ -1083,7 +1147,8 @@ class Game {
     if (tOwner) {
       const D = this.players[tOwner];
       this.addRel(tOwner, aId, -10);
-      if (D.human) this.log(`A fleet from ${A.name} sails for your coast with ${fmt(amount)} troops.`, 'bad', D.id, null, { alert: 'fleet', at: landing, who: aId });
+      this.angerAllies(aId, tOwner);
+      if (D.human) this.log(`A fleet from ${A.name}${this.allyNote(aId, tOwner)} sails for your coast with ${fmt(amount)} troops.`, 'bad', D.id, null, { alert: 'fleet', at: landing, who: aId });
     }
     return '';
   }
@@ -1145,7 +1210,7 @@ class Game {
   canBuild(p, type, t, ignoreGold) {
     const def = BUILDINGS[type];
     if (!def || !this.buildingAvailable(type)) return 'Unknown building.';
-    if (def.tech && !p.techs.has(def.tech)) return `Research ${TECH_BY_ID[def.tech].name} first.`;
+    if (!this.buildingUnlocked(p, type)) return `Research ${TECH_BY_ID[def.tech].name} first.`;
     const stack = this.stackTarget(p, type, t);
     if (stack) {
       if (this.sites.some((x) => x.upgrade === stack.id)) return `This ${def.name.toLowerCase()} is already being upgraded.`;
@@ -1636,7 +1701,7 @@ class Game {
   updateStability(p) {
     const over = p.tiles > p.adminCap ? Math.min(30, (p.tiles / p.adminCap - 1) * 35) : 0;
     const ctrl = (1 - p.avgControl / 100) * 28;
-    const war = Math.min(25, (p.weariness / Math.max(5000, p.pop)) * 200 * Math.max(0.2, 1 + p.mods.weariness));
+    const war = Math.min(20, (p.weariness / Math.max(5000, p.pop)) * 160 * Math.max(0.2, 1 + p.mods.weariness));
     const burden = Math.abs(p.focus - 0.5) * 20;
     const share = this.landShare(p);
     // Strain climbs steeply past half the world, so runaway empires stall short of 70%.
@@ -1657,6 +1722,7 @@ class Game {
     if (Math.abs(garrison) >= 0.5) f.push([garrison > 0 ? 'Garrisons at home' : 'Army away from home', garrison]);
     if (Math.abs(fed) >= 0.5) f.push([fed > 0 ? 'Room to grow' : 'Overcrowding', fed]);
     if (p.boost >= 0.5) f.push(['Celebrations', p.boost]);
+    if (p.glory >= 0.5) f.push(['Victories', p.glory]);
     if (over >= 0.5) f.push(['Overextension', -over]);
     if (ctrl >= 0.5) f.push(['Unintegrated land', -ctrl]);
     if (size >= 0.5) f.push(['Imperial strain', -size]);
@@ -1669,7 +1735,8 @@ class Game {
     p.stabFactors = f;
     p.stability += clamp(p.stabTarget - p.stability, -1.5, 1.5);
     p.boost = Math.max(0, p.boost - 0.25);
-    p.shock = Math.max(0, p.shock - 0.2);
+    p.shock = Math.max(0, p.shock - 0.25);
+    p.glory = Math.max(0, p.glory - 0.08);
   }
 
   // The most restless spot: poorly controlled land far from the capital. Sampled, so it is cheap.
@@ -1735,7 +1802,7 @@ class Game {
       const id = this.players.length;
       const r = new Player(id, this.spareNames.shift(), this.spareColors.shift() || hslToRgb(rng() * 360, 0.6, 0.5), false);
       this.initPlayer(r);
-      for (const tid of p.techs) { r.techs.add(tid); const t = TECH_BY_ID[tid]; if (t.fx) for (const k in t.fx) r.mods[k] += t.fx[k]; }
+      for (const tid of p.techs) { r.techs.add(tid); const fx = techFx(TECH_BY_ID[tid], this.mode); if (fx) for (const k in fx) r.mods[k] += fx[k]; }
       r.diffMult = this.diff.econ;
       r.rebelOf = p.id;
       this.players.push(r);
@@ -2029,7 +2096,12 @@ class Game {
     }
     p.capital = best;
     if (!had || best < 0) return;
-    if (this.politics) p.shock = Math.min(40, p.shock + 20);
+    if (this.politics) {
+      // The first fall shakes the country; losing the new seat soon after adds less.
+      p.shock = Math.min(30, p.shock + (p.shock > 10 ? 6 : 15));
+      const by = this.players[p.lastHitBy];
+      if (by && by.alive && this.tick - p.lastHitAt < 5 * TPS) by.glory = Math.min(GLORY_MAX, by.glory + 4);
+    }
     if (p.human && this.time - (p.capitalLogAt || -1e9) > 20) {
       p.capitalLogAt = this.time;
       this.log(this.politics ? 'Your capital fell. The government moved, and the country is in turmoil.' : 'Your capital fell. The government moved to safer ground.', 'bad', p.id, null, { alert: 'capital', at: best });

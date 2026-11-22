@@ -12,14 +12,15 @@ No install, no account. Works on desktop and mobile browsers, in portrait and la
 
 ## Two ways to play
 
-| | Realistic | Blitz |
+| | Blitz (default) | Realistic |
 | --- | --- | --- |
-| Calendar | 1500 to 2000, one year every 4.5 seconds | 1500 to 1700 |
-| Technology | Each tech waits for its year and for the techs it builds on | Only needs the techs it builds on |
-| Politics | Stability, administration, occupied land, revolts | None |
-| Growth | Slower; fronts crawl until railroads and engines | Fast and aggressive |
-| Ending | 70% of the land, a general peace signed near the end, or the largest nation in 2000 | Same, with the time limit at 1700 |
-| Typical length | 30–40 minutes | About 15 minutes |
+| Calendar | 1500 to 1700, one year every 4.5 seconds | 1500 to 2000 |
+| Buildings | All open from the start, missile silos included | Each unlocks through technology |
+| Technology | Only needs the techs it builds on; makes you stronger | Each tech waits for its year and for the techs it builds on |
+| Politics | None | Stability, administration, occupied land, revolts |
+| Growth | Fast; fronts move quickly | Slower; fronts crawl until railroads and engines |
+| Ending | 70% of the land, a general peace signed near the end, or the largest nation at 1700 | Same, with the time limit at 2000 |
+| Typical length | About 15 minutes | 30–40 minutes |
 
 ## Maps
 
@@ -45,21 +46,21 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 ## What you do
 
-- **Expand.** Click land to send troops into it (10% of your troops by default). Settling empty land is steady and cheap, and your border grows toward the spot you click. Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with the troops fighting there on a tag.
+- **Expand.** Click land to send troops into it (20% of your troops by default). If sending leaves fewer than 15% of your troop limit at home, the troops figure turns red and a warning says so: troops regrow fastest at about 40% of the limit. Settling empty land is steady and cheap, and your border grows toward the spot you click. Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with the troops fighting there on a tag.
 - **Encircle.** Completely surround a patch of land and it becomes yours, unless it belongs to an ally.
 - **Finish them off.** A nation or tribe beaten down to a small remnant of its former size surrenders: whoever has been taking its land annexes the rest, with its treasury. No hunting down the last few pixels. The same rule applies to you.
-- **Absorb tribes.** Weak grey tribes hold scattered land at the start and keep settling the wilds around them, but rarely attack anyone; their troops and treasure show under their name. They never build or research, so they're easy pickings, and whoever absorbs one takes its stores. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
+- **Absorb tribes.** Weak grey tribes hold scattered land at the start and keep settling the wilds around them, but rarely attack anyone; their troops and treasure show under their name. They never build or research and their war bands stay small however far they spread, so they're easy pickings, and whoever absorbs one takes its stores. Enemy land costs troops based on how densely it's held, the terrain, and nearby fortresses.
 - **Grow your people.** Population grows toward what your land and cities can feed. Only a share can serve as soldiers (8% in 1500, up to 23% by the World Wars); the rest work and pay taxes. Soldiers killed in battle are gone for good.
 - **Manage your treasury.** Money comes in dollars at a realistic scale: you start with $1.2 million, a city costs $2 million and earns about $600K a minute, and a missile costs $8 million. Most income is your workers' taxes, so your population is your economy.
 - **Watch the money come in.** Your cities, harbors and factories show what they earn above them as it arrives. In Government, set your national priority: lean toward the army and troops refill faster, toward the economy and money comes in faster.
 - **Research.** Set a research budget at the top of the Technology screen: the share of your income spent on research. 51 technologies across six eras, from Military Drill and Craft Guilds to Railroads, the Telegraph, Machine Guns and Nuclear Fission, shown one era at a time with your progress through each. Click the year to open it and choose what comes next.
-- **Keep order (Realistic).** Stability depends on your technology, how far you've outgrown your administration, occupied land, war losses, taxes and levies, troops kept at home, whether your people have room to grow, and the size of your empire. Conquered land shows hatched until it integrates. Every building settles the land around it, so building in a restless region calms it. When a revolt is brewing the map marks where and warns you; below 30 stability that region breaks away, with an alert that shows you where. Declare martial law, lower taxes or hold a celebration when things get tense.
+- **Keep order (Realistic).** Stability depends on your technology, how far you've outgrown your administration, occupied land, war losses, taxes and levies, troops kept at home, whether your people have room to grow, and the size of your empire. Victories count in your favor: land, capitals and nations taken in war lift stability for a while, so a war you're winning steadies the country. Conquered land shows hatched until it integrates. Every building settles the land around it, so building in a restless region calms it. When a revolt is brewing the map marks where and warns you; below 30 stability that region breaks away, with an alert that shows you where. Declare martial law, lower taxes or hold a celebration when things get tense.
 - **Choose an ideology.** On the Ideology screen (`I`): Crown, Commerce, Militarism, Reason or Frontier, each with strengths and weaknesses, or Moderation, the balanced one. Each has a tree of six doctrines bought with money; the first opens two branches and the last needs both.
-- **Build and stack.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos, from the bottom bar or by right-clicking your land, where each comes with its icon and price. Most unlock through technology. Buildings take time to go up (a city ten seconds), and you can demolish one for a quarter of its price. Build on top of one of your own buildings of the same type to stack it up to level 5; every level adds its full effect again. Roads join your capital, cities, factories and harbors, and turn into railways once you know Railroads.
+- **Build and stack.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos, from the bottom bar or by right-clicking your land, where each comes with its icon and price. In Blitz every building is open from the start; in Realistic most unlock through technology. Buildings take time to go up (a city ten seconds), and you can demolish one for a quarter of its price. Build on top of one of your own buildings of the same type to stack it up to level 5; every level adds its full effect again. Roads join your capital, cities, factories and harbors, and turn into railways once you know Railroads.
 - **Sail.** Click land across the water, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first (faster with naval technology), ride at anchor briefly, then put their troops ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors.
 - **Strike.** Missiles wipe out troops and scorch land for a while; the screen shakes when one hits you. Air defense can shoot them down.
 - **End the war.** Near the end of the game the great powers twice propose a general peace. If every player signs, the game ends and the largest nation wins; otherwise the war goes on.
-- **Negotiate.** Propose alliances, send money to win favor, reinforce allies, or betray them at a cost. Alliances last five minutes and can be renewed in their last two. Icons beside each name show who is allied with you, who is hostile, and who refuses to trade with you; nations that refuse close their harbors to your trade. Diplomacy ranks every nation by land, troops, people, income, buildings and research. Nations remember who attacked them and gang up on whoever grows too big.
+- **Negotiate.** Propose alliances, send money to win favor, reinforce allies, or betray them at a cost. Alliances last five minutes and can be renewed in their last two. Icons beside each name show who is allied with you, who is hostile, and who refuses to trade with you; nations that refuse close their harbors to your trade. Hover a nation, or open Diplomacy, to see who it is allied with and who it is at war with: attack a nation and its allies resent it and may come to its defense, and you're warned when that might happen. Diplomacy ranks every nation by land, troops, people, income, buildings and research. Nations remember who attacked them and gang up on whoever grows too big, but they don't pile onto a player already fighting someone else, and nations that feel warm toward you don't land troops on you.
 
 ## Features
 
@@ -67,7 +68,7 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 - Six terrain types that change how fast fronts move, how costly land is, and how much it's worth.
 - A controls lesson and a guided game for your first time.
 - Every screen fits the window without scrolling: Technology, Government, Ideology and Diplomacy are tabs of one frame, How to play is split into pages, and the start screen's options open in cards beside it.
-- Alert cards for what matters: attacks on you, incoming fleets and missiles, revolts and unrest, a lost capital, alliances accepted, declined, ending, expired or broken, harbors closed to your trade, and conquests. Each has a button to act on it (show me, renew, propose again, send a gift). Choose all, threats only or none in the menu.
+- Alert cards for what matters: attacks on you, incoming fleets and missiles, revolts and unrest, a lost capital, alliances accepted, declined, ending, expired or broken, a target's allies who may join its defense, harbors closed to your trade, and conquests. Each has a button to act on it (show me, renew, propose again, send a gift). Cards and alliance offers sit in the right-hand column, out of the middle of the map, with at most three alerts and two offers at once. Choose all, threats only or none in the menu.
 - Built for touch as well as mouse: tap to act, press and hold for options (with what a tooltip would show), drag and pinch the map, finger-sized buttons, room left for notches, short vibrations for long-press and threats where phones support them, and a web app manifest for installing to the home screen.
 - High and Low graphics. Low draws at 30 fps and native resolution with simpler effects, for phones and older computers.
 - Pause and 1×, 2×, 4× speed in single player.
@@ -93,7 +94,9 @@ Players connect directly to each other (WebRTC), using public Nostr relays to fi
 
 ## Buildings
 
-| Building | Cost | Unlocked by | What it does |
+In Blitz every building is open from the start; the technologies below unlock them in Realistic only.
+
+| Building | Cost | Unlocked by (Realistic) | What it does |
 | --- | --- | --- | --- |
 | City | $2M | — | Houses 20K people, earns $600K/min, extends administration |
 | Barracks | $1.8M | Military Drill | Recruiting +25%, 0.5% more people can serve |

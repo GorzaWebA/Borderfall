@@ -33,8 +33,8 @@
         <div class="field">
           <span id="mode-label">Mode</span>
           <div class="modes" role="radiogroup" aria-labelledby="mode-label">
-            <label><input type="radio" name="mode" value="realistic" checked><span><b>Realistic</b><small>1500 to 2000, about 37 minutes</small></span></label>
-            <label><input type="radio" name="mode" value="blitz"><span><b>Blitz</b><small>1500 to 1700, about 15 minutes</small></span></label>
+            <label><input type="radio" name="mode" value="blitz" checked><span><b>Blitz</b><small>A fast war, about 15 minutes</small></span></label>
+            <label><input type="radio" name="mode" value="realistic"><span><b>Realistic</b><small>1500 to 2000, about 37 minutes</small></span></label>
           </div>
           <p id="mode-desc" class="field-note"></p>
         </div>
@@ -267,8 +267,8 @@
     <footer id="dock" class="panel">
       <div class="dock-sliders">
         <label class="slider" title="Share of your troops each click sends. Q and E change it.">
-          <span class="slider-head"><span>Attack with</span> <output id="ratio-out">10%</output> <em id="ratio-troops"></em></span>
-          <input type="range" id="ratio" min="1" max="100" value="10">
+          <span class="slider-head"><span>Attack with</span> <output id="ratio-out">20%</output> <em id="ratio-troops"></em></span>
+          <input type="range" id="ratio" min="1" max="100" value="20">
         </label>
       </div>
       <div class="builds" id="builds"></div>
@@ -299,7 +299,7 @@
         </section>
         <section>
           <h3>Modes</h3>
-          <p><b>Realistic</b> runs from 1500 to 2000, about 37 minutes at normal speed. Each technology waits for its year, and you have to keep your nation stable. <b>Blitz</b> runs from 1500 to 1700, about 15 minutes. You can research anything as soon as you know what it builds on, and there's no stability or revolts. The command bar at the top right shows how long is left.</p>
+          <p><b>Blitz</b>, the default, is a fast war of about 15 minutes, from 1500 to 1700. Every building can be built from the start, missile silos included, research only makes you stronger, fronts move quickly, and there's no stability or revolts. <b>Realistic</b> runs from 1500 to 2000, about 37 minutes at normal speed. Each technology and the building it unlocks waits for its year, and you have to keep your nation stable. The command bar at the top right shows how long is left.</p>
         </section>
         <section>
           <h3>Maps</h3>
@@ -314,11 +314,11 @@
         <section>
           <h3>Taking land</h3>
           <p>Click land to send the share of troops set on the <b>Attack</b> slider. Settling empty land is quick, and your border grows toward the spot you click. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first, faster with naval technology, and ride at anchor briefly before their troops go ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors.</p>
-          <p>Troops at home defend you. Troops sent out don't, so don't empty your barracks while a neighbor is watching. Troops regrow fastest when you're well under your cap.</p>
+          <p>Troops at home defend you. Troops sent out don't, so don't empty your barracks while a neighbor is watching. Troops regrow fastest at about 40% of your limit and slowly when almost none are left, so clicking again and again drains your army. If an attack leaves fewer than 15% at home, the troops figure turns red and a warning says so.</p>
         </section>
         <section>
           <h3>Borders, tribes and encirclement</h3>
-          <p>Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with a tag giving the troops fighting there. Tribes are grey and labelled in italics, with their troops and, in gold, the treasure they hold. They are scattered across the map at the start and keep settling the wilds around them for as long as there are any, but they rarely attack anyone. They never build or research, and whoever absorbs one takes its stores. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
+          <p>Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with a tag giving the troops fighting there. Tribes are grey and labelled in italics, with their troops and, in gold, the treasure they hold. They are scattered across the map at the start and keep settling the wilds around them for as long as there are any, but they rarely attack anyone. They never build or research, their war bands stay small however far they spread, and whoever absorbs one takes its stores. Surround any patch of land completely (no coast, no third nation touching it) and it becomes yours, unless it belongs to an ally. Cut-off pockets bigger than about a tenth of a nation hold out.</p>
           <p>A nation or tribe beaten down to a small remnant of its former size surrenders: whoever has been taking its land annexes the rest, with its treasury, so nobody has to hunt down the last few pixels. The same goes for you.</p>
         </section>
       </div>
@@ -350,7 +350,7 @@
         </section>
         <section>
           <h3>Stability and control (Realistic)</h3>
-          <p>Stability rises and falls toward a target set by your technology, how far you've outgrown your administration, how much of your land is still occupied, war losses, harsh taxes or levies, and the sheer size of your empire. High stability boosts income, recruiting, research and growth; low stability cuts them.</p>
+          <p>Stability rises and falls toward a target set by your technology, how far you've outgrown your administration, how much of your land is still occupied, war losses, harsh taxes or levies, and the sheer size of your empire. Victories lift it: land, capitals and nations taken in war count in your favor for a while, so a war you're winning steadies the country. High stability boosts income, recruiting, research and growth; low stability cuts them.</p>
           <p>Land you take from another nation starts out occupied (hatched on the map) and slowly integrates. Every building brings order to the land around it, cities and courthouses most of all: a new one calms nearby land at once, and land within reach of your buildings integrates twice as fast. Land far from all of them never comes fully under control. Troops at home keep order too; an army sent away leaves the land uneasy.</p>
           <p>When a revolt is brewing, the map marks where and you get a warning: build there, or raise stability. Below 30 stability, that region can break away as a new nation, and an alert shows you where.</p>
           <p>Click Stability to declare martial law (more order, less income and growth), lower taxes (more contentment and growth, less income) or hold a celebration (costs money, lifts stability for a while).</p>
@@ -361,7 +361,7 @@
           <h3>Diplomacy</h3>
           <p>Computer nations carry an icon for their personality beside their name: crossed swords for a warlord (attacks often), scales for a merchant (trades and builds), a shield for a guardian (fortifies and defends) and an eye for an opportunist (strikes whoever looks weak).</p>
           <p>Beside each nation's name, icons show how it stands toward you: linked rings for an ally, a red flame for a hostile nation, and a struck-through anchor for one that refuses to trade with you.</p>
-          <p>Right-click a nation to propose an alliance, send money, or reinforce an ally. Alliances last five minutes; renew one in its last two, or it lapses. Nations warm to quiet neighbors and remember who attacked them. Breaking an alliance makes everyone trust you less. When one nation grows too large, others band together against it. Diplomacy (P) ranks every nation by land, troops, people, income, buildings and research.</p>
+          <p>Right-click a nation to propose an alliance, send money, or reinforce an ally. Alliances last five minutes; renew one in its last two, or it lapses. Nations warm to quiet neighbors and remember who attacked them. Hover a nation to see its allies and the wars it's fighting. Attack a nation and its allies resent it and may come to its defense; an alert warns you who they are. Nations don't pile onto someone already at war with another, and those that feel warm toward you won't land troops on you. Breaking an alliance makes everyone trust you less. When one nation grows too large, others band together against it. Diplomacy (P) ranks every nation by land, troops, people, income, buildings and research, and shows who each one is allied with.</p>
         </section>
         <section>
           <h3>Multiplayer</h3>
@@ -397,7 +397,7 @@
         </section>
         <section>
           <h3>Alerts</h3>
-          <p>Cards at the top of the screen tell you when a nation attacks you, a fleet sails for your coast, a missile is launched at you, a region revolts or unrest is brewing, or your capital falls. They also bring alliance news (accepted, declined, ending in a minute, expired, broken), harbors closed to your trade, and conquests. Their buttons show you where it is happening, renew an alliance, propose again, or send a gift to a nation that turned you down. Repeats from the same nation are held back. In the menu (Esc), choose all alerts, threats only, or none; everything is still written in the chronicle.</p>
+          <p>Cards in the right-hand column tell you when a nation attacks you, a fleet sails for your coast, a missile is launched at you, a region revolts or unrest is brewing, or your capital falls. They also bring alliance news (accepted, declined, ending in a minute, expired, broken), the allies of a nation you attack, harbors closed to your trade, and conquests. Alliance offers show there too, with the allies of the nation proposing; at most three alerts and two offers show at once. Their buttons show you where it is happening, renew an alliance, propose again, or send a gift to a nation that turned you down. Repeats from the same nation are held back. In the menu (Esc), choose all alerts, threats only, or none; everything is still written in the chronicle.</p>
         </section>
       </div>
     </div>
