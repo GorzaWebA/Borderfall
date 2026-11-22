@@ -47,7 +47,7 @@ const LESSON = {
       title: 'Choose how many troops to send',
       text: () => 'The Attack with slider at the bottom sets the share of your troops each click sends; the rest stay home to defend you. Raise it to about 30% while the land around you is empty. Q and E change it too.',
       target: () => document.querySelector('.dock-sliders .slider'),
-      done: (c) => c.ui.ratio >= 0.2,
+      done: (c) => c.ui.ratio >= 0.28,
       progress: (c) => `Sending ${Math.round(c.ui.ratio * 100)}%`,
     },
     {

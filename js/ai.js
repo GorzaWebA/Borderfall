@@ -113,7 +113,14 @@ class AIController {
       let score = strength * (1 + Math.min(border, 300) / 150) * (1 - rel / 120);
       if (q.human) score *= D.humanBias;
       if (g.landShare(q) > 0.25) score *= 1.4;
-      if (g.attacks.some((a) => !a.dead && a.attacker === o && a.target === p.id)) score *= 1.5;
+      const hitUs = g.attacks.some((a) => !a.dead && a.attacker === o && a.target === p.id);
+      if (hitUs) score *= 1.5;
+      // A nation already fighting others is less tempting, and a player fighting two is left alone.
+      if (!hitUs && !g.allyUnderAttack(p.id, o)) {
+        const others = g.attackersOf(o, p.id).size;
+        if (q.human && others >= 2) continue;
+        score /= 1 + 0.5 * others;
+      }
       if (o === this.enemy) score *= 1.8;
       score *= 0.8 + g.rng() * 0.4;
       if (score > bestScore) { bestScore = score; best = o; }
@@ -122,14 +129,36 @@ class AIController {
     return 0;
   }
 
+  // Whether we would land troops on this nation: only one we dislike, and not one already
+  // fighting someone else, unless it attacked us or a friend of ours. Its strength counts the
+  // armies it has out in the field, not just the troops it kept at home.
+  navalTarget(q) {
+    const g = this.g, p = this.p, D = this.diff, P = this.pers;
+    if (!q.alive || q.tribe && q.troops > p.troops * 0.5) return false;
+    if (q.human && g.time < D.graceVsHuman) return false;
+    if (q.troops + q.field * 0.5 > p.troops * 0.8) return false;
+    if (q.tribe) return true;
+    if (g.requests.some((r) => (r.from === p.id && r.to === q.id) || (r.from === q.id && r.to === p.id))) return false;
+    const rel = g.getRel(p.id, q.id);
+    const hitUs = g.attacks.some((a) => !a.dead && a.attacker === q.id && a.target === p.id);
+    const friend = g.allyUnderAttack(p.id, q.id);
+    if (!hitUs && !friend && rel >= (P.key === 'warlord' ? 10 : 5)) return false;
+    if (hitUs || rel <= -60) return true;
+    // No piling on: someone already at war with this nation is left to it, though an ally may
+    // still come to a friend's defense alongside one other.
+    const others = g.attackersOf(q.id, p.id).size;
+    return others < (friend ? 2 : 1);
+  }
+
   naval(ratio, neutral) {
-    const g = this.g, p = this.p, D = this.diff, rng = g.rng;
+    const g = this.g, p = this.p, rng = g.rng;
     this.nextNaval = g.tick + (20 + rng.int(30)) * TPS;
     if (p.coastal === 0 || ratio < 0.45) return;
     if (g.fleetsOf(p.id) >= g.fleetCap(p)) return;
     if (neutral > 0 && rng() > 0.2) return;
     const cx = p.label.x, cy = p.label.y;
     const cands = [];
+    const ok = new Map();
     for (let k = 0; k < 80; k++) {
       const i = rng.int(g.N);
       if (g.isWater(i)) continue;
@@ -137,9 +166,8 @@ class AIController {
       if (o === p.id || g.isFriendly(p.id, o)) continue;
       if (o === 0 && g.fallout[i]) continue;
       if (o) {
-        const q = g.players[o];
-        if (q.troops > p.troops * 0.8) continue;
-        if (q.human && g.time < D.graceVsHuman) continue;
+        if (!ok.has(o)) ok.set(o, this.navalTarget(g.players[o]));
+        if (!ok.get(o)) continue;
       }
       const x = i % g.W, y = (i - x) / g.W;
       let d = Math.hypot(x - cx, y - cy);

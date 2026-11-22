@@ -24,15 +24,16 @@ const MODES = {
     secPerYear: 4.5,      // 1500 to 1700 takes 15 minutes at 1x
     timeGate: false,
     politics: false,
+    openBuildings: true,  // every building, missile silos included, can be built from the start
     popGrowth: 0.036,
     research: 1.05,
-    attackSpeed: 0.36,
+    attackSpeed: 0.45,
     defense: 1.45,
     attrition: 0.012,
     absorb: 0.3,
     endYear: 1700,
     minutes: 15,
-    desc: 'Research anything once you know what it builds on. No stability or revolts, and nations grow faster.',
+    desc: 'A fast war. Every building can be built from the start, missile silos included, and research makes you stronger. No stability or revolts, and fronts move quickly.',
   },
 };
 
@@ -56,7 +57,7 @@ function eraIndex(year) {
 const TECH_COST_SCALE = 3.8;
 const TECHS = [
   // Renaissance
-  { id: 'drill', name: 'Military Drill', year: 1500, cost: 120, req: [], kind: 'mil', unlock: ['barracks'], desc: 'Unlocks Barracks.' },
+  { id: 'drill', name: 'Military Drill', year: 1500, cost: 120, req: [], kind: 'mil', unlock: ['barracks'], desc: 'Unlocks Barracks.', openFx: { recruit: 0.1 }, openDesc: 'Recruiting +10%.' },
   { id: 'printing', name: 'Printing Press', year: 1500, cost: 120, req: [], kind: 'sci', unlock: ['university'], fx: { research: 0.15 }, desc: 'Unlocks University. Research +15%.' },
   { id: 'guilds', name: 'Craft Guilds', year: 1510, cost: 160, req: [], kind: 'eco', fx: { gold: 0.08, buildCost: -0.1 }, desc: 'Income +8%. Buildings cost 10% less.' },
   { id: 'cartography', name: 'Cartography', year: 1520, cost: 200, req: [], kind: 'eco', fx: { fleetSpeed: 0.3, fleetCap: 1 }, desc: 'Fleets sail 30% faster. +1 fleet.' },
@@ -102,10 +103,10 @@ const TECHS = [
   { id: 'totalwar', name: 'Total War', year: 1914, cost: 4000, req: ['machinegun', 'nationalism'], kind: 'mil', fx: { mobil: 0.06, recruit: 0.2 }, desc: '6% more of your people can serve. Recruiting +20%.' },
   { id: 'aviation', name: 'Aviation', year: 1920, cost: 4200, req: ['combustion'], kind: 'mil', fx: { atk: 0.05, speed: 0.1 }, desc: 'Attacks lose 5% fewer troops. Fronts advance 10% faster.' },
   { id: 'welfare', name: 'Welfare State', year: 1930, cost: 4400, req: ['schooling', 'medicine'], kind: 'gov', fx: { stability: 5, popGrowth: 0.1 }, desc: 'Stability +5. Population grows 10% faster.' },
-  { id: 'radar', name: 'Radar', year: 1935, cost: 4800, req: ['electricity', 'combustion'], kind: 'mil', unlock: ['aa'], desc: 'Unlocks Air Defense.' },
+  { id: 'radar', name: 'Radar', year: 1935, cost: 4800, req: ['electricity', 'combustion'], kind: 'mil', unlock: ['aa'], desc: 'Unlocks Air Defense.', openFx: { def: 0.1 }, openDesc: 'Defense +10%.' },
   { id: 'antibiotics', name: 'Antibiotics', year: 1940, cost: 5000, req: ['medicine'], kind: 'eco', fx: { popCap: 0.1, popGrowth: 0.2 }, desc: 'Land feeds 10% more people. Population grows 20% faster.' },
   // Atomic
-  { id: 'rocketry', name: 'Rocketry', year: 1944, cost: 5500, req: ['radar'], kind: 'mil', unlock: ['silo'], desc: 'Unlocks Missile Silo.' },
+  { id: 'rocketry', name: 'Rocketry', year: 1944, cost: 5500, req: ['radar'], kind: 'mil', unlock: ['silo'], desc: 'Unlocks Missile Silo.', openFx: { missile: 0.25 }, openDesc: 'Missiles strike 25% wider and harder.' },
   { id: 'fission', name: 'Nuclear Fission', year: 1950, cost: 7000, req: ['rocketry'], kind: 'mil', fx: { missile: 0.5 }, desc: 'Missiles strike 50% wider and harder.' },
   { id: 'jets', name: 'Jet Engines', year: 1952, cost: 7200, req: ['aviation'], kind: 'mil', fx: { speed: 0.2, attrition: -0.2 }, desc: 'Fronts advance 20% faster. Offensives lose 20% fewer troops to supply.' },
   { id: 'computers', name: 'Computers', year: 1960, cost: 7500, req: ['electricity'], kind: 'sci', fx: { research: 0.25, admin: 0.25 }, desc: 'Research +25%. Administration +25%.' },
@@ -114,6 +115,16 @@ const TECHS = [
   { id: 'internet', name: 'Internet', year: 1985, cost: 9500, req: ['computers'], kind: 'sci', fx: { research: 0.2, gold: 0.15 }, desc: 'Research +20%. Income +15%.' },
 ];
 for (const t of TECHS) t.cost = Math.round(t.cost * TECH_COST_SCALE / 10) * 10;
+
+// In modes where every building is open from the start, a technology's unlock means nothing, so
+// its description drops it and the few that only unlocked a building do something else instead.
+function techFx(t, mode) {
+  return mode && mode.openBuildings && t.openFx ? { ...(t.fx || {}), ...t.openFx } : t.fx;
+}
+function techDesc(t, mode) {
+  if (!mode || !mode.openBuildings || !t.unlock) return t.desc;
+  return [t.desc.replace(/Unlocks [^.]*\.\s*/, '').trim(), t.openDesc || ''].filter(Boolean).join(' ');
+}
 
 const TECH_BY_ID = {};
 for (const t of TECHS) { t.era = eraIndex(t.year); TECH_BY_ID[t.id] = t; }

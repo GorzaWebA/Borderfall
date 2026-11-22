@@ -73,10 +73,35 @@ const ALERTS = {
   expired: { title: 'Alliance over', tone: 'info', act: 'propose', life: 10 },
   allied: { title: 'Alliance', tone: 'good', life: 6 },
   conquest: { title: 'Conquest', tone: 'good', show: 'who', life: 7 },
+  allies: { title: 'Allies may join', tone: 'warn', show: 'who', life: 9, quiet: 90 },
 };
 const MAX_ALERTS = 3;
+const MAX_OFFERS = 2;   // alliance offers shown at once; the rest wait their turn
+
+// A nation's allies as a short list of names, with colour dots: "Kostrava, Yarvena and Altuq".
+function allyList(g, p, except = 0, max = 3) {
+  const ids = [...p.allies].filter((id) => id !== except && g.players[id] && g.players[id].alive);
+  if (!ids.length) return '';
+  const name = (id) => `<span class="dot" style="background:${rgbCss(g.players[id].color)}"></span>${esc(g.players[id].name)}`;
+  const shown = ids.slice(0, max).map(name);
+  if (ids.length > max) shown.push(`${ids.length - max} more`);
+  return shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}` : shown[0];
+}
+// The nations someone is fighting right now, either way round; tribes left out.
+function warList(g, p, max = 3) {
+  const ids = new Set();
+  for (const a of g.attacks) {
+    if (a.dead || !a.target) continue;
+    if (a.attacker === p.id && !g.players[a.target].tribe) ids.add(a.target);
+    else if (a.target === p.id && !g.players[a.attacker].tribe) ids.add(a.attacker);
+  }
+  const list = [...ids].slice(0, max).map((id) => `<span class="dot" style="background:${rgbCss(g.players[id].color)}"></span>${esc(g.players[id].name)}`);
+  if (ids.size > max) list.push(`${ids.size - max} more`);
+  return list.join(', ');
+}
 
 const PREFS_VERSION = 2;
+const MODE_PREFS_VERSION = 1;
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem('borderfall.prefs') || '{}') || {}; } catch (e) { return {}; }
 }
@@ -92,7 +117,7 @@ class UI {
     this.map = null;
     this.speed = 1;
     this.modalOpen = false;
-    this.ratio = 0.1;
+    this.ratio = 0.2;
     this.lastEvent = 0;
     this.hudTimer = 0;
     this.mouse = { x: -1, y: -1, inside: false };
@@ -138,7 +163,7 @@ class UI {
   cmd(name, a = {}, quiet) {
     if (this.isClient()) { this.net.sendCommand(name, a); return null; }
     const res = this.game.command(this.myId, name, a);
-    if (!quiet && res && res.msg) this.notice(res.msg, res.bad);
+    if (!quiet && res && res.msg) this.notice(res.msg, res.bad, res.warn);
     this.updateHud(true);
     return res;
   }
@@ -153,7 +178,8 @@ class UI {
     if (P.v === PREFS_VERSION && P.numAI) $('opt-ai').value = P.numAI;
     else $('opt-ai').value = recommendedRivals($('opt-type').value, $('opt-size').value) || 20;
     if (P.diff) { const r = document.querySelector(`input[name=diff][value=${P.diff}]`); if (r) r.checked = true; }
-    if (P.mode && MODES[P.mode]) { const r = document.querySelector(`input[name=mode][value=${P.mode}]`); if (r) r.checked = true; }
+    // A mode saved before Blitz became the default is ignored once.
+    if (P.mode && MODES[P.mode] && P.modeV === MODE_PREFS_VERSION) { const r = document.querySelector(`input[name=mode][value=${P.mode}]`); if (r) r.checked = true; }
     const modeDesc = () => { $('mode-desc').textContent = MODES[document.querySelector('input[name=mode]:checked').value].desc; };
     for (const r of document.querySelectorAll('input[name=mode]')) r.addEventListener('change', modeDesc);
     modeDesc();
@@ -421,7 +447,7 @@ class UI {
     const diff = document.querySelector('input[name=diff]:checked').value;
     const mode = document.querySelector('input[name=mode]:checked').value;
     const numAI = Number($('opt-ai').value);
-    this.prefs = { ...this.prefs, name, type: $('opt-type').value, size: $('opt-size').value, numAI, numTribes: Number($('opt-tribes').value), diff, mode, color: this.color, v: PREFS_VERSION };
+    this.prefs = { ...this.prefs, name, type: $('opt-type').value, size: $('opt-size').value, numAI, numTribes: Number($('opt-tribes').value), diff, mode, modeV: MODE_PREFS_VERSION, color: this.color, v: PREFS_VERSION };
     savePrefs(this.prefs);
     if (this.isClient()) return;
     const game = new Game(this.map, { difficulty: diff, mode, multiplayer: !!this.net });
@@ -658,13 +684,21 @@ class UI {
     $('ratio-troops').textContent = g && this.me ? fmt(this.me.troops * this.ratio) : '';
   }
 
-  notice(text, bad) {
+  // A short line above the dock; a warning, if any, sits under it in amber and keeps it up longer.
+  notice(text, bad, warn) {
     const n = $('notice');
     n.textContent = text;
+    if (warn) {
+      const w = document.createElement('span');
+      w.className = 'nw';
+      w.textContent = warn;
+      n.append(w);
+    }
     n.classList.toggle('bad', !!bad);
+    n.classList.toggle('warn', !!warn);
     n.classList.add('show');
     clearTimeout(this.noticeTimer);
-    this.noticeTimer = setTimeout(() => n.classList.remove('show'), 2600);
+    this.noticeTimer = setTimeout(() => n.classList.remove('show'), warn ? 4500 : 2600);
   }
 
   // Missile hits on us shake the screen and flash; an incoming missile pulses the screen edge.
@@ -728,6 +762,7 @@ class UI {
     const me = this.me;
     const cap = g.troopCap(me);
     $('v-cap').textContent = `/ ${fmt(cap)}`;
+    $('v-troops').closest('.stat').classList.toggle('low', me.alive && me.troops < cap * LOW_TROOPS);
     const gr = $('v-growth');
     gr.textContent = `${me.growth >= 0 ? '+' : ''}${fmt(me.growth * 60)}/min`;
     gr.classList.toggle('neg', me.growth < 0);
@@ -894,17 +929,22 @@ class UI {
   updateToasts() {
     const g = this.game, box = $('toasts');
     const live = new Set();
+    let shown = this.toastEls.size;
+    const maxOffers = this.compact() ? 1 : MAX_OFFERS;
     for (const r of g.requests) {
       if (r.to !== this.myId) continue;
       live.add(r.id);
       const p = g.players[r.from];
       let el = this.toastEls.get(r.id);
       if (!el) {
+        if (shown >= maxOffers) continue;
+        shown++;
         el = document.createElement('div');
-        el.className = 'toast';
+        el.className = 'toast offer';
         el.style.setProperty('--c', rgbCss(p.color));
         const renew = g.isAllied(this.myId, r.from);
-        el.innerHTML = `<p><b>${esc(p.name)}</b> ${renew ? 'proposes to renew your alliance for five more minutes.' : 'proposes an alliance for five minutes. Allies can\'t attack each other.'}</p><div class="acts"><button type="button" class="primary" data-a="1">Accept</button><button type="button" class="ghost" data-a="0">Decline</button></div><div class="timer"></div>`;
+        const al = allyList(g, p, this.myId);
+        el.innerHTML = `<p><b>${esc(p.name)}</b> ${renew ? 'wants to renew your alliance for five more minutes.' : 'proposes an alliance for five minutes.'}${!renew ? `<span class="toast-sub">${al ? `Allied with ${al}.` : 'No other allies.'}</span>` : ''}</p><div class="acts"><button type="button" class="primary" data-a="1">Accept</button><button type="button" class="ghost" data-a="0">Decline</button></div><div class="timer"></div>`;
         el.addEventListener('click', (e) => {
           const b = e.target.closest('button[data-a]');
           if (!b || !this.game) return;
@@ -1251,6 +1291,12 @@ class UI {
       rows.push(['Land', fmtPct(g.landShare(p) * 100)]);
       if (p.tribe) rows.push(['Stores', `<span class="rel-good">${fmtMoney(nicePrice(p.gold))}</span>`]);
       else if (p.ideology) rows.push(['Ideology', IDEOLOGY_BY_ID[p.ideology].name]);
+      if (!p.tribe) {
+        const al = allyList(g, p, this.myId);
+        rows.push(['Allies', al ? `<span class="tt-list">${al}</span>` : '<span class="st-neutral">None</span>']);
+        const wl = warList(g, p);
+        if (wl) rows.push(['At war with', `<span class="tt-list">${wl}</span>`]);
+      }
       if (g.politics) {
         const c = g.control[tile];
         rows.push(['Control here', `<span class="${c < 50 ? 'rel-bad' : ''}">${c}%${c < 50 ? (c <= 20 ? ' (occupied)' : ' (restless)') : ''}</span>`]);
@@ -1489,7 +1535,7 @@ class UI {
     for (const t of BUILD_ORDER) {
       const d = BUILDINGS[t];
       const li = document.createElement('li');
-      const needs = d.tech ? `, needs ${TECH_BY_ID[d.tech].name}` : '';
+      const needs = d.tech ? `, needs ${TECH_BY_ID[d.tech].name} in Realistic` : '';
       const only = d.politics ? ' Realistic only.' : '';
       li.innerHTML = `<canvas width="52" height="52" style="width:26px;height:26px" data-t="${t}"></canvas><span><b>${d.name}</b> (${fmtMoney(d.base)}, key ${d.key}${needs}). ${d.desc}${only}</span>`;
       ul.appendChild(li);
@@ -1749,7 +1795,7 @@ class UI {
       const bar = (isCur || (prog > 0 && st !== 'done')) ? `<span class="tp"><i style="width:${Math.min(100, prog / g.techCost(me, t) * 100)}%"></i></span>` : '';
       cards += `<button type="button" class="tech s-${st}${isCur ? ' cur' : ''}" data-tech="${t.id}"${st === 'done' ? ' disabled' : ''} aria-pressed="${isCur}">
         <span class="th"><span class="tn">${esc(t.name)}</span>${g.mode.timeGate ? `<span class="ty">${t.year}</span>` : ''}</span>
-        <span class="td">${esc(t.desc)}${!g.politics && t.kind === 'gov' ? ' Stability and administration don\'t apply in Blitz.' : ''}</span>
+        <span class="td">${esc(techDesc(t, g.mode))}${!g.politics && t.kind === 'gov' ? ' Stability and administration don\'t apply in Blitz.' : ''}</span>
         <span class="tf">${esc(foot)}</span>${bar}
       </button>`;
     }
@@ -1781,6 +1827,14 @@ class UI {
     all.sort((a, b) => KEYS[sortKey](b) - KEYS[sortKey](a) || b.tiles - a.tiles);
     const rankOf = new Map(all.slice().sort((a, b) => b.tiles - a.tiles).map((p, k) => [p.id, k + 1]));
     const allies = all.filter((p) => g.isAllied(my, p.id)).length;
+    // Who each nation is allied with, as colour dots named in the tooltip; you count too.
+    const alliesCell = (p) => {
+      const ids = [...p.allies].filter((id) => g.players[id] && g.players[id].alive);
+      if (!ids.length) return '<td class="c-allies"><span class="st-neutral">—</span></td>';
+      const names = ids.map((id) => (id === my ? 'you' : g.players[id].name));
+      const dots = ids.map((id) => `<span class="dot${id === my ? ' you' : ''}" style="background:${rgbCss(g.players[id].color)}"></span>`).join('');
+      return `<td class="c-allies" title="Allied with ${esc(names.join(', '))}"><span class="ally-dots">${dots}</span><span class="sr">Allied with ${esc(names.join(', '))}</span></td>`;
+    };
     const row = (p) => {
       const mine = p.id === my;
       let acts = '', feel;
@@ -1803,12 +1857,12 @@ class UI {
         <td class="num">${fmtPct(g.landShare(p) * 100)}</td><td class="num">${fmt(p.troops)}</td><td class="num c-pop">${fmt(p.pop)}</td>
         <td class="num c-inc">${inc}</td>
         <td class="num c-b">${p.counts.city}</td><td class="num c-b">${p.counts.harbor}</td><td class="num c-b">${p.counts.factory}</td>
-        <td class="num c-tech">${techs(p)}</td><td class="c-ideo">${ideo}</td><td class="c-feel">${feel}</td>
+        <td class="num c-tech">${techs(p)}</td><td class="c-ideo">${ideo}</td>${alliesCell(p)}<td class="c-feel">${feel}</td>
         <td><div class="dipl-actions">${acts}</div></td></tr>`;
     };
     const head = (key, label, cls = 'num', title = '') => `<th class="${cls}${sortKey === key ? ' on' : ''}"${title ? ` title="${title}"` : ''}><button type="button" data-dsort="${key}">${label}</button></th>`;
     const icon = (key, title) => `<th class="num c-b${sortKey === key ? ' on' : ''}" title="${title}, sorted by count"><button type="button" data-dsort="${key}" aria-label="${title}"><canvas data-bi="${key}" width="40" height="40"></canvas></button></th>`;
-    const thead = `<thead><tr><th class="rk">#</th><th>Nation</th>${head('land', 'Land')}${head('troops', 'Troops')}${head('pop', 'People', 'num c-pop')}${head('income', 'Income/min', 'num c-inc')}${icon('city', 'Cities')}${icon('harbor', 'Harbors')}${icon('factory', 'Factories')}${head('techs', 'Techs', 'num c-tech', 'Technologies known')}<th class="c-ideo">Ideology</th><th class="c-feel">Toward you</th><th></th></tr></thead>`;
+    const thead = `<thead><tr><th class="rk">#</th><th>Nation</th>${head('land', 'Land')}${head('troops', 'Troops')}${head('pop', 'People', 'num c-pop')}${head('income', 'Income/min', 'num c-inc')}${icon('city', 'Cities')}${icon('harbor', 'Harbors')}${icon('factory', 'Factories')}${head('techs', 'Techs', 'num c-tech', 'Technologies known')}<th class="c-ideo">Ideology</th><th class="c-allies" title="Who each nation is allied with">Allies</th><th class="c-feel">Toward you</th><th></th></tr></thead>`;
     const per = this.diplPer || 12;
     const pages = Math.max(1, Math.ceil(all.length / per));
     const page = Math.min(this.diplPage || 0, pages - 1);
