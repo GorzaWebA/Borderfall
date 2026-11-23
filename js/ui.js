@@ -847,7 +847,7 @@ class UI {
     const sp = document.createElement('button');
     sp.type = 'button';
     sp.className = 'bbtn missile space';
-    sp.title = `Space missile: reaches anywhere and passes over air defense while in space; only defenses near its launch or landing can shoot it down. Needs a silo of level ${SPACE_SILO_LEVEL} or more. (key N)`;
+    sp.title = `Space missile: reaches anywhere and passes over air defense while in space; only defenses near its launch or landing can shoot it down. Needs the Spaceflight research and a silo of level ${SPACE_SILO_LEVEL} or more. (key N)`;
     sp.innerHTML = `<span class="hk">N</span><canvas width="60" height="60" style="width:30px;height:30px"></canvas><span class="nm">Space missile</span><span class="cost"></span>`;
     sp.addEventListener('click', () => this.toggleMissile(true));
     builds.appendChild(sp);
@@ -1063,8 +1063,8 @@ class UI {
     this.missileBtn.querySelector('.cost').textContent = me.counts.silo ? fmtMoney(mc) : 'Needs silo';
     this.missileBtn.classList.toggle('poor', !me.counts.silo || me.gold < mc || !g.readySilo(me));
     this.missileBtn.classList.toggle('on', !!(mm && !mm.space));
-    const spaceOk = g.hasSpaceSilo(me);
-    this.spaceBtn.querySelector('.cost').textContent = spaceOk ? fmtMoney(sc) : `Needs level ${SPACE_SILO_LEVEL} silo`;
+    const spaceOk = g.canSpace(me);
+    this.spaceBtn.querySelector('.cost').textContent = spaceOk ? fmtMoney(sc) : !g.hasSpaceTech(me) ? 'Research Spaceflight' : `Needs level ${SPACE_SILO_LEVEL} silo`;
     this.spaceBtn.classList.toggle('poor', !spaceOk || me.gold < sc || !g.readySilo(me, 'space'));
     this.spaceBtn.classList.toggle('on', !!(mm && mm.space));
     const wcost = g.warshipCost(me), wn = g.warshipsOf(this.myId), wcap = g.warshipCap(me);
@@ -1291,6 +1291,7 @@ class UI {
     const m = this.r.mode;
     if (m && m.kind === 'missile' && !!m.space === space) { this.r.mode = null; this.updateHud(true); return; }
     if (!this.me.counts.silo) { this.notice('Build a missile silo first.', true); return; }
+    if (space && !g.hasSpaceTech(this.me)) { this.notice('Space missiles need the Spaceflight research. Open Technology (T) to research it.', true); return; }
     if (space && !g.hasSpaceSilo(this.me)) { this.notice(`Space missiles launch from a silo of level ${SPACE_SILO_LEVEL} or more. Build on top of a silo to stack it.`, true); return; }
     this.r.mode = { kind: 'missile', space };
     this.notice(space ? 'Click a target anywhere. Only air defense near the launch or the landing can stop a space missile.'
@@ -1389,7 +1390,7 @@ class UI {
             act: () => this.cmd('fleet', { tile, ratio: this.ratio }) });
         }
         if (me.counts.silo) {
-          for (const kind of g.hasSpaceSilo(me) ? ['missile', 'space'] : ['missile']) {
+          for (const kind of g.canSpace(me) ? ['missile', 'space'] : ['missile']) {
             const cost = g.missileCost(me, kind), plan = g.missilePlan(me, tile, kind);
             const err = plan.err || (me.gold < cost ? `Needs ${fmtMoney(cost)}.` : '');
             const warn = !err && plan.aa ? `${g.players[plan.aa.owner].name}'s air defense would shoot it down.` : '';
@@ -1616,7 +1617,8 @@ class UI {
       if (b.type === 'silo' || b.type === 'aa') {
         const cap = g.shotsOf(b), next = b.ammo < cap && b.cooldown > 0 ? `, next in ${Math.ceil(b.cooldown / TPS)}s` : '';
         rows.push([b.type === 'silo' ? 'Missiles' : 'Shots', `${b.ammo || 0} of ${cap} loaded${next}`]);
-        rows.push(b.type === 'silo' ? ['Reach', `${g.siloRange(b)} tiles${(b.level || 1) >= SPACE_SILO_LEVEL ? ', and space missiles anywhere' : ''}`] : ['Covers', `${g.aaRadius(b)} tiles around it`]);
+        const owner = g.players[b.owner], space = (b.level || 1) >= SPACE_SILO_LEVEL && (b.owner !== this.myId || g.hasSpaceTech(owner));
+        rows.push(b.type === 'silo' ? ['Reach', `${g.siloRange(b)} tiles${space && b.owner === this.myId ? ', and space missiles anywhere' : ''}`] : ['Covers', `${g.aaRadius(b)} tiles around it`]);
       }
     }
 

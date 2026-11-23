@@ -101,6 +101,7 @@ const AA_RADIUS = 22, AA_RADIUS_STEP = 5;
 // Space missiles: launched from a silo of level 2 or more, they reach anywhere and pass over every
 // air defense while in space; only defenses near the launch or the landing can shoot them down.
 const SPACE_SILO_LEVEL = 2;
+const SPACE_TECH = 'spaceflight';  // the research that unlocks them
 const SPACE_COST_MULT = 3;
 const SPACE_EXPOSED = 0.15;        // share of the flight at each end within reach of air defense
 const BUILDINGS = {
@@ -112,7 +113,7 @@ const BUILDINGS = {
   courthouse: { name: 'Courthouse', base: 1200 * MONEY, step: 700 * MONEY, key: '6', tech: 'bureaucracy', politics: true, desc: 'Administers 350 more tiles and brings land within 34 tiles under full control.' },
   factory: { name: 'Factory', base: 2500 * MONEY, step: 1200 * MONEY, key: '7', tech: 'steam', desc: 'Earns $1.5M/min. Recruiting +15%.' },
   aa: { name: 'Air Defense', base: 2500 * MONEY, step: 1250 * MONEY, key: '8', tech: 'radar', radius: AA_RADIUS, desc: `Shoots down missiles flying at you or your allies within ${AA_RADIUS} tiles (+${AA_RADIUS_STEP} a level). One shot a level; reloads one every 12s.` },
-  silo: { name: 'Missile Silo', base: 5000 * MONEY, step: 2500 * MONEY, key: '9', tech: 'rocketry', desc: `Launches missiles up to ${SILO_RANGE} tiles (+${SILO_RANGE_STEP} a level) that wipe out troops and scorch land. One missile a level; reloads one every 20s. Level ${SPACE_SILO_LEVEL} and up launch space missiles.` },
+  silo: { name: 'Missile Silo', base: 5000 * MONEY, step: 2500 * MONEY, key: '9', tech: 'rocketry', desc: `Launches missiles up to ${SILO_RANGE} tiles (+${SILO_RANGE_STEP} a level) that wipe out troops and scorch land. One missile a level; reloads one every 20s. Once you research Spaceflight, level ${SPACE_SILO_LEVEL} and up launch space missiles.` },
 };
 const BUILD_ORDER = ['city', 'barracks', 'fort', 'harbor', 'university', 'courthouse', 'factory', 'aa', 'silo'];
 
@@ -701,8 +702,12 @@ class Game {
   siloRange(b) { return SILO_RANGE + SILO_RANGE_STEP * ((b.level || 1) - 1); }
   aaRadius(b) { return AA_RADIUS + AA_RADIUS_STEP * ((b.level || 1) - 1); }
   hasSpaceSilo(p) { return p.blds.some((b) => b.alive && b.type === 'silo' && (b.level || 1) >= SPACE_SILO_LEVEL); }
+  // Space missiles need the Spaceflight research and a silo of level 2 or more.
+  hasSpaceTech(p) { return p.techs.has(SPACE_TECH); }
+  canSpace(p) { return this.hasSpaceTech(p) && this.hasSpaceSilo(p); }
   // A silo with a missile loaded, if any.
   readySilo(p, kind) {
+    if (kind === 'space' && !this.hasSpaceTech(p)) return null;
     for (const b of p.blds) if (b.type === 'silo' && b.ammo > 0 && (kind !== 'space' || (b.level || 1) >= SPACE_SILO_LEVEL)) return b;
     return null;
   }
@@ -1825,6 +1830,7 @@ class Game {
     const space = kind === 'space';
     if (!p.counts.silo) return { err: 'Build a missile silo first.' };
     if (t < 0 || t >= this.N) return { err: 'Out of range.' };
+    if (space && !this.hasSpaceTech(p)) return { err: `Research ${TECH_BY_ID[SPACE_TECH].name} to launch space missiles.` };
     if (space && !this.hasSpaceSilo(p)) return { err: `Space missiles need a silo of level ${SPACE_SILO_LEVEL} or more.` };
     const W = this.W, tx = t % W, ty = (t - tx) / W;
     let silo = null, bd = Infinity, inRange = false;
