@@ -10,6 +10,7 @@ const NET_APP_ID = 'borderfall-2026';
 const MM_ROOM = 'matchmaking-v1';
 const NET_MAX_PLAYERS = 8;
 const SPAWN_PHASE_SECONDS = 25;
+const SPAWN_SETTLE_SECONDS = 6;   // left to move once every player has picked a spot
 const AUTO_START_SECONDS = 40;
 const NET_SEND_MS = 200;
 const NET_LOCAL = /[?&]net=local\b/.test(location.search);
@@ -360,10 +361,16 @@ class Net {
     const g = this.game;
     if (!g) return;
     if (!g.started) {
+      const t = performance.now(), dt = Math.min(1, (t - (this.lastFrame || t)) / 1000);
+      this.lastFrame = t;
+      // Computer nations shift their starting spots while players choose.
+      g.placementTick(dt, (this.spawnEnds - t) / 1000);
       const left = Math.max(0, Math.ceil((this.spawnEnds - performance.now()) / 1000));
       this.ui.spawnCountdown(left);
+      // Once everyone has a spot, a few seconds remain to move it.
       const waiting = g.humans().some((h) => !h.spawned);
-      if (left <= 0 || !waiting) g.begin();
+      if (!waiting) this.spawnEnds = Math.min(this.spawnEnds, t + SPAWN_SETTLE_SECONDS * 1000);
+      if (left <= 0) g.begin();
     }
     const now = performance.now();
     if (now - this.lastSend < NET_SEND_MS) return;

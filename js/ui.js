@@ -100,7 +100,7 @@ function warList(g, p, max = 3) {
   return list.join(', ');
 }
 
-const PREFS_VERSION = 2;
+const PREFS_VERSION = 3;   // raised when the default counts of nations and tribes change
 const MODE_PREFS_VERSION = 1;
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem('borderfall.prefs') || '{}') || {}; } catch (e) { return {}; }
@@ -181,7 +181,7 @@ class UI {
     if (P.size) $('opt-size').value = P.size;
     // Counts saved before the defaults were raised are ignored.
     if (P.v === PREFS_VERSION && P.numAI) $('opt-ai').value = P.numAI;
-    else $('opt-ai').value = recommendedRivals($('opt-type').value, $('opt-size').value) || 20;
+    else $('opt-ai').value = recommendedRivals($('opt-type').value, $('opt-size').value) || 30;
     if (P.diff) { const r = document.querySelector(`input[name=diff][value=${P.diff}]`); if (r) r.checked = true; }
     // A mode saved before Blitz became the default is ignored once.
     if (P.mode && MODES[P.mode] && P.modeV === MODE_PREFS_VERSION) { const r = document.querySelector(`input[name=mode][value=${P.mode}]`); if (r) r.checked = true; }
@@ -225,11 +225,11 @@ class UI {
 
     $('opt-ai').addEventListener('input', () => { $('opt-ai-out').textContent = $('opt-ai').value; });
     if (P.v === PREFS_VERSION && P.numTribes !== undefined) $('opt-tribes').value = P.numTribes;
+    else $('opt-tribes').value = recommendedTribes($('opt-type').value, $('opt-size').value) || 24;
     $('opt-tribes-out').textContent = $('opt-tribes').value;
     $('opt-tribes').addEventListener('input', () => { $('opt-tribes-out').textContent = $('opt-tribes').value; });
     $('opt-size').addEventListener('change', () => {
-      const rec = recommendedRivals($('opt-type').value, $('opt-size').value);
-      if (rec) { $('opt-ai').value = rec; $('opt-ai-out').textContent = rec; this.updateWorldSummary(); }
+      this.applyRecommendedCounts();
       this.queuePreview();
     });
     $('opt-type').addEventListener('change', () => {
@@ -237,8 +237,7 @@ class UI {
         this.rollRandomType();
         $('opt-seed').value = String(Math.floor(Math.random() * 900000) + 100000);
       }
-      const rec = recommendedRivals($('opt-type').value, $('opt-size').value);
-      if (rec) { $('opt-ai').value = rec; $('opt-ai-out').textContent = rec; }
+      this.applyRecommendedCounts();
       this.updateMapFields();
       this.queuePreview(0);
     });
@@ -269,6 +268,7 @@ class UI {
     this.initMultiplayer();
     $('setup').addEventListener('submit', (e) => { e.preventDefault(); this.startGame(); });
     $('btn-random-spawn').addEventListener('click', () => this.randomSpawn());
+    $('btn-place-go').addEventListener('click', () => this.finishPlacement());
     this.generatePreview();
     // First visit: offer the tutorials, unless the visitor came to join a friend's lobby.
     if (!tutDone && !welcomed && !new URLSearchParams(location.search).has('join')) this.showTutorials(true);
@@ -532,6 +532,15 @@ class UI {
     return { seed: seedFromInput($('opt-seed').value), type, size: isFixedMap(type) ? 'fixed' : $('opt-size').value };
   }
 
+  // Each map and size suggests how many nations and tribes share it.
+  applyRecommendedCounts() {
+    const type = $('opt-type').value, size = $('opt-size').value;
+    const ai = recommendedRivals(type, size), tribes = recommendedTribes(type, size);
+    if (ai) { $('opt-ai').value = ai; $('opt-ai-out').textContent = ai; }
+    if (tribes !== undefined) { $('opt-tribes').value = tribes; $('opt-tribes-out').textContent = tribes; }
+    this.updateWorldSummary();
+  }
+
   // Fixed maps (real world, competitive) have no size choice; the seed only places rivals.
   updateWorldSummary() {
     const diff = document.querySelector('input[name=diff]:checked').value;
@@ -606,7 +615,7 @@ class UI {
     this.prefs = { ...this.prefs, name, type: $('opt-type').value, size: $('opt-size').value, numAI, numTribes: Number($('opt-tribes').value), diff, mode, modeV: MODE_PREFS_VERSION, color: this.color, v: PREFS_VERSION };
     savePrefs(this.prefs);
     if (this.isClient()) return;
-    const game = new Game(this.map, { difficulty: diff, mode, multiplayer: !!this.net });
+    const game = new Game(this.map, { difficulty: diff, mode, multiplayer: !!this.net, placement: !this.net });
     if (this.net) {
       const humans = this.net.lobby.players.map((p) => ({ name: p.name, color: hexToRgb(p.color), peer: p.id, skin: p.skin }));
       game.setupPlayers({ humans, numAI, numTribes: Number($('opt-tribes').value), difficulty: diff });
@@ -636,7 +645,11 @@ class UI {
     document.querySelector('.speed').hidden = game.multiplayer;
     $('spawn-banner').querySelector('p').textContent = game.multiplayer
       ? 'Pick your starting spot on any unclaimed land.'
-      : 'Click any unclaimed land to found your nation. Rivals are already on the map.';
+      : game.placement ? 'Pick your starting spot. You can move it until the war begins.'
+        : 'Click any unclaimed land to found your nation. Rivals are already on the map.';
+    this.placeLeft = game.placement ? PLACE_SECONDS : 0;
+    this.placeText = '';
+    $('btn-place-go').hidden = true;
     this.speed = 1;
     this.setSpeedButtons();
     this.r.insetLeft = 0;
@@ -687,27 +700,66 @@ class UI {
     if (cand.length) this.spawn(cand[Math.floor(Math.random() * Math.min(8, cand.length))][1]);
   }
 
+  // Found the nation, or, before the war begins, move it.
   spawn(tile) {
-    if (this.me.spawned) return;
+    const g = this.game;
+    if (this.me.spawned && (g.started || this.tutorial)) return;
     if (this.tutorial && !this.tutorial.spawnOk(tile)) { this.notice('Click inside the gold ring.', true); return; }
+    const first = !this.me.spawned;
     const res = this.cmd('spawn', { tile }, true);
-    if (res && res.bad) { this.notice(res.msg, true); return; }
-    if (res) this.onSpawned(tile);
+    if (res && res.bad) { this.notice(first ? res.msg : 'Pick unclaimed land, or your own.', true); return; }
+    if (res && first) this.onSpawned(tile);
   }
 
   // Called once our nation exists (right away offline, or when the host confirms it).
   onSpawned(tile) {
     const g = this.game;
     this.spawnedShown = true;
-    this.r.mode = null;
-    $('hud').hidden = false;
-    $('spawn-banner').hidden = !(g.multiplayer && !g.started);
+    // Until the war begins, clicking the map moves the nation, and the controls stay hidden.
+    this.r.mode = g.started ? null : { kind: 'spawn' };
+    $('hud').hidden = !g.started;
+    $('spawn-banner').hidden = g.started;
     if (tile >= 0) {
       const x = tile % g.W, y = (tile - x) / g.W;
       this.r.centerOn(x + 0.5, y + 0.5, Math.max(this.r.minZoom() * 2.5, 4));
     }
     this.updateHud(true);
     if (this.tutorial) this.tutorial.check();
+  }
+
+  // Single player's placement phase: count down (paused with the game), let the computer
+  // nations shift, and start the war at zero or when the player presses Start now.
+  placementFrame(dt) {
+    const g = this.game;
+    if (!this.isPaused()) {
+      this.placeLeft -= dt / 1000;
+      g.placementTick(dt / 1000, this.placeLeft);
+    }
+    const left = Math.max(0, Math.ceil(this.placeLeft)), placed = this.me.spawned;
+    const text = !placed ? `Pick your starting spot. You can move it until the war begins in ${left}s.`
+      : this.placeLeft > PLACE_SETTLE ? `Click elsewhere to move. Rivals are still choosing their spots. The war begins in ${left}s.`
+        : `Rivals have settled. Click elsewhere to move. The war begins in ${left}s.`;
+    if (text !== this.placeText) {
+      this.placeText = text;
+      $('spawn-banner').querySelector('p').textContent = text;
+      $('btn-place-go').hidden = !placed;
+    }
+    if (this.placeLeft <= 0) this.finishPlacement();
+  }
+
+  finishPlacement() {
+    const g = this.game;
+    if (!g || g.started || g.multiplayer) return;
+    if (!this.me.spawned) this.randomSpawn();
+    g.begin();
+    this.r.mode = null;
+    $('spawn-banner').hidden = true;
+    $('btn-place-go').hidden = true;
+    $('hud').hidden = false;
+    if (!this.spawnedShown) this.onSpawned(this.me.capital);
+    const c = this.me.capital, x = c % g.W, y = (c - x) / g.W;
+    this.r.centerOn(x + 0.5, y + 0.5, Math.max(this.r.cam.zoom, this.r.minZoom() * 2.5, 4));
+    this.updateHud(true);
   }
 
   backToMenu() {
@@ -893,6 +945,15 @@ class UI {
       if (this.keys.has('arrowup') || this.keys.has('w')) dy += sp;
       if (this.keys.has('arrowdown') || this.keys.has('s')) dy -= sp;
       if (dx || dy) this.r.pan(dx, dy);
+    }
+    const g = this.game;
+    if (g && !g.started && g.placement && !this.tutorial) this.placementFrame(dt);
+    // A multiplayer match has begun: clicks no longer move the nation.
+    if (g && g.started && this.spawnedShown && this.r.mode && this.r.mode.kind === 'spawn') {
+      this.r.mode = null;
+      $('spawn-banner').hidden = true;
+      $('hud').hidden = false;
+      this.updateHud(true);
     }
     this.rollNumbers(dt);
     this.hudTimer -= dt;
@@ -1497,7 +1558,10 @@ class UI {
     const { head, rows, o } = this.tileInfo(tile);
     let hint = '';
     const mode = this.r.mode, me = this.me;
-    if (mode && mode.kind === 'spawn') hint = g.canSpawnAt(tile) ? 'Click to found your nation here' : 'Already claimed';
+    if (mode && mode.kind === 'spawn') {
+      hint = !me.spawned ? (g.canSpawnAt(tile) ? 'Click to found your nation here' : 'Already claimed')
+        : o === this.myId ? 'Your starting spot' : g.canSpawnAt(tile) ? 'Click to move your nation here' : 'Already claimed';
+    }
     else if (mode && mode.kind === 'build') hint = g.canBuild(me, mode.type, tile) || `Click to build (${fmtMoney(g.buildCost(me, mode.type))})`;
     else if (mode && mode.kind === 'missile') hint = 'Click to launch';
     else if (me.alive && g.started) {
@@ -2420,7 +2484,7 @@ class UI {
     if (!g || g.started) { if (g && this.spawnedShown) $('spawn-banner').hidden = true; return; }
     $('spawn-banner').hidden = false;
     $('spawn-banner').querySelector('p').textContent = this.me && this.me.spawned
-      ? `Waiting for the other players. The match begins in ${left}s.`
+      ? `Click elsewhere to move your spot. The match begins in ${left}s.`
       : `Pick your starting spot on any unclaimed land. The match begins in ${left}s.`;
   }
 

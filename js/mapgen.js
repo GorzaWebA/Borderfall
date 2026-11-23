@@ -22,10 +22,10 @@ const T_DEF = new Float32Array(TERRAIN.map((t) => t.def || 0));
 const T_VALUE = new Float32Array(TERRAIN.map((t) => t.value || 0));
 
 const MAP_SIZES = {
-  small: { label: 'Small', w: 420, h: 260, ai: 12 },
-  medium: { label: 'Medium', w: 560, h: 350, ai: 20 },
-  large: { label: 'Large', w: 720, h: 450, ai: 30 },
-  huge: { label: 'Huge', w: 960, h: 600, ai: 44 },
+  small: { label: 'Small', w: 420, h: 260, ai: 18, tribes: 16 },
+  medium: { label: 'Medium', w: 560, h: 350, ai: 30, tribes: 24 },
+  large: { label: 'Large', w: 720, h: 450, ai: 45, tribes: 34 },
+  huge: { label: 'Huge', w: 960, h: 600, ai: 66, tribes: 48 },
 };
 
 // Random worlds. Competitive maps are mirrored or rotated copies of one region so
@@ -36,7 +36,7 @@ const MAP_TYPES = {
   archipelago: { label: 'Archipelago', freq: 4.2, warp: 0.25, edge: 0.05, land: 0.34, mount: 0.05, hills: 0.12 },
   highlands: { label: 'Highlands', freq: 2.8, warp: 0.4, edge: 0.06, land: 0.55, mount: 0.11, hills: 0.22 },
   duel: {
-    label: 'Mirror Strait', competitive: true, w: 600, h: 340, seed: 7301, sym: 'x', ai: 11,
+    label: 'Mirror Strait', competitive: true, w: 600, h: 340, seed: 7301, sym: 'x', ai: 17, tribes: 14,
     freq: 3.0, warp: 0.3, edge: 0.06, land: 0.5, mount: 0.07, hills: 0.14,
     desc: 'Two mirrored continents face each other across a strait, joined by a single land bridge.',
     shape(ex, ey) {
@@ -48,7 +48,7 @@ const MAP_TYPES = {
     },
   },
   quad: {
-    label: 'Four Kingdoms', competitive: true, w: 520, h: 520, seed: 9142, sym: 'xy', ai: 15,
+    label: 'Four Kingdoms', competitive: true, w: 520, h: 520, seed: 9142, sym: 'xy', ai: 23, tribes: 16,
     freq: 3.2, warp: 0.3, edge: 0.06, land: 0.48, mount: 0.07, hills: 0.14,
     desc: 'Four identical realms in two pairs, with a contested island in the middle.',
     shape(ex, ey) {
@@ -64,7 +64,7 @@ const MAP_TYPES = {
     },
   },
   ring: {
-    label: 'Ring Sea', competitive: true, w: 540, h: 540, seed: 5520, sym: 'rot6', ai: 17,
+    label: 'Ring Sea', competitive: true, w: 540, h: 540, seed: 5520, sym: 'rot6', ai: 23, tribes: 18,
     freq: 3.4, warp: 0.25, edge: 0.05, land: 0.4, mount: 0.07, hills: 0.13,
     desc: 'A ring of land with six matching sectors around an inner sea and its island.',
     shape(ex, ey) {
@@ -74,7 +74,7 @@ const MAP_TYPES = {
     },
   },
   isthmus: {
-    label: 'Twin Continents', competitive: true, w: 560, h: 420, seed: 3317, sym: 'y', ai: 11,
+    label: 'Twin Continents', competitive: true, w: 560, h: 420, seed: 3317, sym: 'y', ai: 17, tribes: 14,
     freq: 2.8, warp: 0.3, edge: 0.06, land: 0.46, mount: 0.07, hills: 0.14,
     desc: 'North and south mirror each other, joined by one mountainous isthmus.',
     shape(ex, ey) {
@@ -90,14 +90,14 @@ const MAP_TYPES = {
 
 // Real-world maps live in maps/<id>.js and load only when picked.
 const PREMADE_LIST = [
-  { id: 'world', label: 'World', ai: 32 },
-  { id: 'europe', label: 'Europe', ai: 24 },
-  { id: 'africa', label: 'Africa', ai: 22 },
-  { id: 'americas', label: 'The Americas', ai: 24 },
-  { id: 'namerica', label: 'North America', ai: 18 },
-  { id: 'samerica', label: 'South America', ai: 14 },
-  { id: 'oceania', label: 'Oceania', ai: 16 },
-  { id: 'cyprus', label: 'Cyprus', ai: 8 },
+  { id: 'world', label: 'World', ai: 48, tribes: 36 },
+  { id: 'europe', label: 'Europe', ai: 36, tribes: 26 },
+  { id: 'africa', label: 'Africa', ai: 33, tribes: 26 },
+  { id: 'americas', label: 'The Americas', ai: 36, tribes: 28 },
+  { id: 'namerica', label: 'North America', ai: 27, tribes: 22 },
+  { id: 'samerica', label: 'South America', ai: 21, tribes: 18 },
+  { id: 'oceania', label: 'Oceania', ai: 24, tribes: 20 },
+  { id: 'cyprus', label: 'Cyprus', ai: 12, tribes: 8 },
 ];
 const PREMADE = {};
 const MAP_ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -108,12 +108,18 @@ function mapLabel(type) {
   const p = PREMADE_LIST.find((m) => m.id === type);
   return p ? p.label : (MAP_TYPES[type] || MAP_TYPES.continents).label;
 }
-// Default number of rival nations for a map, or for a random world of the given size.
+// Default numbers of rival nations and of tribes for a map, or for a random world of the given size.
 function recommendedRivals(type, size) {
   const p = PREMADE_LIST.find((m) => m.id === type);
   if (p) return p.ai;
   if (MAP_TYPES[type] && MAP_TYPES[type].ai) return MAP_TYPES[type].ai;
   return (MAP_SIZES[size] || MAP_SIZES.medium).ai;
+}
+function recommendedTribes(type, size) {
+  const p = PREMADE_LIST.find((m) => m.id === type);
+  if (p) return p.tribes;
+  if (MAP_TYPES[type] && MAP_TYPES[type].tribes) return MAP_TYPES[type].tribes;
+  return (MAP_SIZES[size] || MAP_SIZES.medium).tribes;
 }
 
 function registerPremadeMap(meta, data) { PREMADE[meta.id] = { meta, data }; }

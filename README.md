@@ -24,7 +24,7 @@ No install, no account. Works on desktop and mobile browsers, in portrait and la
 
 ## Maps
 
-- **Random worlds:** Continents, Pangaea, Archipelago and Highlands, in four sizes up to Huge (576,000 tiles, room for 60 rival nations). Pick **Random** for a new world every game; the seed decides the world, so you can share one.
+- **Random worlds:** Continents, Pangaea, Archipelago and Highlands, in four sizes up to Huge (576,000 tiles, with 66 rival nations and 48 tribes by default). Pick **Random** for a new world every game; the seed decides the world, so you can share one.
 - **Real world:** World, Europe, Africa, The Americas, North America, South America, Oceania and Cyprus. These use real coastlines, with mountains, deserts, forests and tundra where they really are.
 - **Competitive:** maps built from mirrored or rotated copies of one region, so every start has an identical twin.
   - **Mirror Strait:** two continents facing each other across a strait.
@@ -59,6 +59,7 @@ Without online services, all of this is hidden and progress stays in the browser
 
 ## What you do
 
+- **Place.** Each game opens with a 15-second placement countdown. Click to found your nation and click again to move it; rival nations shift their starting spots too, until they settle for the last few seconds. The war begins when the countdown ends (or press **Start now**). In multiplayer, a few seconds remain once every player has picked.
 - **Expand.** Click land to send troops into it (20% of your troops by default). If sending leaves fewer than 15% of your troop limit at home, the troops figure turns red and a warning says so: troops regrow fastest at about 40% of the limit. Settling empty land is steady and cheap, and your border grows toward the spot you click. Dotted lines along the border show every front where you're attacking (brass) or being attacked (red), with the troops fighting there on a tag.
 - **Encircle.** Completely surround a patch of land and it becomes yours, unless it belongs to an ally.
 - **Finish them off.** A nation or tribe beaten down to a small remnant of its former size surrenders: whoever has been taking its land annexes the rest, with its treasury. No hunting down the last few pixels. The same rule applies to you.
@@ -77,7 +78,7 @@ Without online services, all of this is hidden and progress stays in the browser
 
 ## Features
 
-- 3 to 60 AI rivals (20 by default on a medium world) with distinct personalities, each tagged with an icon beside its name: crossed swords for warlords, scales for merchants, a shield for guardians and an eye for opportunists. Three difficulty levels.
+- 3 to 90 AI rivals and up to 60 tribes (30 nations and 24 tribes by default on a medium world; each map and size suggests its own) with distinct personalities, each tagged with an icon beside its name: crossed swords for warlords, scales for merchants, a shield for guardians and an eye for opportunists. Three difficulty levels.
 - Six terrain types that change how fast fronts move, how costly land is, and how much it's worth.
 - A controls lesson and a guided game for your first time.
 - Every screen fits the window without scrolling: Technology, Government, Ideology and Diplomacy are tabs of one frame, How to play is split into pages, and the start screen's options open in cards beside it.

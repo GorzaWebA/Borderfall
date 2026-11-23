@@ -23,6 +23,13 @@ const POP_PER_VALUE = 250;      // people a fully controlled plains tile can fee
 const CITY_POP = 20000;
 const CAPITAL_POP = 10000;
 const SPAWN_RADIUS = 5;
+// The placement phase before a war: players pick (and may move) their starting spots while the
+// computer nations shift theirs now and then, holding still for the last few seconds.
+const PLACE_SECONDS = 15;          // single player
+const PLACE_SETTLE = 4;            // seconds at the end when computer nations no longer move
+const PLACE_MOVES = 2;             // most times one computer nation moves
+const PLACE_MOVE_CHANCE = 0.06;    // chance each second that a computer nation moves
+const PRE_START_COMMANDS = new Set(['spawn', 'research', 'focus', 'science']);
 const WIN_SHARE = 0.7;
 // How a relation reads in a sentence ("They feel wary toward you").
 function relWord(v) { return v >= 40 ? 'friendly' : v >= 10 ? 'warm' : v > -10 ? 'neutral' : v > -40 ? 'wary' : 'hostile'; }
@@ -187,6 +194,8 @@ class Game {
     this.over = null;
     this.coached = false;           // a tutorial: it ends with the lesson, never with a win at 70%
     this.started = false;
+    this.placement = !!settings.placement;   // single player: a countdown to pick and move a starting spot
+    this.placeAcc = 0;
     this.idSeq = 1;
     this.totalHarbors = 0;
     this.bfsStamp = new Uint32Array(this.N);
@@ -343,19 +352,82 @@ class Game {
     p.label = { x: x0 + 0.5, y: y0 + 0.5, size: 3, tile: i };
   }
 
+  // Lift a nation's starting land during the placement phase, so it can be founded elsewhere.
+  // (Not through setOwner, which would count the empty nation as destroyed.)
+  unclaimSpawn(p) {
+    const own = this.owner;
+    for (let t = 0; t < this.N; t++) {
+      if (own[t] !== p.id) continue;
+      own[t] = 0;
+      this.control[t] = 0;
+      this.markDirtyAround(t);
+      if (this.net) this.net.own.push(t, 0);
+    }
+    p.tiles = 0; p.value = 0; p.effValue = 0; p.peakTiles = 0;
+    p.bbox = [1e9, 1e9, -1, -1];
+    p.spawned = false;
+  }
+
   spawnHuman(i) { return this.spawnPlayer(1, i); }
 
   spawnPlayer(pid, i) {
     const p = this.players[pid];
-    if (!p || p.spawned || !this.canSpawnAt(i)) return false;
-    this.claimSpawn(p, i);
-    this.log(`Your nation is founded. Click empty land to expand toward it.`, 'good', pid);
-    if (this.mode.endYear) {
-      this.log(`The game ends in ${this.mode.endYear}, about ${this.mode.minutes} minutes from now. Hold 70% of the land before then, or be the largest nation when it ends.`, 'info', pid);
+    if (!p || i < 0 || i >= this.N || this.isWater(i)) return false;
+    // Until the war begins, a player may move their starting spot.
+    if (p.spawned) {
+      if (this.started || (this.owner[i] && this.owner[i] !== pid)) return false;
+      this.unclaimSpawn(p);
     }
-    if (!this.multiplayer) this.begin();
+    if (!this.canSpawnAt(i)) return false;
+    this.claimSpawn(p, i);
+    if (!p.founded) {
+      p.founded = true;
+      this.log(`Your nation is founded. Click empty land to expand toward it.`, 'good', pid);
+      if (this.mode.endYear) {
+        this.log(`The game ends in ${this.mode.endYear}, about ${this.mode.minutes} minutes from now. Hold 70% of the land before then, or be the largest nation when it ends.`, 'info', pid);
+      }
+    }
+    if (!this.multiplayer && !this.placement) this.begin();
     else { this.scanNeighbors(); this.computeLabels(); }
     return true;
+  }
+
+  // The placement phase, called with the seconds passed and the seconds left: now and then a
+  // computer nation moves its starting spot, as a player in a lobby would, until the last
+  // few seconds.
+  placementTick(dt, left) {
+    if (this.started) return;
+    this.placeAcc += dt;
+    let moved = false;
+    while (this.placeAcc >= 1) {
+      this.placeAcc -= 1;
+      if (left <= PLACE_SETTLE) continue;
+      for (const p of this.players) {
+        if (!p || p.human || p.tribe || !p.alive || !p.spawned || (p.moves || 0) >= PLACE_MOVES) continue;
+        if (this.rng() < PLACE_MOVE_CHANCE && this.relocateNation(p)) { p.moves = (p.moves || 0) + 1; moved = true; }
+      }
+    }
+    if (moved) { this.scanNeighbors(); this.computeLabels(); }
+  }
+
+  // A new starting spot for a computer nation: fertile, unclaimed land clear of the other
+  // nations and of the players.
+  relocateNation(p) {
+    const rng = this.rng, W = this.W, T = this.map.terrain;
+    const others = this.players.filter((q) => q && q !== p && q.spawned && q.alive && !q.tribe).map((q) => [q.label.x, q.label.y]);
+    let minDist = Math.sqrt(this.map.landCount / (others.length + 2)) * 0.75;
+    for (let attempt = 0; attempt < 1500; attempt++) {
+      if (attempt > 0 && attempt % 500 === 0) minDist *= 0.8;
+      const i = rng.int(this.N), t = T[i];
+      if (t <= T_SEA || t === T_MOUNTAIN || this.owner[i]) continue;
+      if (attempt < 1000 && (t === T_TUNDRA || t === T_DESERT)) continue;
+      const x = i % W + 0.5, y = (i - (i % W)) / W + 0.5;
+      if (others.some(([ox, oy]) => (ox - x) * (ox - x) + (oy - y) * (oy - y) < minDist * minDist)) continue;
+      this.unclaimSpawn(p);
+      this.claimSpawn(p, i);
+      return true;
+    }
+    return false;
   }
 
   // Place any human who hasn't picked a spot yet, then start the clock.
@@ -971,6 +1043,7 @@ class Game {
     const p = this.players[pid];
     if (!p) return { msg: 'Unknown player.', bad: true };
     const r = (err, ok) => (err ? { msg: err, bad: true } : { msg: ok || '' });
+    if (!this.started && !PRE_START_COMMANDS.has(name)) return r('The war begins when the countdown ends.');
     switch (name) {
       case 'spawn':
         if (this.started && !this.multiplayer) return r('Already started.');

@@ -120,12 +120,12 @@
             <div class="side-head"><h2 id="world-title">World settings</h2><button type="button" class="ghost" data-side-close="world">Done</button></div>
             <div class="world-body">
               <label class="field">
-                <span>Rival nations <output id="opt-ai-out">20</output></span>
-                <input type="range" id="opt-ai" min="3" max="60" value="20">
+                <span>Rival nations <output id="opt-ai-out">30</output></span>
+                <input type="range" id="opt-ai" min="3" max="90" value="30">
               </label>
               <label class="field">
-                <span>Tribes <output id="opt-tribes-out">16</output></span>
-                <input type="range" id="opt-tribes" min="0" max="40" value="16">
+                <span>Tribes <output id="opt-tribes-out">24</output></span>
+                <input type="range" id="opt-tribes" min="0" max="60" value="24">
               </label>
               <div class="field">
                 <span id="diff-label">Difficulty</span>
@@ -213,8 +213,9 @@
 
   <!-- Spawn phase -->
   <div id="spawn-banner" class="banner" hidden>
-    <p>Click any unclaimed land to found your nation. Rivals are already on the map.</p>
+    <p>Pick your starting spot. You can move it until the war begins.</p>
     <button type="button" id="btn-random-spawn" class="ghost">Pick for me</button>
+    <button type="button" id="btn-place-go" class="primary" hidden>Start now</button>
   </div>
 
   <!-- In-game HUD -->
@@ -321,6 +322,7 @@
         <section>
           <h3>Goal</h3>
           <p>Control 70% of the world's land. If nobody manages that before time runs out (2000 in Realistic, 1700 in Blitz), the largest nation wins. Near the end, the great powers twice propose a general peace: if every player signs, the game ends there and the largest nation wins. If you lose every tile, your nation falls.</p>
+          <p>Each game opens with a 15-second placement countdown. Click to found your nation, and click again to move it as often as you like. Rival nations shift their starting spots too, until they settle for the last few seconds. When the countdown ends the war begins, or press Start now. In multiplayer, a few seconds remain once everyone has picked.</p>
         </section>
         <section>
           <h3>Modes</h3>
