@@ -175,15 +175,16 @@ const GUIDE = {
     },
     {
       title: 'Choose an ideology',
-      text: () => 'Open the Ideology screen (press I, or Government and then its Ideology tab) and choose an ideology. Moderation is the safe choice: small bonuses and no drawbacks. Commerce brings money, Militarism a stronger army, Reason faster research.',
+      optional: true,
+      text: () => 'Your nation starts with Moderation: small bonuses and no drawbacks. Open the Ideology screen (press I, or Government and then its Ideology tab) to choose another; the first change is free. Commerce brings money, Militarism a stronger army, Reason faster research. Or keep Moderation and skip this step.',
       target: () => document.querySelector('#command [data-open="gov"]'),
-      done: (c) => !!c.me.ideology,
+      done: (c) => !c.me.ideologyDefault,
     },
     {
       title: 'Build a harbor',
       optional: true,
       skip: (c) => c.me.coastal === 0,
-      text: () => 'Harbors go on the coast. Each one earns trade from every other harbor in the world and adds two fleets. Watch the merchant ships set sail from it.',
+      text: () => 'Harbors go on the coast. Each one earns trade from every other harbor in the world and adds a fleet. Watch the merchant ships set sail from it.',
       target: () => document.querySelectorAll('#builds .bbtn')[3],
       done: (c) => c.me.counts.harbor >= 1,
     },
@@ -270,7 +271,7 @@ const GUIDE = {
     // Finishing ends the tutorial with a closing screen; you can play on in the same world.
     {
       title: 'Tutorial complete',
-      text: () => 'You have the tools to win: land, money, research, ideology, armies and fleets. The guided game ends here. You can carry on in this world on your own, where the usual rules apply: hold 70% of the land, or be the largest nation when 2000 comes.',
+      text: () => 'You have the tools to win: land, money, research, ideology, armies and fleets. The guided game ends here. You can carry on in this world on your own, where the usual rules apply: hold 70% of the land, with no time limit.',
       actions: [['keep', 'Keep playing on my own', 'ghost'], ['menu', 'Back to the menu', 'primary']],
       stats: true,
       final: true,

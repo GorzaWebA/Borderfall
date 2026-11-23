@@ -59,6 +59,22 @@ const TREATY_AT = [0.8, 0.92];   // shares of the calendar when a general peace 
 const TREATY_SECONDS = 40;        // how long the proposal stays open
 const SHIP_SPEED = 0.2;         // tiles per tick: 2 tiles a second before naval technology
 const LANDING_TICKS = 15;       // a fleet rides at anchor for 1.5s before its troops go ashore
+const FLEET_MAX = 8;            // troop fleets at sea at once: 2, +1 per harbor level, never more than this
+// Warships: bought at a harbor, they sail to a spot and guard it. They sink troop fleets sailing
+// to land on their owner or its allies, and fight the fleets and warships of nations their owner
+// is at war with. One per harbor level, up to WARSHIP_MAX.
+const WARSHIP_MAX = 6;
+const WARSHIP_COST = 3000 * MONEY;     // $6M, and $3M more for each warship afloat
+const WARSHIP_STEP = 1500 * MONEY;
+const WARSHIP_HP = 600;
+const WARSHIP_SPEED = 0.25;            // tiles per tick
+const WARSHIP_RANGE = 10;              // tiles
+const WARSHIP_RELOAD = 12;             // ticks between shots
+const WARSHIP_HULL_DAMAGE = 150;       // to another warship
+const WARSHIP_TROOP_DAMAGE = 700;      // troops lost from a troop fleet per hit
+// Islands: land masses this small count as islands for the fleets that finish off nations.
+const ISLAND_MAX = 600;
+const ISLAND_NATION_MAX = 400;         // a nation left with no more than this, all on islands, is finished off
 const MISSILE_BASE_COST = 4000 * MONEY;
 const MISSILE_R_IN = 6;
 const MISSILE_R_OUT = 12;
@@ -91,7 +107,7 @@ const BUILDINGS = {
   city: { name: 'City', base: 1000 * MONEY, step: 650 * MONEY, key: '1', desc: 'Houses 20K people, earns $600K/min and extends your administration.' },
   barracks: { name: 'Barracks', base: 900 * MONEY, step: 500 * MONEY, key: '2', tech: 'drill', desc: 'Recruiting +25%. 0.5% more of your people can serve.' },
   fort: { name: 'Fortress', base: 700 * MONEY, step: 350 * MONEY, key: '3', radius: 9, desc: 'Land within 9 tiles costs attackers double and falls half as fast.' },
-  harbor: { name: 'Harbor', base: 900 * MONEY, step: 450 * MONEY, key: '4', coastal: true, desc: 'Goes on the nearest coast. Earns trade income from the harbors of every nation that trades with you, double from allies. +2 fleets.' },
+  harbor: { name: 'Harbor', base: 900 * MONEY, step: 450 * MONEY, key: '4', coastal: true, desc: 'Goes on the nearest coast. Earns trade income from the harbors of every nation that trades with you, double from allies. +1 fleet (up to 8) and +1 warship (up to 6).' },
   university: { name: 'University', base: 1100 * MONEY, step: 600 * MONEY, key: '5', tech: 'printing', desc: '+2 research per second.' },
   courthouse: { name: 'Courthouse', base: 1200 * MONEY, step: 700 * MONEY, key: '6', tech: 'bureaucracy', politics: true, desc: 'Administers 350 more tiles and brings land within 34 tiles under full control.' },
   factory: { name: 'Factory', base: 2500 * MONEY, step: 1200 * MONEY, key: '7', tech: 'steam', desc: 'Earns $1.5M/min. Recruiting +15%.' },
@@ -199,6 +215,7 @@ class Game {
     this.allyWarned = new Set();    // alliances whose players were told they end in a minute
     this.attacks = [];
     this.ships = [];
+    this.warships = [];
     this.missiles = [];
     this.effects = [];
     this.tick = 0;
@@ -307,6 +324,12 @@ class Game {
   initPlayer(p) {
     p.mods = defaultMods();
     if (!this.politics) p.mods.mobil += 0.04;
+    // Every nation starts out moderate; the first change of ideology costs nothing.
+    if (!p.tribe) {
+      p.ideology = 'moderation';
+      p.ideologyDefault = true;
+      this.addFx(p, IDEOLOGY_BY_ID.moderation.fx, 1);
+    }
   }
 
   spawnAIs() {
@@ -403,9 +426,7 @@ class Game {
     if (!p.founded) {
       p.founded = true;
       this.log(`Your nation is founded. Click empty land to expand toward it.`, 'good', pid);
-      if (this.mode.endYear) {
-        this.log(`The game ends in ${this.mode.endYear}, about ${this.mode.minutes} minutes from now. Hold 70% of the land before then, or be the largest nation when it ends.`, 'info', pid);
-      }
+      this.log('Hold 70% of the land to win. There is no time limit.', 'info', pid);
     }
     if (!this.multiplayer && !this.placement) this.begin();
     else { this.scanNeighbors(); this.computeLabels(); }
@@ -665,7 +686,10 @@ class Game {
     return (1500 + p.counts.city * 160 + p.counts.courthouse * 600) * this.adminScale * (1 + p.mods.admin);
   }
   landShare(p) { return p.tiles / this.map.landCount; }
-  fleetCap(p) { return 3 + p.counts.harbor * 2 + p.mods.fleetCap; }
+  fleetCap(p) { return Math.min(FLEET_MAX, 2 + p.counts.harbor + p.mods.fleetCap); }
+  warshipCap(p) { return Math.min(WARSHIP_MAX, p.counts.harbor); }
+  warshipsOf(pid) { let n = 0; for (const w of this.warships) if (!w.dead && w.owner === pid) n++; return n; }
+  warshipCost(p) { return nicePrice(WARSHIP_COST + WARSHIP_STEP * this.warshipsOf(p.id)); }
   fleetsOf(pid) { let n = 0; for (const s of this.ships) if (!s.dead && s.owner === pid) n++; return n; }
   missileCost(p, kind) {
     const c = nicePrice(Math.min(MISSILE_BASE_COST + p.missilesLaunched * 400 * MONEY, 9000 * MONEY));
@@ -737,18 +761,19 @@ class Game {
     if (!I) return 'Unknown ideology.';
     if (p.tribe) return 'Tribes have no ideology.';
     if (p.ideology === id) return `${I.name} is already your ideology.`;
-    if (p.ideology && this.time - p.ideologyAt < 60) return 'Your government only just changed. Wait a minute before changing it again.';
-    const prev = p.ideology ? IDEOLOGY_BY_ID[p.ideology] : null;
+    if (p.ideology && !p.ideologyDefault && this.time - p.ideologyAt < 60) return 'Your government only just changed. Wait a minute before changing it again.';
+    const prev = p.ideology ? IDEOLOGY_BY_ID[p.ideology] : null, hadDoctrines = p.doctrines.size > 0;
     if (prev) {
       this.addFx(p, prev.fx, -1);
       for (const key of p.doctrines) this.addFx(p, DOCTRINE_BY_ID[key].fx, -1);
       p.doctrines.clear();
-      if (this.politics) p.shock += IDEOLOGY_CHANGE_SHOCK;
+      if (this.politics && !p.ideologyDefault) p.shock += IDEOLOGY_CHANGE_SHOCK;
     }
+    p.ideologyDefault = false;
     p.ideology = id;
     p.ideologyAt = this.time;
     this.addFx(p, I.fx, 1);
-    if (p.human) this.log(prev ? `Your nation turned from ${prev.name} to ${I.name}. Its old doctrines are gone.` : `Your nation embraced ${I.name}.`, 'good', p.id);
+    if (p.human) this.log(prev ? `Your nation turned from ${prev.name} to ${I.name}.${hadDoctrines ? ' Its old doctrines are gone.' : ''}` : `Your nation embraced ${I.name}.`, 'good', p.id);
     return '';
   }
   adoptDoctrine(pid, key) {
@@ -762,6 +787,7 @@ class Game {
     if (p.gold < cost) return `${d.name} costs ${fmtMoney(cost)}. You have ${fmtMoney(p.gold)}.`;
     p.gold -= cost;
     p.doctrines.add(key);
+    p.ideologyDefault = false;   // buying into it makes the starting ideology a choice
     this.addFx(p, d.fx, 1);
     if (p.human) this.log(`Adopted ${d.name}. ${fxSplit(d.fx).pros.concat(fxSplit(d.fx).cons).join('. ')}.`, 'good', p.id);
     return '';
@@ -843,6 +869,7 @@ class Game {
       else if (a.target === p.id) { this.players[a.attacker].troops += a.troops; a.troops = 0; a.dead = true; }
     }
     for (const s of this.ships) if (s.owner === p.id) s.dead = true;
+    for (const w of this.warships) if (w.owner === p.id) w.dead = true;
     for (const q of this.players) if (q) { q.allies.delete(p.id); this.allyUntil.delete(this.allyKey(p.id, q.id)); }
     p.allies.clear();
     const loot = p.gold;
@@ -1131,7 +1158,7 @@ class Game {
         const err = this.launchNaval(pid, a.tile, amount);
         const o = this.owner[a.tile];
         if (err) return r(err);
-        return { msg: `Fleet sailing to ${o ? this.players[o].name : 'unclaimed land'} with ${fmt(amount)} troops.`, warn: this.lowTroops(p) };
+        return { msg: `Fleet sailing to ${o ? this.players[o].name : 'unclaimed land'} with ${fmt(amount)} troops (${this.fleetsOf(pid)} of ${this.fleetCap(p)} fleets at sea).`, warn: this.lowTroops(p) };
       }
       case 'build': {
         const err = this.build(pid, a.type, a.tile);
@@ -1160,6 +1187,11 @@ class Game {
       case 'unally': this.breakAlliance(pid, a.to); return r('');
       case 'troops': return r(this.sendTroops(pid, a.to, Math.floor(p.troops * (a.ratio || 0.25))));
       case 'gold': return r(this.sendGold(pid, a.to, Math.floor(p.gold * (a.ratio || 0.25))));
+      case 'warship': return r(this.launchWarship(pid, a.tile), 'Warship launched. It will guard that stretch of sea.');
+      case 'warshipmove': return r(this.moveWarship(pid, a.tile), 'Warship under way.');
+      case 'autoislands':
+        p.autoIslands = !!a.on;
+        return r('', a.on ? 'Your fleets will finish off nations left on small islands.' : 'Your fleets will only sail when you send them.');
       case 'trade': {
         const q = this.players[a.to], err = this.setTradeBan(pid, a.to, !!a.stop);
         return r(err, q ? (a.stop ? `You stopped trading with ${q.name}. They resent it.` : `You are trading with ${q.name} again.`) : '');
@@ -1182,6 +1214,219 @@ class Game {
       case 'focus': p.focus = clamp(Number(a.v) || 0, 0, 1); return r('');
       case 'science': p.science = clamp(Number(a.v) || 0, 0, 0.8); return r('');
       default: return r('Unknown command.');
+    }
+  }
+
+  // ---------- warships ----------
+  warshipTile(w) { return w.path ? w.path[Math.min(w.path.length - 1, Math.floor(w.pos))] : w.tile; }
+
+  // A sea route from where a ship is (or from beside one of p's harbors) to the water tile dest:
+  // a breadth-first search back from dest until it reaches a starting tile.
+  seaPathTo(dest, starts) {
+    const W = this.W, H = this.H, st = this.nextStamp(), Q = this.bfsQueue, S = this.bfsStamp, Par = this.bfsParent;
+    if (!this.isWater(dest)) return null;
+    let qh = 0, qt = 0;
+    S[dest] = st; Par[dest] = -1; Q[qt++] = dest;
+    while (qh < qt) {
+      const i = Q[qh++];
+      if (starts.has(i)) {
+        const path = [];
+        for (let c = i; c !== -1; c = Par[c]) path.push(c);
+        return path;
+      }
+      const x = i % W, y = (i - x) / W;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= H) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if ((!dx && !dy) || xx < 0 || xx >= W) continue;
+          const n = yy * W + xx;
+          if (S[n] === st || !this.isWater(n)) continue;
+          S[n] = st; Par[n] = i; Q[qt++] = n;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Water tiles touching p's harbors, where its warships are launched.
+  harborWaters(p) {
+    const W = this.W, H = this.H, out = new Set();
+    for (const b of p.blds) {
+      if (!b.alive || b.type !== 'harbor') continue;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const x = b.x + dx, y = b.y + dy;
+        if (x >= 0 && y >= 0 && x < W && y < H && this.isWater(y * W + x)) out.add(y * W + x);
+      }
+    }
+    return out;
+  }
+
+  launchWarship(pid, dest) {
+    const p = this.players[pid];
+    if (!p.alive) return 'You have no nation.';
+    if (!p.counts.harbor) return 'Warships are launched from a harbor. Build one first.';
+    if (dest < 0 || dest >= this.N || !this.isWater(dest)) return 'Pick a spot at sea.';
+    const cap = this.warshipCap(p);
+    if (this.warshipsOf(pid) >= cap) return `All ${cap} of your warships are at sea${cap < WARSHIP_MAX ? '. Each harbor level allows one more' : ''}.`;
+    const cost = this.warshipCost(p);
+    if (p.gold < cost) return `A warship costs ${fmtMoney(cost)}.`;
+    const path = this.seaPathTo(dest, this.harborWaters(p));
+    if (!path) return 'None of your harbors can reach that stretch of sea.';
+    p.gold -= cost;
+    const w = { id: this.idSeq++, owner: pid, path, pos: 0, hp: WARSHIP_HP, cd: 0, dead: false };
+    this.warships.push(w);
+    return '';
+  }
+
+  // Send the nearest of your warships to a new spot.
+  moveWarship(pid, dest) {
+    if (dest < 0 || dest >= this.N || !this.isWater(dest)) return 'Pick a spot at sea.';
+    const W = this.W, dx0 = dest % W, dy0 = (dest - dx0) / W;
+    const mine = this.warships.filter((w) => !w.dead && w.owner === pid);
+    if (!mine.length) return 'You have no warships.';
+    mine.sort((a, b) => {
+      const ta = this.warshipTile(a), tb = this.warshipTile(b);
+      return Math.hypot(ta % W - dx0, (ta - ta % W) / W - dy0) - Math.hypot(tb % W - dx0, (tb - tb % W) / W - dy0);
+    });
+    for (const w of mine) {
+      const path = this.seaPathTo(dest, new Set([this.warshipTile(w)]));
+      if (path) { w.path = path; w.pos = 0; return ''; }
+    }
+    return 'No warship of yours can reach that stretch of sea.';
+  }
+
+  // Would warships of owner o fire on a fleet of q headed for target?
+  warshipFoe(o, q, target) {
+    if (q === o || this.isAllied(o, q)) return false;
+    if (target !== undefined && target && (target === o || this.isAllied(o, target))) return true;
+    return this.atWar(o, q);
+  }
+
+  stepWarships() {
+    if (!this.warships.length) return;
+    const W = this.W, R2 = WARSHIP_RANGE * WARSHIP_RANGE;
+    for (const w of this.warships) {
+      if (w.dead) continue;
+      if (w.pos < w.path.length - 1) w.pos = Math.min(w.path.length - 1, w.pos + WARSHIP_SPEED);
+      if (w.cd > 0) { w.cd--; continue; }
+      const t = this.warshipTile(w), x = t % W, y = (t - x) / W;
+      let best = null, bd = R2, isShip = false;
+      for (const s of this.ships) {
+        if (s.dead || !this.warshipFoe(w.owner, s.owner, s.target)) continue;
+        const st = s.path[Math.min(s.path.length - 1, Math.floor(s.pos))], sx = st % W, sy = (st - sx) / W;
+        const d = (sx - x) * (sx - x) + (sy - y) * (sy - y);
+        if (d <= bd) { bd = d; best = s; isShip = true; }
+      }
+      for (const v of this.warships) {
+        if (v.dead || v === w || !this.warshipFoe(w.owner, v.owner)) continue;
+        const vt = this.warshipTile(v), vx = vt % W, vy = (vt - vx) / W;
+        const d = (vx - x) * (vx - x) + (vy - y) * (vy - y);
+        if (d < bd) { bd = d; best = v; isShip = false; }
+      }
+      if (!best) continue;
+      w.cd = WARSHIP_RELOAD;
+      const bt = isShip ? best.path[Math.min(best.path.length - 1, Math.floor(best.pos))] : this.warshipTile(best);
+      const fx = { type: 'shot', x1: x + 0.5, y1: y + 0.5, x2: bt % W + 0.5, y2: (bt - bt % W) / W + 0.5 };
+      this.effects.push({ ...fx, at: this.time });
+      if (this.net) this.net.fx.push(fx);
+      const O = this.players[w.owner], T = this.players[best.owner];
+      if (isShip) {
+        const k = Math.min(best.troops, WARSHIP_TROOP_DAMAGE * (1 + O.mods.def * 0.5));
+        best.troops -= k;
+        this.casualties(T, k);
+        if (best.troops < 1) {
+          best.dead = true;
+          if (O.human) this.log(`Your warship sank a fleet from ${T.name}.`, 'good', O.id);
+          if (T.human) this.log(`${O.name}'s warship sank your fleet.`, 'bad', T.id);
+        }
+      } else {
+        best.hp -= WARSHIP_HULL_DAMAGE;
+        if (best.hp <= 0) {
+          best.dead = true;
+          if (O.human) this.log(`Your warship sank a warship of ${T.name}.`, 'good', O.id);
+          if (T.human) this.log(`${O.name} sank one of your warships.`, 'bad', T.id);
+        }
+      }
+    }
+  }
+
+  // ---------- islands ----------
+  // Land masses, labelled once per map, with their sizes.
+  landmasses() {
+    if (this.lmId) return this.lmId;
+    const W = this.W, H = this.H, N = this.N, id = new Int32Array(N).fill(-1), sizes = [];
+    const Q = new Int32Array(N);
+    for (let s = 0; s < N; s++) {
+      if (id[s] >= 0 || this.isWater(s)) continue;
+      const k = sizes.length;
+      let qh = 0, qt = 0;
+      id[s] = k; Q[qt++] = s;
+      while (qh < qt) {
+        const i = Q[qh++], x = i % W;
+        for (const n of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, i - W, i + W]) {
+          if (n < 0 || n >= N || id[n] >= 0 || this.isWater(n)) continue;
+          id[n] = k; Q[qt++] = n;
+        }
+      }
+      sizes.push(qt);
+    }
+    this.lmSize = sizes;
+    this.lmId = id;
+    return id;
+  }
+
+  // Small islands worth sending a fleet to, for p: land of a nation (or tribe) left with only
+  // small islands, or a small island of a nation at war with p. Never an ally's, and never an
+  // island where p already has land (troops can march there).
+  islandTargets(p) {
+    const id = this.landmasses(), sizes = this.lmSize, own = this.owner, W = this.W;
+    const pieces = new Map();     // owner*65536 + landmass -> { owner, lm, tiles, coast }
+    const onSmall = new Map();    // owner -> tiles on small islands
+    const mine = new Set();
+    for (let t = 0; t < this.N; t++) {
+      const o = own[t];
+      if (!o) continue;
+      const lm = id[t];
+      if (o === p.id) { mine.add(lm); continue; }
+      if (sizes[lm] > ISLAND_MAX) continue;
+      onSmall.set(o, (onSmall.get(o) || 0) + 1);
+      const key = o * 65536 + lm;
+      let pc = pieces.get(key);
+      if (!pc) { pc = { owner: o, lm, tiles: 0, coast: -1 }; pieces.set(key, pc); }
+      pc.tiles++;
+      if (pc.coast < 0 && this.map.coast[t]) pc.coast = t;
+    }
+    const out = [];
+    for (const pc of pieces.values()) {
+      const q = this.players[pc.owner];
+      if (!q.alive || this.isAllied(p.id, q.id) || mine.has(pc.lm) || pc.coast < 0) continue;
+      const finished = onSmall.get(q.id) === q.tiles && q.tiles <= ISLAND_NATION_MAX;
+      if (finished || this.atWar(p.id, q.id)) out.push(pc);
+    }
+    return out;
+  }
+
+  // Finish off islands: every few seconds, a fleet sails on its own to the cheapest island
+  // target, with enough troops to take it, if one is free and the troops can be spared.
+  autoIslands(p) {
+    if (!this.started || !p.coastal || this.fleetsOf(p.id) >= this.fleetCap(p)) return;
+    if (p.troops < this.troopCap(p) * LOW_TROOPS) return;
+    const id = this.landmasses(), W = this.W;
+    const busy = new Set(this.ships.filter((s) => !s.dead && s.owner === p.id).map((s) => id[s.landing]));
+    let best = null, bestNeed = Infinity;
+    for (const pc of this.islandTargets(p)) {
+      if (busy.has(pc.lm)) continue;
+      const q = this.players[pc.owner];
+      const density = q.troops / Math.max(1, q.tiles);
+      const need = (this.tileCost(pc.coast, p, q, density) * pc.tiles) * 1.4 + 30;
+      if (need < bestNeed) { bestNeed = need; best = pc; }
+    }
+    if (!best || bestNeed > p.troops * 0.4) return;
+    const q = this.players[best.owner];
+    if (this.launchNaval(p.id, best.coast, Math.ceil(bestNeed)) === '' && p.human) {
+      this.log(`A fleet sails on its own to take ${q.tribe ? 'the' : `${q.name}'s`} island${q.tribe ? ` of ${q.name}` : ''} with ${fmt(Math.ceil(bestNeed))} troops.`, 'info', p.id);
     }
   }
 
@@ -1286,7 +1531,7 @@ class Game {
     if (this.isAllied(aId, tOwner)) return `${this.players[tOwner].name} is your ally.`;
     if (tOwner === 0 && this.fallout[tile]) return 'That land is still scorched.';
     if (A.coastal === 0) return 'You need a coastline to launch a fleet.';
-    if (this.fleetsOf(aId) >= this.fleetCap(A)) return `All ${this.fleetCap(A)} fleets are at sea. Build harbors for more.`;
+    if (this.fleetsOf(aId) >= this.fleetCap(A)) return `All ${this.fleetCap(A)} of your fleets are at sea${this.fleetCap(A) < FLEET_MAX ? '. Each harbor level allows one more' : ''}.`;
     amount = Math.floor(Math.min(amount, A.troops));
     if (amount < 10) return 'Not enough troops to crew a fleet.';
     const landing = this.findLanding(tile, tOwner);
@@ -1709,6 +1954,14 @@ class Game {
       const pi = s.path[Math.min(s.path.length - 1, Math.floor(s.pos))];
       const sx = pi % W, sy = (pi - sx) / W;
       if ((sx - m.tx) ** 2 + (sy - m.ty) ** 2 <= R * R) { s.dead = true; this.casualties(this.players[s.owner], s.troops); }
+    }
+    for (const w of this.warships) {
+      if (w.dead) continue;
+      const t = this.warshipTile(w), wx = t % W, wy = (t - wx) / W;
+      if ((wx - m.tx) ** 2 + (wy - m.ty) ** 2 <= R * R) {
+        w.dead = true;
+        if (this.players[w.owner].human && w.owner !== m.owner) this.log(`A missile from ${this.players[m.owner].name} sank your warship.`, 'bad', w.owner);
+      }
     }
     const hit = [...hits.keys()];
     this.effects.push({ type: 'blast', x: m.tx + 0.5, y: m.ty + 0.5, r: R, at: this.time, hit, by: m.owner });
@@ -2263,9 +2516,9 @@ class Game {
       const p = this.players[k];
       if (!p.alive || !p.spawned) continue;
       if (p.capital < 0 || this.owner[p.capital] !== p.id) this.relocateCapital(p);
-      if (p.human && !p.ideology && !p.ideologyHinted && this.time > 45) {
+      if (p.human && p.ideologyDefault && !p.ideologyHinted && this.time > 60) {
         p.ideologyHinted = true;
-        this.log('Your nation has no ideology yet. Press G or open Government to choose one.', 'info', p.id);
+        this.log('Your nation follows Moderation. Press I to keep it or choose another ideology; the first change is free.', 'info', p.id);
       }
       if (!p.research) {
         const pick = p.ai ? p.ai.pickResearch() : this.autoPickResearch(p);
@@ -2515,7 +2768,9 @@ class Game {
     }
     if (this.attacks.some((a) => a.dead)) this.attacks = this.attacks.filter((a) => !a.dead);
     this.stepShips();
+    this.stepWarships();
     if (this.ships.some((s) => s.dead)) this.ships = this.ships.filter((s) => !s.dead);
+    if (this.warships.some((w) => w.dead)) this.warships = this.warships.filter((w) => !w.dead);
     this.stepMissiles();
     if (this.missiles.some((m) => m.dead)) this.missiles = this.missiles.filter((m) => !m.dead);
     this.stepReloads();
@@ -2525,6 +2780,7 @@ class Game {
     if (this.tick % (TPS * 2) === 5) this.computeLabels();
     if (this.tick % (TPS * 3) === 15) this.annexEnclaves();
     if (this.tick % TPS === 7) this.surrenderRemnants();
+    if (this.tick % (TPS * 3) === 21) for (const p of this.players) if (p && p.alive && p.autoIslands) this.autoIslands(p);
     for (let k = 2; k < this.players.length; k++) {
       const p = this.players[k];
       if (p.alive && p.ai) p.ai.update();

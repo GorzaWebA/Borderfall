@@ -94,6 +94,7 @@ class AIController {
     if (g.tick >= this.nextNaval) this.naval(ratio, neutral);
     this.manageBuildings();
     this.useMissiles();
+    this.manageWarships();
     if (g.tick >= this.nextDiplo) this.diplomacy();
   }
 
@@ -183,10 +184,13 @@ class AIController {
   // Choose an ideology that suits the personality, then buy doctrines with spare money.
   manageIdeology() {
     const g = this.g, p = this.p;
-    if (!p.ideology) {
+    // Every nation starts moderate; a while in, each turns to what suits its personality.
+    if (p.ideologyDefault) {
       if (g.time < this.ideologyAt) return;
       const opts = this.pers.ideologies || ['moderation'];
-      g.setIdeology(p.id, opts[g.rng.int(opts.length)]);
+      const pick = opts[g.rng.int(opts.length)];
+      if (pick === 'moderation') p.ideologyDefault = false;
+      else g.setIdeology(p.id, pick);
       return;
     }
     if (g.rng() > 0.25) return;
@@ -393,6 +397,38 @@ class AIController {
     }
     if (fallback >= 0 && g.rng() < 0.35) this.fire(fallback, 'missile');
     else this.nextMissile = g.tick + 10 * TPS;
+  }
+
+  // A warship or two off our harbors once we have money to spare, more while fleets threaten
+  // us; and an idle warship sent to meet a fleet heading for our coast (or an ally's) if it can
+  // get there before the troops go ashore.
+  manageWarships() {
+    const g = this.g, p = this.p, W = g.W;
+    if (!p.counts.harbor || g.time < 120) return;
+    const incoming = g.ships.filter((s) => !s.dead && s.owner !== p.id && !g.isAllied(p.id, s.owner) && (s.target === p.id || g.isAllied(p.id, s.target)));
+    const mine = g.warships.filter((w) => !w.dead && w.owner === p.id);
+    for (const s of incoming) {
+      if (s.hunted && s.hunted > g.tick) continue;
+      const end = s.path[s.path.length - 1], ex = end % W, ey = (end - ex) / W;
+      const left = (s.path.length - 1 - s.pos) / s.speed + 15;   // ticks until its troops land
+      let best = null, bd = Infinity;
+      for (const w of mine) {
+        if (w.pos < w.path.length - 1) continue;                 // already under way
+        const t = g.warshipTile(w), d = Math.hypot(t % W - ex, (t - t % W) / W - ey);
+        if (d / WARSHIP_SPEED < left + WARSHIP_RANGE / WARSHIP_SPEED && d < bd) { bd = d; best = w; }
+      }
+      if (best && g.isWater(end)) {
+        const path = g.seaPathTo(end, new Set([g.warshipTile(best)]));
+        if (path) { best.path = path; best.pos = 0; s.hunted = g.tick + 10 * TPS; }
+      }
+    }
+    if (g.tick < (this.nextWarship || 0)) return;
+    this.nextWarship = g.tick + (20 + g.rng.int(20)) * TPS;
+    const cap = g.warshipCap(p), want = Math.min(cap, (incoming.length ? 2 : 1) + Math.floor(p.counts.harbor / 3));
+    if (mine.length < want && p.gold > g.warshipCost(p) * (incoming.length ? 1.5 : 3)) {
+      const waters = [...g.harborWaters(p)];
+      if (waters.length) g.launchWarship(p.id, g.rng.pick(waters));
+    }
   }
 
   fire(tile, kind) {

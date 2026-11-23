@@ -1051,6 +1051,14 @@ body:not(.cloud-on) .cloud-only { display: none; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .tab-dipl .dipl-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 0 26px; align-content: start; overflow: hidden; }
 .dipl-table td.nm { white-space: nowrap; }
+.dipl-table tbody tr[data-goto] { cursor: pointer; }
+.dipl-auto { margin: 0 0 8px; font-size: 14px; align-items: flex-start; }
+.dipl-auto input { margin-top: 2px; flex: none; }
+.dipl-auto b { color: var(--paper); }
+.bbtn.warship .cost { color: #a8e0ff; }
+.bbtn.warship.on { border-color: #6fa7c9; background: rgba(110, 170, 235, 0.16); }
+.dipl-table tbody tr[data-goto]:hover td { background: rgba(239, 229, 207, 0.05); }
+.dipl-table tbody tr[data-goto]:hover .go { text-decoration: underline; text-decoration-color: var(--brass); text-underline-offset: 3px; }
 .dipl-table td.nm > span:not(.dot):not(.pi) { display: inline-block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 14px; color: var(--sepia); font-family: var(--font-book); font-style: italic; }
 .pager button { padding: 5px 14px; font-size: 14px; font-style: normal; }

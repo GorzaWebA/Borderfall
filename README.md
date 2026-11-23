@@ -14,13 +14,12 @@ No install, no account. Works on desktop and mobile browsers, in portrait and la
 
 | | Blitz (default) | Realistic |
 | --- | --- | --- |
-| Calendar | 1500 to 1700, one year every 4.5 seconds | 1500 to 2000 |
+| Calendar | From 1500, one year every 4.5 seconds | Same |
 | Buildings | All open from the start, missile silos included | Each unlocks through technology |
 | Technology | Only needs the techs it builds on; makes you stronger | Each tech waits for its year and for the techs it builds on |
 | Politics | None | Stability, administration, occupied land, revolts |
 | Growth | Fast; fronts move quickly | Slower; fronts crawl until railroads and engines |
-| Ending | 70% of the land, a general peace signed near the end, or the largest nation at 1700 | Same, with the time limit at 2000 |
-| Typical length | About 15 minutes | 30–40 minutes |
+| Ending | 70% of the land; no time limit (the clock counts up) | Same |
 
 ## Maps
 
@@ -73,9 +72,12 @@ Without online services, all of this is hidden and progress stays in the browser
 - **Missiles and air defense.** A silo holds one missile per level, reloads them one at a time, and reaches 90 tiles (45 more per level). Air defense shoots down missiles flying at its owner or its owner's allies anywhere inside its circle (22 tiles, 5 more per level), with one shot per level. While you aim a missile or place a silo, the map shows every air defense (red if it would shoot at you, blue for yours and your allies'), your silos' reach, and where along its course a missile would be shot down. A silo of level 2 or more also fires **space missiles** (key N): three times the price, unlimited range, and out of reach of air defense while in space, so only defenses near the launch or the landing can stop one.
 - **Build and stack.** Cities, barracks, fortresses, harbors, universities, courthouses, factories, air defense and missile silos, from the bottom bar or by right-clicking your land, where each comes with its icon and price. In Blitz every building is open from the start; in Realistic most unlock through technology. New buildings take time to go up (a city ten seconds), and you can demolish one for a quarter of its price. Build on top of one of your own buildings of the same type to stack it up to level 5, at once; every level adds its full effect again. A harbor placed inland goes to your nearest coast, and the preview shows where. Roads join your capital, cities, factories and harbors, and turn into railways once you know Railroads.
 - **Trade.** Harbors earn from the harbor of every nation that trades with you. Neighbours that both have a city, factory or harbor are joined by a road or railway across the border, which pays both sides (up to six neighbours). Allies pay double, by sea and across the border. Nations that dislike you or are at war with you refuse your trade, and you can stop trading with any nation yourself: right-click it and choose *Stop trading*, or use Diplomacy. Trade then stops both ways, and they resent it.
-- **Sail.** Click land across the water, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first (faster with naval technology), ride at anchor briefly, then put their troops ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors.
+- **Sail.** Click land across the water, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first (faster with naval technology), ride at anchor briefly, then put their troops ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors. You can have 2 fleets at sea, one more per harbor level, up to 8.
+- **Warships** (key B, or right-click the sea). Bought at a harbor ($6M, more for each one afloat), a warship sails to the spot you pick and stands guard. It sinks troop fleets sailing to land on you or your allies, and fights the fleets and warships of nations at war with you. One warship per harbor level, up to 6; right-click the sea to move the nearest one. Missiles sink warships too.
+- **Finish off islands.** In Diplomacy, tick *Finish off islands* and your fleets sail on their own, with enough troops, to take small islands held by nations that have nothing else left, or by nations at war with you.
+- **Find a nation.** Click a nation in the list at the right, or its row in Diplomacy, to see it on the map.
 - **Strike.** Missiles wipe out troops and scorch land for a while; the screen shakes when one hits you. Air defense can shoot them down.
-- **End the war.** Near the end of the game the great powers twice propose a general peace. If every player signs, the game ends and the largest nation wins; otherwise the war goes on.
+- **Ideology.** Every nation starts with Moderation. Switch whenever you like in the Ideology screen (I); the first change is free.
 - **Negotiate.** Propose alliances, send money to win favor, reinforce allies, or betray them at a cost. Alliances last five minutes and can be renewed in their last two. Icons beside each name show who is allied with you, who is hostile, and who you don't trade with. Hover a nation, or open Diplomacy, to see who it is allied with and who it is at war with: attack a nation and its allies resent it and may come to its defense, and you're warned when that might happen. Diplomacy ranks every nation by land, troops, people, income, buildings and research. Nations remember who attacked them and gang up on whoever grows too big, but they don't pile onto a player already fighting someone else, and nations that feel warm toward you don't land troops on you.
 
 ## Features
@@ -103,6 +105,7 @@ Without online services, all of this is hidden and progress stays in the browser
 | `I` | Open ideology: choose one and buy its doctrines |
 | `M` | Aim a missile |
 | `N` | Aim a space missile |
+| `B` | Send a warship |
 | `Q` / `E` | Lower or raise the share of troops sent per attack |
 | `W` `A` `S` `D` / arrows | Pan the map |
 | `Space` | Pause |

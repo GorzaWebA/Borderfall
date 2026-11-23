@@ -389,6 +389,7 @@ class Net {
       si: g.sites.map((x) => [x.id, x.owner, x.type, x.tile, x.upgrade, x.level, x.left, x.total]),
       ns: N.ships.map((s) => [s.id, s.owner, s.target, s.troops, s.speed, s.landing, s.path]),
       s: g.ships.filter((s) => !s.dead).map((s) => [s.id, Math.round(s.pos * 10) / 10, Math.round(s.troops)]),
+      w: g.warships.filter((w) => !w.dead).map((w) => [w.id, w.owner, g.warshipTile(w), w.hp]),
       nm: N.missiles.map((m) => [m.id, m.owner, m.sx, m.sy, m.tx, m.ty, m.tile, m.dur, m.rOut, m.kind]),
       m: g.missiles.filter((m) => !m.dead).map((m) => [m.id, m.t]),
       fx: N.fx,
@@ -424,8 +425,8 @@ class Net {
           martial: p.martial, boost: p.boost, celebrateReadyAt: p.celebrateReadyAt, missilesLaunched: p.missilesLaunched,
           coastal: p.coastal, mods: p.mods, field: p.field, traitorUntil: p.traitorUntil,
           science: p.science, researchSpend: p.researchSpend, grossIncome: p.grossIncome,
-          ideology: p.ideology, ideologyAt: p.ideologyAt, doctrines: [...p.doctrines], ideoStab: p.ideoStab,
-          pending: p.pending, taxRelief: p.taxRelief, unrest: p.unrest, tradeHarbors: p.tradeHarbors, allyHarbors: p.allyHarbors,
+          ideology: p.ideology, ideologyAt: p.ideologyAt, ideologyDefault: !!p.ideologyDefault, doctrines: [...p.doctrines], ideoStab: p.ideoStab,
+          pending: p.pending, taxRelief: p.taxRelief, unrest: p.unrest, tradeHarbors: p.tradeHarbors, allyHarbors: p.allyHarbors, autoIslands: !!p.autoIslands,
           tradeBan: [...p.tradeBan], bannedBy: g.players.filter((q) => q && q.tradeBan && q.tradeBan.has(p.id)).map((q) => q.id),
           allyLeft: [...p.allies].map((a) => [a, g.allianceLeft(p.id, a)]),
         },
@@ -505,7 +506,10 @@ class Net {
       g.missiles.push({ id, owner, sx, sy, tx, ty, tile, dur, rOut, kind: kind || 'missile', t: 0, dead: false });
     }
     const liveM = new Map(u.m);
+    // Warships: where each one is now (guests draw them there) and its hull.
+    if (u.w) g.warships = u.w.map(([id, owner, tile, hp]) => ({ id, owner, tile, hp, dead: false }));
     for (const fx of u.fx) {
+      if (fx.type === 'shot') { g.effects.push({ ...fx, at: g.time }); continue; }
       if (fx.type === 'blast') g.effects.push({ type: 'blast', x: fx.x, y: fx.y, r: fx.r, at: g.time, hit: fx.hit, by: fx.by });
       else {
         const m = g.missiles.find((x) => x.id === fx.mid);
