@@ -93,6 +93,10 @@
             <span class="mr-k">Online</span>
             <span class="mr-v"><small id="online-summary">Play with friends or strangers</small></span>
           </button>
+          <button type="button" class="menu-row" id="row-account" data-side="account" aria-expanded="false" aria-controls="side-account" hidden>
+            <span class="mr-k">Account</span>
+            <span class="mr-v"><small id="account-summary">Connecting…</small></span>
+          </button>
         </div>
 
         <p id="crowns-note" class="field-note" hidden></p>
@@ -161,6 +165,10 @@
                 <button type="button" class="ghost" id="mp-join">Join</button>
               </div>
               <p id="mp-status" class="field-note" role="status"></p>
+              <div id="mp-games" class="mp-games" hidden>
+                <h3>Open games</h3>
+                <ul id="mp-games-list"></ul>
+              </div>
             </div>
             <section id="lobby" class="lobby" hidden aria-live="polite">
               <div class="lobby-head">
@@ -168,9 +176,25 @@
                 <button type="button" class="ghost" id="mp-copy">Copy invite link</button>
               </div>
               <ul id="lobby-players"></ul>
+              <label class="check" id="mp-list-row" hidden><input type="checkbox" id="mp-list"> Show in open games, so anyone can join</label>
               <p id="lobby-status" class="field-note"></p>
               <button type="button" class="text-btn" id="mp-leave">Leave lobby</button>
             </section>
+          </section>
+
+          <section id="side-account" class="side-card" hidden aria-labelledby="side-account-title">
+            <div class="side-head"><h2 id="side-account-title">Account</h2><button type="button" class="ghost" data-side-close="account">Done</button></div>
+            <p id="acct-status" class="field-note" role="status"></p>
+            <button type="button" class="google-btn" id="acct-google" hidden>
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
+              <span>Sign in with Google</span>
+            </button>
+            <dl class="acct-stats" id="acct-stats" hidden></dl>
+            <div class="mp-row">
+              <button type="button" class="ghost" id="acct-board">Leaderboard</button>
+              <button type="button" class="ghost" id="acct-out" hidden>Sign out</button>
+            </div>
+            <p class="fine" id="acct-note">Your name on the leaderboard is the name of the nation you last played.</p>
           </section>
         </div>
 
@@ -181,6 +205,7 @@
         <button type="button" class="text-btn" id="btn-tutorial">Tutorials</button>
         <button type="button" class="text-btn" id="btn-help">How to play</button>
         <button type="button" class="text-btn" id="btn-shop-link">Shop</button>
+        <button type="button" class="text-btn" id="btn-board-link" hidden>Leaderboard</button>
         <button type="button" class="text-btn" id="btn-fullscreen" hidden>Full screen</button>
       </div>
     </div>
@@ -366,6 +391,11 @@
         <section>
           <h3>Multiplayer</h3>
           <p>Create a lobby and share its 5-letter code or invite link, join a friend's code, or use Quick match to join an open public game. Up to 8 people play together, with computer nations filling the rest. The host's browser runs the match, so the game ends if the host leaves; if anyone else drops out, the computer takes over their nation.</p>
+          <p class="cloud-only">Open games, under Online, lists public matches and any lobby whose host ticked Show in open games; join one with a tap.</p>
+        </section>
+        <section class="cloud-only">
+          <h3>Account and leaderboard</h3>
+          <p>You start as a guest, and your crowns, patterns and results are saved online for that browser. Sign in with Google under Account to keep them on every device; progress you made as a guest is added to your account. Each finished game, or one you leave after three minutes, earns leaderboard points: one for each 1% of the world you held at your peak, four for each nation or tribe you destroy, and 100 for a win, scaled by difficulty and the number of rivals. The leaderboard ranks best game, total points and wins, under the name of the nation you last played.</p>
         </section>
         <section>
           <h3>Shop</h3>
@@ -412,6 +442,8 @@
   <script src="js/render.js"></script>
   <script src="js/net.js"></script>
   <script src="js/tutorial.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/cloud.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>
 </body>
