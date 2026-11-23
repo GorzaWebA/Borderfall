@@ -844,6 +844,14 @@ class UI {
     m.addEventListener('click', () => this.toggleMissile());
     builds.appendChild(m);
     this.missileBtn = m;
+    const sp = document.createElement('button');
+    sp.type = 'button';
+    sp.className = 'bbtn missile space';
+    sp.title = `Space missile: reaches anywhere and passes over air defense while in space; only defenses near its launch or landing can shoot it down. Needs a silo of level ${SPACE_SILO_LEVEL} or more. (key N)`;
+    sp.innerHTML = `<span class="hk">N</span><canvas width="60" height="60" style="width:30px;height:30px"></canvas><span class="nm">Space missile</span><span class="cost"></span>`;
+    sp.addEventListener('click', () => this.toggleMissile(true));
+    builds.appendChild(sp);
+    this.spaceBtn = sp;
     this.drawBuildIcons();
 
     $('fronts').addEventListener('pointerdown', (e) => {
@@ -887,6 +895,9 @@ class UI {
     const c = cv.getContext('2d');
     c.clearRect(0, 0, 60, 60);
     drawBuildingIcon(c, 'missile', 30, 30, 40, [214, 90, 60], false);
+    const sc = this.spaceBtn.querySelector('canvas').getContext('2d');
+    sc.clearRect(0, 0, 60, 60);
+    drawBuildingIcon(sc, 'space', 30, 30, 40, [126, 104, 214], false);
   }
 
   setSpeedButtons() {
@@ -1038,10 +1049,14 @@ class UI {
       const title = unlocked ? `${def.name}: ${def.desc} (key ${def.key})` : `${def.name} (locked): research ${TECH_BY_ID[def.tech].name} to unlock. ${def.desc}`;
       if (b.title !== title) b.title = title;
     }
-    const mc = g.missileCost(me);
+    const mc = g.missileCost(me), sc = g.missileCost(me, 'space'), mm = this.r.mode && this.r.mode.kind === 'missile' ? this.r.mode : null;
     this.missileBtn.querySelector('.cost').textContent = me.counts.silo ? fmtMoney(mc) : 'Needs silo';
     this.missileBtn.classList.toggle('poor', !me.counts.silo || me.gold < mc || !g.readySilo(me));
-    this.missileBtn.classList.toggle('on', !!(this.r.mode && this.r.mode.kind === 'missile'));
+    this.missileBtn.classList.toggle('on', !!(mm && !mm.space));
+    const spaceOk = g.hasSpaceSilo(me);
+    this.spaceBtn.querySelector('.cost').textContent = spaceOk ? fmtMoney(sc) : `Needs level ${SPACE_SILO_LEVEL} silo`;
+    this.spaceBtn.classList.toggle('poor', !spaceOk || me.gold < sc || !g.readySilo(me, 'space'));
+    this.spaceBtn.classList.toggle('on', !!(mm && mm.space));
 
     this.updateBoard();
     this.updateFronts();
@@ -1115,7 +1130,7 @@ class UI {
       const o = g.owner[m.tile];
       const eta = Math.max(0, Math.ceil((m.dur - m.t) / TPS));
       if (o === this.myId && m.owner !== this.myId) {
-        inc.push(`<div class="front in" style="--c:#e0533d"><span class="nm">Missile from ${esc(g.players[m.owner].name)}</span><span class="tr">${eta}s</span><span></span></div>`);
+        inc.push(`<div class="front in" style="--c:#e0533d"><span class="nm">${m.kind === 'space' ? 'Space missile' : 'Missile'} from ${esc(g.players[m.owner].name)}</span><span class="tr">${eta}s</span><span></span></div>`);
       }
     }
     const el = $('fronts');
@@ -1241,13 +1256,18 @@ class UI {
     this.updateHud(true);
   }
 
-  toggleMissile() {
+  // Aim a missile, or a space missile. The map shows air defense coverage and, for missiles, your
+  // silos' reach.
+  toggleMissile(space = false) {
     const g = this.game;
     if (!g || !g.started || !this.me.alive) return;
-    if (this.r.mode && this.r.mode.kind === 'missile') { this.r.mode = null; this.updateHud(true); return; }
+    const m = this.r.mode;
+    if (m && m.kind === 'missile' && !!m.space === space) { this.r.mode = null; this.updateHud(true); return; }
     if (!this.me.counts.silo) { this.notice('Build a missile silo first.', true); return; }
-    this.r.mode = { kind: 'missile' };
-    this.notice('Click a target. Air defenses near it may shoot the missile down.');
+    if (space && !g.hasSpaceSilo(this.me)) { this.notice(`Space missiles launch from a silo of level ${SPACE_SILO_LEVEL} or more. Build on top of a silo to stack it.`, true); return; }
+    this.r.mode = { kind: 'missile', space };
+    this.notice(space ? 'Click a target anywhere. Only air defense near the launch or the landing can stop a space missile.'
+      : 'Click a target within reach of your silos (dashed circles). Red circles are air defense that would shoot it down.');
     this.updateHud(true);
   }
 
@@ -1265,7 +1285,7 @@ class UI {
       return;
     }
     if (mode && mode.kind === 'missile') {
-      const res = this.cmd('missile', { tile });
+      const res = this.cmd('missile', { tile, kind: mode.space ? 'space' : 'missile' });
       if (!(res && res.bad)) this.r.mode = null;
       return;
     }
@@ -1330,10 +1350,13 @@ class UI {
             act: () => this.cmd('fleet', { tile, ratio: this.ratio }) });
         }
         if (me.counts.silo) {
-          const cost = g.missileCost(me);
-          const err = !g.readySilo(me) ? 'Every silo is reloading.' : me.gold < cost ? `Needs ${fmtMoney(cost)}.` : '';
-          items.push({ label: 'Launch missile here', icon: 'missile', cost: fmtMoney(cost), disabled: !!err, title: err, danger: true,
-            act: () => this.cmd('missile', { tile }) });
+          for (const kind of g.hasSpaceSilo(me) ? ['missile', 'space'] : ['missile']) {
+            const cost = g.missileCost(me, kind), plan = g.missilePlan(me, tile, kind);
+            const err = plan.err || (me.gold < cost ? `Needs ${fmtMoney(cost)}.` : '');
+            const warn = !err && plan.aa ? `${g.players[plan.aa.owner].name}'s air defense would shoot it down.` : '';
+            items.push({ label: kind === 'space' ? 'Launch space missile here' : 'Launch missile here', icon: kind, cost: fmtMoney(cost), disabled: !!err, title: err || warn, danger: true,
+              act: () => this.cmd('missile', { tile, kind }) });
+          }
         }
       }
       if (o && o !== my) {
@@ -1390,7 +1413,7 @@ class UI {
       if (it.icon) {
         const cv = document.createElement('canvas');
         cv.width = cv.height = 48;
-        drawBuildingIcon(cv.getContext('2d'), it.icon, 24, 24, 36, it.icon === 'missile' ? [214, 90, 60] : me.color, !!it.disabled);
+        drawBuildingIcon(cv.getContext('2d'), it.icon, 24, 24, 36, it.icon === 'missile' ? [214, 90, 60] : it.icon === 'space' ? [126, 104, 214] : me.color, !!it.disabled);
         b.querySelector('.ci').appendChild(cv);
       }
       b.addEventListener('click', () => { this.closeCtx(); it.act(); this.updateHud(true); });
@@ -1548,7 +1571,15 @@ class UI {
     const bi = g.bldAt[tile];
     const site = this.siteNear(tile);
     if (site) rows.push(['Building', `${site.upgrade >= 0 ? `${BUILDINGS[site.type].name}, upgrading to level ${site.level}` : `${BUILDINGS[site.type].name} under construction`}, ${Math.ceil(site.left / TPS)}s left`]);
-    else if (bi >= 0) { const b = g.buildings[bi]; rows.push(['Building', `${BUILDINGS[b.type].name}${b.level > 1 ? `, level ${b.level}` : ''}`]); }
+    else if (bi >= 0) {
+      const b = g.buildings[bi];
+      rows.push(['Building', `${BUILDINGS[b.type].name}${b.level > 1 ? `, level ${b.level}` : ''}`]);
+      if (b.type === 'silo' || b.type === 'aa') {
+        const cap = g.shotsOf(b), next = b.ammo < cap && b.cooldown > 0 ? `, next in ${Math.ceil(b.cooldown / TPS)}s` : '';
+        rows.push([b.type === 'silo' ? 'Missiles' : 'Shots', `${b.ammo || 0} of ${cap} loaded${next}`]);
+        rows.push(b.type === 'silo' ? ['Reach', `${g.siloRange(b)} tiles${(b.level || 1) >= SPACE_SILO_LEVEL ? ', and space missiles anywhere' : ''}`] : ['Covers', `${g.aaRadius(b)} tiles around it`]);
+      }
+    }
 
     return { head, rows, o };
   }
@@ -1569,7 +1600,10 @@ class UI {
         : o === this.myId ? 'Your starting spot' : g.canSpawnAt(tile) ? 'Click to move your nation here' : 'Already claimed';
     }
     else if (mode && mode.kind === 'build') hint = g.canBuild(me, mode.type, tile) || `Click to build (${fmtMoney(g.buildCost(me, mode.type))})`;
-    else if (mode && mode.kind === 'missile') hint = 'Click to launch';
+    else if (mode && mode.kind === 'missile') {
+      const kind = mode.space ? 'space' : 'missile', plan = g.missilePlan(me, tile, kind);
+      hint = plan.err || (plan.aa ? `${g.players[plan.aa.owner].name}'s air defense would shoot it down` : `Click to launch (${fmtMoney(g.missileCost(me, kind))})`);
+    }
     else if (me.alive && g.started) {
       if (o === this.myId) hint = 'Right-click to build here';
       else if (g.isAllied(this.myId, o)) hint = 'Right-click to reinforce or send money';
@@ -1720,6 +1754,7 @@ class UI {
       if (k === 'e') { this.ratio = Math.min(1, Math.round(this.ratio * 100 + 10) / 100); this.updateRatio(); return; }
       if (k === 'h' && g.started) { const L = this.me.label; this.r.centerOn(L.x, L.y, Math.max(this.r.cam.zoom, 3)); return; }
       if (k === 'm') { this.toggleMissile(); return; }
+      if (k === 'n') { this.toggleMissile(true); return; }
       if (k === 't' && g.started) { this.openNation('tech'); return; }
       if (k === 'g' && g.started) { this.openNation('gov'); return; }
       if (k === 'p' && g.started) { this.openNation('dipl'); return; }

@@ -385,11 +385,11 @@ class Net {
       o: N.own.length ? packPairs(N.own) : '',
       c: N.ctl.length ? packPairs(N.ctl) : '',
       f: N.fo.length ? packPairs(N.fo) : '',
-      b: [...N.bld].map((id) => { const b = g.buildings[id]; return [b.id, b.type, b.tile, b.owner, b.alive ? 1 : 0, b.cooldown, b.level || 1]; }),
+      b: [...N.bld].map((id) => { const b = g.buildings[id]; return [b.id, b.type, b.tile, b.owner, b.alive ? 1 : 0, b.cooldown, b.level || 1, b.ammo || 0]; }),
       si: g.sites.map((x) => [x.id, x.owner, x.type, x.tile, x.upgrade, x.level, x.left, x.total]),
       ns: N.ships.map((s) => [s.id, s.owner, s.target, s.troops, s.speed, s.landing, s.path]),
       s: g.ships.filter((s) => !s.dead).map((s) => [s.id, Math.round(s.pos * 10) / 10, Math.round(s.troops)]),
-      nm: N.missiles.map((m) => [m.id, m.owner, m.sx, m.sy, m.tx, m.ty, m.tile, m.dur, m.rOut]),
+      nm: N.missiles.map((m) => [m.id, m.owner, m.sx, m.sy, m.tx, m.ty, m.tile, m.dur, m.rOut, m.kind]),
       m: g.missiles.filter((m) => !m.dead).map((m) => [m.id, m.t]),
       fx: N.fx,
       fr: null,
@@ -492,7 +492,7 @@ class Net {
     if (u.o) unpackPairs(u.o, (t, o) => { g.owner[t] = o; if (!o) g.control[t] = 0; else if (!g.politics) g.control[t] = 100; g.markDirtyAround(t); });
     if (u.c) unpackPairs(u.c, (t, c) => { g.control[t] = c; g.markDirty(t); });
     if (u.f) unpackPairs(u.f, (t, v) => { g.fallout[t] = v ? FALLOUT_SECONDS : 0; g.markDirty(t); });
-    for (const [id, type, tile, owner, alive, cd, level] of u.b) this.mirrorBuilding(g, id, type, tile, owner, alive, cd, level);
+    for (const [id, type, tile, owner, alive, cd, level, ammo] of u.b) this.mirrorBuilding(g, id, type, tile, owner, alive, cd, level, ammo);
     if (u.si) g.sites = u.si.map(([id, owner, type, tile, upgrade, level, left, total]) => ({ id, owner, type, tile, upgrade, level, left, total }));
     if (u.b.length) g.totalHarbors = g.buildings.reduce((n, b) => n + (b.alive && b.type === 'harbor' ? b.level || 1 : 0), 0);
     for (const [id, owner, target, troops, speed, landing, path] of u.ns) {
@@ -501,8 +501,8 @@ class Net {
     const liveShips = new Map(u.s.map((x) => [x[0], x]));
     g.ships = g.ships.filter((s) => liveShips.has(s.id));
     for (const s of g.ships) { const x = liveShips.get(s.id); s.pos = x[1]; s.troops = x[2]; }
-    for (const [id, owner, sx, sy, tx, ty, tile, dur, rOut] of u.nm) {
-      g.missiles.push({ id, owner, sx, sy, tx, ty, tile, dur, rOut, t: 0, dead: false });
+    for (const [id, owner, sx, sy, tx, ty, tile, dur, rOut, kind] of u.nm) {
+      g.missiles.push({ id, owner, sx, sy, tx, ty, tile, dur, rOut, kind: kind || 'missile', t: 0, dead: false });
     }
     const liveM = new Map(u.m);
     for (const fx of u.fx) {
@@ -551,7 +551,7 @@ class Net {
     this.localTicks = 0;
   }
 
-  mirrorBuilding(g, id, type, tile, owner, alive, cooldown, level = 1) {
+  mirrorBuilding(g, id, type, tile, owner, alive, cooldown, level = 1, ammo = 0) {
     while (g.buildings.length <= id) g.buildings.push({ id: g.buildings.length, alive: false, type: 'city', tile: 0, owner: 0, x: 0, y: 0, cooldown: 0 });
     const b = g.buildings[id];
     const wasAlive = b.alive && b.owner;
@@ -562,7 +562,7 @@ class Net {
       if (k >= 0) po.blds.splice(k, 1);
       if (g.bldAt[b.tile] === id) g.bldAt[b.tile] = -1;
     }
-    Object.assign(b, { id, type, tile, owner, alive: !!alive, cooldown, level, x: tile % g.W, y: Math.floor(tile / g.W) });
+    Object.assign(b, { id, type, tile, owner, alive: !!alive, cooldown, level, ammo, x: tile % g.W, y: Math.floor(tile / g.W) });
     if (b.alive) {
       const pn = g.players[owner];
       pn.counts[type] += level;

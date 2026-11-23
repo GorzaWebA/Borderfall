@@ -357,7 +357,7 @@ class AIController {
     const g = this.g, p = this.p, D = this.diff;
     if (!D.missiles || p.counts.silo === 0 || g.tick < this.nextMissile) return;
     if (p.gold < g.missileCost(p) + 300 * MONEY || !g.readySilo(p)) return;
-    let target = null, bestS = 0;
+    const cands = [];
     for (const q of g.players) {
       if (!q || !q.alive || q.id === p.id || g.isFriendly(p.id, q.id)) continue;
       if (q.human && g.time < D.graceVsHuman * 2) continue;
@@ -368,14 +368,37 @@ class AIController {
       if (g.neighbors[p.id].has(q.id)) s += 0.3;
       s -= g.getRel(p.id, q.id) / 100;
       if (q.human) s *= D.humanBias;
-      if (s > bestS) { bestS = s; target = q; }
+      if (s >= 0.8) cands.push([s, q]);
     }
-    if (!target || bestS < 0.8) return;
-    let tile = target.label.tile;
-    const cities = target.blds.filter((b) => b.type === 'city');
-    if (cities.length && g.rng() < 0.7) tile = g.rng.pick(cities).tile;
-    if (tile < 0 || this.ownTilesNear(tile) > 4) return;
-    if (g.launchMissile(p.id, tile) === '') this.nextMissile = g.tick + (25 + g.rng.int(25)) * TPS;
+    if (!cands.length) { this.nextMissile = g.tick + 10 * TPS; return; }
+    cands.sort((a, b) => b[0] - a[0]);
+    // The best target that can be reached: one of its cities, factories or silos, or its heart.
+    // An ordinary missile if it would get through; a space missile if that would and there's
+    // money for it; otherwise now and then fire anyway, to use up the defenders' shots.
+    const spaceOk = g.hasSpaceSilo(p) && p.gold >= g.missileCost(p, 'space') + 300 * MONEY;
+    let fallback = -1;
+    for (const [, q] of cands.slice(0, 4)) {
+      const tiles = g.rng.shuffle(q.blds.filter((b) => b.alive && (b.type === 'city' || b.type === 'factory' || b.type === 'silo')).map((b) => b.tile)).slice(0, 5);
+      tiles.push(q.label.tile);
+      for (const tile of tiles) {
+        if (tile < 0 || this.ownTilesNear(tile) > 4) continue;
+        const plan = g.missilePlan(p, tile, 'missile');
+        if (!plan.err && !plan.aa) { this.fire(tile, 'missile'); return; }
+        if (spaceOk) {
+          const sp = g.missilePlan(p, tile, 'space');
+          if (!sp.err && !sp.aa) { this.fire(tile, 'space'); return; }
+        }
+        if (!plan.err && fallback < 0) fallback = tile;
+      }
+    }
+    if (fallback >= 0 && g.rng() < 0.35) this.fire(fallback, 'missile');
+    else this.nextMissile = g.tick + 10 * TPS;
+  }
+
+  fire(tile, kind) {
+    const g = this.g;
+    if (g.launchMissile(this.p.id, tile, kind) === '') this.nextMissile = g.tick + (25 + g.rng.int(25)) * TPS;
+    else this.nextMissile = g.tick + 10 * TPS;
   }
 
   diplomacy() {
