@@ -852,6 +852,13 @@ class UI {
     sp.addEventListener('click', () => this.toggleMissile(true));
     builds.appendChild(sp);
     this.spaceBtn = sp;
+    const ws = document.createElement('button');
+    ws.type = 'button';
+    ws.className = 'bbtn warship';
+    ws.innerHTML = `<span class="hk">B</span><canvas width="60" height="60" style="width:30px;height:30px"></canvas><span class="nm">Warship</span><span class="cost"></span>`;
+    ws.addEventListener('click', () => this.toggleWarship());
+    builds.appendChild(ws);
+    this.warshipBtn = ws;
     this.drawBuildIcons();
 
     $('fronts').addEventListener('pointerdown', (e) => {
@@ -898,6 +905,9 @@ class UI {
     const sc = this.spaceBtn.querySelector('canvas').getContext('2d');
     sc.clearRect(0, 0, 60, 60);
     drawBuildingIcon(sc, 'space', 30, 30, 40, [126, 104, 214], false);
+    const wc = this.warshipBtn.querySelector('canvas').getContext('2d');
+    wc.clearRect(0, 0, 60, 60);
+    drawBuildingIcon(wc, 'warship', 30, 30, 40, color, false);
   }
 
   setSpeedButtons() {
@@ -1057,6 +1067,12 @@ class UI {
     this.spaceBtn.querySelector('.cost').textContent = spaceOk ? fmtMoney(sc) : `Needs level ${SPACE_SILO_LEVEL} silo`;
     this.spaceBtn.classList.toggle('poor', !spaceOk || me.gold < sc || !g.readySilo(me, 'space'));
     this.spaceBtn.classList.toggle('on', !!(mm && mm.space));
+    const wcost = g.warshipCost(me), wn = g.warshipsOf(this.myId), wcap = g.warshipCap(me);
+    this.warshipBtn.querySelector('.cost').textContent = !me.counts.harbor ? 'Needs harbor' : wn >= wcap ? `${wn}/${wcap} at sea` : fmtMoney(wcost);
+    this.warshipBtn.classList.toggle('poor', !me.counts.harbor || wn >= wcap || me.gold < wcost);
+    this.warshipBtn.classList.toggle('on', !!(this.r.mode && this.r.mode.kind === 'warship'));
+    const wtitle = `Warship: stands guard where you send it, sinks fleets sailing for you or your allies, and fights nations at war with you. ${wn} of ${wcap} at sea; one per harbor level, up to ${WARSHIP_MAX}. Right-click the sea to move one. (key B)`;
+    if (this.warshipBtn.title !== wtitle) this.warshipBtn.title = wtitle;
 
     this.updateBoard();
     this.updateFronts();
@@ -1256,6 +1272,17 @@ class UI {
     this.updateHud(true);
   }
 
+  // Place a warship: click the sea where it should stand guard.
+  toggleWarship() {
+    const g = this.game;
+    if (!g || !g.started || !this.me.alive) return;
+    if (this.r.mode && this.r.mode.kind === 'warship') { this.r.mode = null; this.updateHud(true); return; }
+    if (!this.me.counts.harbor) { this.notice('Warships are launched from a harbor. Build one first.', true); return; }
+    this.r.mode = { kind: 'warship' };
+    this.notice('Click the sea where the warship should stand guard. It sinks fleets sailing for you or your allies, and fights nations at war with you.');
+    this.updateHud(true);
+  }
+
   // Aim a missile, or a space missile. The map shows air defense coverage and, for missiles, your
   // silos' reach.
   toggleMissile(space = false) {
@@ -1281,6 +1308,11 @@ class UI {
     if (!g.started || !this.me.alive) return;
     if (mode && mode.kind === 'build') {
       const res = this.cmd('build', { type: mode.type, tile });
+      if (!shift && !(res && res.bad)) this.r.mode = null;
+      return;
+    }
+    if (mode && mode.kind === 'warship') {
+      const res = this.cmd('warship', { tile });
       if (!shift && !(res && res.bad)) this.r.mode = null;
       return;
     }
@@ -1319,6 +1351,13 @@ class UI {
         items.push({ label: `Send fleet to ${co ? g.players[co].name : 'unclaimed land'} with ${fmt(amt)} troops`,
           act: () => this.cmd('fleet', { tile: coast, ratio: this.ratio }) });
       }
+      // Warships: a new one to guard this spot, or the nearest of yours moved here.
+      if (me.counts.harbor) {
+        const n = g.warshipsOf(my), cap = g.warshipCap(me), cost = g.warshipCost(me);
+        const err = n >= cap ? `All ${cap} of your warships are at sea.` : me.gold < cost ? `Needs ${fmtMoney(cost)}.` : '';
+        items.push({ label: 'Send a warship to guard here', icon: 'warship', cost: fmtMoney(cost), disabled: !!err, title: err, act: () => this.cmd('warship', { tile }) });
+      }
+      if (g.warshipsOf(my)) items.push({ label: 'Move your nearest warship here', icon: 'warship', act: () => this.cmd('warshipmove', { tile }) });
     }
     if (me.alive && !water) {
       if (o === my) {
@@ -1591,6 +1630,14 @@ class UI {
     if (!g || !this.mouse.inside || !$('ctx').hidden || this.modalOpen) { tt.hidden = true; return; }
     const tile = this.r.screenToTile(this.mouse.x, this.mouse.y);
     this.r.hoverTile = tile;
+    if (tile >= 0 && g.isWater(tile) && this.r.mode && this.r.mode.kind === 'warship') {
+      const me = this.me, n = g.warshipsOf(this.myId), cap = g.warshipCap(me), cost = g.warshipCost(me);
+      const hint = n >= cap ? `All ${cap} of your warships are at sea` : me.gold < cost ? `A warship costs ${fmtMoney(cost)}` : `Click to send a warship here (${fmtMoney(cost)})`;
+      tt.innerHTML = `<div class="tt-head"><span class="tt-name">Open sea</span></div><div class="tt-hint">${esc(hint)}</div>`;
+      tt.hidden = false;
+      this.placeTooltip(this.mouse.x, this.mouse.y);
+      return;
+    }
     if (tile < 0 || g.isWater(tile)) { tt.hidden = true; return; }
     const { head, rows, o } = this.tileInfo(tile);
     let hint = '';
@@ -1613,10 +1660,14 @@ class UI {
     }
     tt.innerHTML = `<div class="tt-head">${head}</div>${rows.map(([k, v]) => `<div class="tt-row"><span>${k}</span><b>${v}</b></div>`).join('')}${hint ? `<div class="tt-hint">${esc(hint)}</div>` : ''}`;
     tt.hidden = false;
-    const w = tt.offsetWidth, h = tt.offsetHeight;
-    let x = this.mouse.x + 18, y = this.mouse.y + 18;
-    if (x + w > window.innerWidth - 8) x = this.mouse.x - w - 12;
-    if (y + h > window.innerHeight - 8) y = this.mouse.y - h - 12;
+    this.placeTooltip(this.mouse.x, this.mouse.y);
+  }
+
+  placeTooltip(mx, my) {
+    const tt = $('tooltip'), w = tt.offsetWidth, h = tt.offsetHeight;
+    let x = mx + 18, y = my + 18;
+    if (x + w > window.innerWidth - 8) x = mx - w - 12;
+    if (y + h > window.innerHeight - 8) y = my - h - 12;
     tt.style.left = `${x}px`;
     tt.style.top = `${y}px`;
   }
@@ -1755,6 +1806,7 @@ class UI {
       if (k === 'h' && g.started) { const L = this.me.label; this.r.centerOn(L.x, L.y, Math.max(this.r.cam.zoom, 3)); return; }
       if (k === 'm') { this.toggleMissile(); return; }
       if (k === 'n') { this.toggleMissile(true); return; }
+      if (k === 'b') { this.toggleWarship(); return; }
       if (k === 't' && g.started) { this.openNation('tech'); return; }
       if (k === 'g' && g.started) { this.openNation('gov'); return; }
       if (k === 'p' && g.started) { this.openNation('dipl'); return; }
@@ -1883,6 +1935,20 @@ class UI {
       this.nationMsg = res ? res.msg : 'Order sent.';
       this.nationMsgBad = !!(res && res.bad);
       this.renderNation();
+      return;
+    }
+    if (e.target.matches && e.target.matches('input[data-auto="islands"]')) {
+      const res = this.cmd('autoislands', { on: e.target.checked }, true);
+      this.nationMsg = res ? res.msg : (e.target.checked ? 'Your fleets will finish off nations left on small islands.' : 'Your fleets will only sail when you send them.');
+      this.nationMsgBad = false;
+      this.renderNation();
+      return;
+    }
+    // A nation's name takes you to it on the map.
+    const go = e.target.closest('[data-goto]');
+    if (go && !e.target.closest('button')) {
+      const p = this.game.players[Number(go.dataset.goto)];
+      if (p && p.alive) { this.closeModal(); this.r.centerOn(p.label.x, p.label.y, Math.max(this.r.cam.zoom, 2.5)); }
       return;
     }
     const dip = e.target.closest('[data-dip]');
@@ -2141,8 +2207,8 @@ class UI {
       }
       const ideo = p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : '<span class="st-neutral">None</span>';
       const inc = p.grossIncome ? fmtMoney(nicePrice(p.grossIncome * 60)) : '—';
-      return `<tr class="${mine ? 'me' : ''}"><td class="rk">${rankOf.get(p.id)}</td>
-        <td class="nm"><span class="dot" style="background:${rgbCss(p.color)}"></span><span>${esc(p.name)}</span>${persTag(p)}${stanceTags(g, my, p)}</td>
+      return `<tr class="${mine ? 'me' : ''}" data-goto="${p.id}" title="Click to see ${esc(p.name)} on the map"><td class="rk">${rankOf.get(p.id)}</td>
+        <td class="nm"><span class="dot" style="background:${rgbCss(p.color)}"></span><span class="go">${esc(p.name)}</span>${persTag(p)}${stanceTags(g, my, p)}</td>
         <td class="num">${fmtPct(g.landShare(p) * 100)}</td><td class="num">${fmt(p.troops)}</td><td class="num c-pop">${fmt(p.pop)}</td>
         <td class="num c-inc">${inc}</td>
         <td class="num c-b">${p.counts.city}</td><td class="num c-b">${p.counts.harbor}</td><td class="num c-b">${p.counts.factory}</td>
@@ -2165,7 +2231,10 @@ class UI {
     const refusing = all.filter((p) => p.id !== my && g.refusesTrade(p, me) && !me.tradeBan.has(p.id)).length;
     const stopped = me.tradeBan.size;
     const lede = `${all.length - 1} other ${all.length === 2 ? 'nation remains' : 'nations remain'}${allies ? `, ${allies} allied with you` : ''}${refusing ? `, ${refusing} refusing to trade with you` : ''}${stopped ? `, ${stopped} you stopped trading with` : ''}. Alliances last five minutes and can be renewed in their last two. Nations that dislike you, or are at war with you, refuse your trade; allies pay double. Click a column to sort.`;
-    return `<p class="dipl-progress">${esc(lede)}</p><div class="dipl-cols"><table class="dipl-table board-table">${thead}<tbody>${slice.map(row).join('')}</tbody></table></div>${pager}`;
+    // Finish off islands: fleets sail on their own to take small islands of beaten nations.
+    const targets = me.alive ? g.islandTargets(me).length : 0;
+    const auto = `<label class="check dipl-auto"><input type="checkbox" data-auto="islands"${me.autoIslands ? ' checked' : ''}> <span><b>Finish off islands.</b> Your fleets sail on their own to take small islands held by nations that have nothing else left, or by nations at war with you${me.autoIslands || targets ? ` (${targets ? `${targets} ${targets === 1 ? 'island' : 'islands'} to take now` : 'none right now'})` : ''}.</span></label>`;
+    return `<p class="dipl-progress">${esc(lede)}</p>${auto}<div class="dipl-cols"><table class="dipl-table board-table">${thead}<tbody>${slice.map(row).join('')}</tbody></table></div>${pager}`;
   }
 
   // Government: stability, administration and policies (Realistic only), and national priority.
@@ -2220,7 +2289,7 @@ class UI {
         `<button type="button" class="ghost" data-ideo="${I.id}"${since < 60 ? ' disabled' : ''}>Switch to ${esc(I.name)}</button>`)).join('');
       return `<section class="ideo">
         <div class="ideo-bar">
-          <p class="ideo-lede">Changing from ${esc(cur.name)} loses every doctrine you've bought${g.politics ? ` and costs ${IDEOLOGY_CHANGE_SHOCK} stability for a while` : ''}.${since < 60 ? ` You can change again in ${Math.ceil(60 - since)}s.` : ''}</p>
+          <p class="ideo-lede">${me.ideologyDefault ? `Every nation starts with ${esc(cur.name)}, so this first change is free.` : `Changing from ${esc(cur.name)} loses every doctrine you've bought${g.politics ? ` and costs ${IDEOLOGY_CHANGE_SHOCK} stability for a while` : ''}.${since < 60 ? ` You can change again in ${Math.ceil(60 - since)}s.` : ''}`}</p>
           <button type="button" class="ghost" data-ideo-change="0">Keep ${esc(cur.name)}</button>
         </div>
         <div class="ideo-grid">${others}</div>
@@ -2279,7 +2348,7 @@ class UI {
       </section>
       <section class="gov-card">
         ${this.priorityHtml()}
-        <p class="fine">The age ends in ${g.mode.endYear}. If nobody holds 70% of the land by then, the largest nation wins.</p>
+        <p class="fine">Hold 70% of the land to win. There is no time limit.</p>
       </section>
     </div>`;
   }
@@ -2327,7 +2396,7 @@ class UI {
   showTutorials(first) {
     const seen = () => { try { localStorage.setItem('borderfall.welcomed', '1'); } catch (e) { /* storage unavailable */ } };
     this.openModal(`<h2 id="modal-title">${first ? 'Welcome to Borderfall' : 'Tutorials'}</h2>
-      <p class="result-lede">${first ? 'A real-time conquest game from 1500 to 2000. New here? Two short steps get you playing.' : 'Learn the controls, or play a whole match with an advisor beside you.'}</p>
+      <p class="result-lede">${first ? 'A real-time conquest game that starts in 1500. New here? Two short steps get you playing.' : 'Learn the controls, or play a whole match with an advisor beside you.'}</p>
       <ol class="tut-choices">
         <li><button type="button" data-act="lesson"><b>The controls</b><span>About three minutes on a practice island: moving the map, taking land, building, sailing and the big screens.</span></button></li>
         <li><button type="button" data-act="guide"><b>A guided game</b><span>A whole match with an advisor beside you for most of it, until you take over and conquer the world yourself.</span></button></li>

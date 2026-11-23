@@ -33,8 +33,8 @@
         <div class="field">
           <span id="mode-label">Mode</span>
           <div class="modes" role="radiogroup" aria-labelledby="mode-label">
-            <label><input type="radio" name="mode" value="blitz" checked><span><b>Blitz</b><small>A fast war, about 15 minutes</small></span></label>
-            <label><input type="radio" name="mode" value="realistic"><span><b>Realistic</b><small>1500 to 2000, about 37 minutes</small></span></label>
+            <label><input type="radio" name="mode" value="blitz" checked><span><b>Blitz</b><small>A fast war, every building open</small></span></label>
+            <label><input type="radio" name="mode" value="realistic"><span><b>Realistic</b><small>Technology arrives year by year</small></span></label>
           </div>
           <p id="mode-desc" class="field-note"></p>
         </div>
@@ -321,12 +321,12 @@
       <div class="help-page" data-page="basics" data-title="The basics">
         <section>
           <h3>Goal</h3>
-          <p>Control 70% of the world's land. If nobody manages that before time runs out (2000 in Realistic, 1700 in Blitz), the largest nation wins. Near the end, the great powers twice propose a general peace: if every player signs, the game ends there and the largest nation wins. If you lose every tile, your nation falls.</p>
+          <p>Control 70% of the world's land. There is no time limit: the clock at the top right counts up from the start of the war. If you lose every tile, your nation falls.</p>
           <p>Each game opens with a 15-second placement countdown. Click to found your nation, and click again to move it as often as you like. Rival nations shift their starting spots too, until they settle for the last few seconds. When the countdown ends the war begins, or press Start now. In multiplayer, a few seconds remain once everyone has picked.</p>
         </section>
         <section>
           <h3>Modes</h3>
-          <p><b>Blitz</b>, the default, is a fast war of about 15 minutes, from 1500 to 1700. Every building can be built from the start, missile silos included, research only makes you stronger, fronts move quickly, and there's no stability or revolts. <b>Realistic</b> runs from 1500 to 2000, about 37 minutes at normal speed. Each technology and the building it unlocks waits for its year, and you have to keep your nation stable. The command bar at the top right shows how long is left.</p>
+          <p><b>Blitz</b>, the default, is a fast war. Every building can be built from the start, missile silos included, research only makes you stronger, fronts move quickly, and there's no stability or revolts. <b>Realistic</b> starts in 1500, with a year every 4.5 seconds at normal speed. Each technology and the building it unlocks waits for its year, and you have to keep your nation stable.</p>
         </section>
         <section>
           <h3>Maps</h3>
@@ -340,7 +340,8 @@
       <div class="help-page" data-page="war" data-title="Land and war">
         <section>
           <h3>Taking land</h3>
-          <p>Click land to send the share of troops set on the <b>Attack</b> slider. Settling empty land is quick, and your border grows toward the spot you click. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first, faster with naval technology, and ride at anchor briefly before their troops go ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors.</p>
+          <p>Click land to send the share of troops set on the <b>Attack</b> slider. Settling empty land is quick, and your border grows toward the spot you click. Unclaimed land is cheap. Enemy land costs troops based on how densely they hold it, the terrain, and nearby fortresses. Click land across water and a fleet sails there instead, or right-click near any coast and choose Send fleet. Fleets sail about two tiles a second at first, faster with naval technology, and ride at anchor briefly before their troops go ashore. War fleets fly their nation's colours and leave a wake; the small brown ships are merchants trading between harbors. You can have 2 fleets at sea, one more per harbor level, up to 8.</p>
+          <p><b>Warships</b> (B, or right-click the sea) are bought at a harbor and stand guard where you send them. They sink fleets sailing to land on you or your allies, and fight the fleets and warships of nations at war with you. You can have one per harbor level, up to 6; right-click the sea to move the nearest one. In Diplomacy, <b>Finish off islands</b> sends fleets on their own to take small islands held by nations that have nothing else left, or by nations at war with you.</p>
           <p>Troops at home defend you. Troops sent out don't, so don't empty your barracks while a neighbor is watching. Troops regrow fastest at about 40% of your limit and slowly when almost none are left, so clicking again and again drains your army. If an attack leaves fewer than 15% at home, the troops figure turns red and a warning says so.</p>
         </section>
         <section>
@@ -376,7 +377,7 @@
         </section>
         <section>
           <h3>Ideology</h3>
-          <p>Press I, or open Government and its Ideology tab, to choose an ideology: Crown, Commerce, Militarism, Reason, Frontier, or Moderation, the balanced one with small bonuses and no drawbacks. Each has strengths and weaknesses. Every ideology has a tree of six doctrines you buy with money: the first opens two branches, and the last needs both. Changing ideology loses your doctrines and, in Realistic, shakes your stability.</p>
+          <p>Every nation starts with Moderation, the balanced ideology with small bonuses and no drawbacks. Press I, or open Government and its Ideology tab, to switch to Crown, Commerce, Militarism, Reason or Frontier; the first change is free. Each has strengths and weaknesses. Every ideology has a tree of six doctrines you buy with money: the first opens two branches, and the last needs both. Changing ideology loses your doctrines and, in Realistic, shakes your stability.</p>
           <p>Government also holds your national priority: lean toward the army and troops refill faster, toward the economy and money comes in faster.</p>
         </section>
         <section>
@@ -422,6 +423,7 @@
             <dt>I</dt><dd>Open ideology</dd>
             <dt>M</dt><dd>Aim a missile</dd>
             <dt>N</dt><dd>Aim a space missile</dd>
+            <dt>B</dt><dd>Send a warship</dd>
             <dt>Q / E</dt><dd>Lower or raise the attack share</dd>
             <dt>Space</dt><dd>Pause</dd>
             <dt>H</dt><dd>Jump to your nation</dd>

@@ -6,7 +6,7 @@ const START_YEAR = 1500;
 const MODES = {
   realistic: {
     label: 'Realistic',
-    secPerYear: 4.5,      // 1500 to 2000 takes about 37 minutes at 1x
+    secPerYear: 4.5,      // a year every 4.5 seconds: 2000 comes after about 37 minutes at 1x
     timeGate: true,       // technologies wait for their year
     politics: true,       // stability, control, administration, revolts
     popGrowth: 0.02,
@@ -15,13 +15,12 @@ const MODES = {
     defense: 1.7,
     attrition: 0.018,     // share of an offensive lost to supply each second
     absorb: 0.22,         // share of a conquered region's people who join the conqueror
-    endYear: 2000,        // if nobody holds 70% by then, the largest nation wins
-    minutes: 37,
+    endYear: 0,           // no time limit: the game goes on until someone holds 70% of the land
     desc: 'Technologies open up as the years pass. Grow your population, keep your people loyal and hold on to what you conquer.',
   },
   blitz: {
     label: 'Blitz',
-    secPerYear: 4.5,      // 1500 to 1700 takes 15 minutes at 1x
+    secPerYear: 4.5,
     timeGate: false,
     politics: false,
     openBuildings: true,  // every building, missile silos included, can be built from the start
@@ -31,8 +30,7 @@ const MODES = {
     defense: 1.45,
     attrition: 0.012,
     absorb: 0.3,
-    endYear: 1700,
-    minutes: 15,
+    endYear: 0,
     desc: 'A fast war. Every building can be built from the start, missile silos included, and research makes you stronger. No stability or revolts, and fronts move quickly.',
   },
 };

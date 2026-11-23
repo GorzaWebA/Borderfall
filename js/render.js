@@ -29,6 +29,15 @@ const SHIP_ART = {
     '.HHHHHHHHH.',
     '..hhhhhhh..',
   ],
+  warship: [
+    '.....FF....',
+    '.....M.....',
+    '...gggg....',
+    '..ggMggmmm.',
+    'HHHHHHHHHHH',
+    '.GGGGGGGGG.',
+    '..ggggggg..',
+  ],
   trade: [
     '....M....',
     '..ttMt...',
@@ -342,6 +351,7 @@ class Renderer {
     this.drawSites(ox, oy, z);
     this.drawCapitals(ox, oy, z);
     this.drawShips(ox, oy, z, alpha);
+    this.drawWarships(ox, oy, z, alpha);
     this.drawPopups(ox, oy, z, now);
     this.drawMissiles(ox, oy, z, alpha);
     this.drawEffects(ox, oy, z);
@@ -724,7 +734,7 @@ class Renderer {
     const shade = (k) => rgbCss(color.map((v) => Math.round(v * k)));
     const pal = {
       F: rgbCss(color), H: shade(0.82), h: shade(0.56), S: PAPER, M: '#2a2018',
-      t: '#d8c08a', W: '#7c5434', w: '#553822',
+      t: '#d8c08a', W: '#7c5434', w: '#553822', G: '#7d838b', g: '#5b6068', m: '#3a3d42',
     };
     cv = document.createElement('canvas');
     cv.width = w + 2; cv.height = h + 2;
@@ -796,6 +806,40 @@ class Renderer {
         ctx.strokeText(label, sx, top - 2);
         ctx.fillStyle = INK;
         ctx.fillText(label, sx, top - 2);
+      }
+    }
+  }
+
+  // Warships: grey hulls with a gun and their nation's flag and hull band, a damage bar once hit,
+  // and, while you're placing one, how far yours reach.
+  drawWarships(ox, oy, z, alpha) {
+    const ctx = this.ctx, g = this.game, u = this.shipUnit(z);
+    if (!g.warships || !g.warships.length) return;
+    const showRange = this.mode && this.mode.kind === 'warship';
+    for (const w of g.warships) {
+      if (w.dead) continue;
+      let wx, wy, dx = 0;
+      if (w.path) [wx, wy, dx] = this.pathPoint(w.path, Math.min(w.path.length - 1, w.pos + (w.pos < w.path.length - 1 ? alpha * WARSHIP_SPEED : 0)));
+      else { wx = w.tile % this.map.W + 0.5; wy = Math.floor(w.tile / this.map.W) + 0.5; if (w.lastX !== undefined) dx = wx - w.lastX; w.lastX = wx; }
+      const sx = ox + wx * z, sy = oy + wy * z;
+      if (showRange && w.owner === this.myId) {
+        ctx.beginPath();
+        ctx.arc(sx, sy, WARSHIP_RANGE * z, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(168,224,255,0.7)';
+        ctx.setLineDash([5, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (!this.visible(sx, sy, 60)) continue;
+      if (dx) w.face = dx < 0 ? -1 : 1;
+      const top = this.blitShip('warship', g.players[w.owner].color, w.face === -1, sx, sy, u);
+      if (w.hp < WARSHIP_HP) {
+        const bw = Math.max(16, u * 10), f = clamp(w.hp / WARSHIP_HP, 0, 1);
+        ctx.fillStyle = 'rgba(20,14,10,0.85)';
+        ctx.fillRect(sx - bw / 2 - 1, top - 6, bw + 2, 4);
+        ctx.fillStyle = f > 0.5 ? '#8fd18a' : f > 0.25 ? '#e6c779' : '#e0533d';
+        ctx.fillRect(sx - bw / 2, top - 5, bw * f, 2);
       }
     }
   }
@@ -1012,6 +1056,23 @@ class Renderer {
         ctx.strokeStyle = `rgba(255,230,190,${0.5 * fadeOut})`;
         ctx.lineWidth = 2;
         ctx.stroke();
+      } else if (e.type === 'shot') {
+        // A warship's shot: a bright streak, then a splash where it lands.
+        const f = clamp(age / 0.35, 0, 1);
+        if (age > 0.6) continue;
+        const x1 = ox + e.x1 * z, y1 = oy + e.y1 * z, x2 = ox + e.x2 * z, y2 = oy + e.y2 * z;
+        ctx.beginPath();
+        ctx.moveTo(lerp(x1, x2, Math.max(0, f - 0.4)), lerp(y1, y2, Math.max(0, f - 0.4)));
+        ctx.lineTo(lerp(x1, x2, f), lerp(y1, y2, f));
+        ctx.strokeStyle = `rgba(255,236,190,${0.9 * (1 - age / 0.6)})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        if (f >= 1) {
+          ctx.beginPath();
+          ctx.arc(x2, y2, 3 + (age - 0.35) * 30, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(226,240,246,${Math.max(0, 0.9 - (age - 0.35) * 3.5)})`;
+          ctx.stroke();
+        }
       } else if (e.type === 'intercept') {
         const fadeOut = clamp(1 - age / 1.2, 0, 1);
         if (fadeOut <= 0) continue;
@@ -1219,6 +1280,18 @@ class Renderer {
       ctx.globalAlpha = 0.85;
       drawBuildingIcon(ctx, mode.type, sx, sy, clamp(z * 3, 14, 120), err ? [150, 60, 50] : me.color, false, 1, false);
       ctx.globalAlpha = 1;
+    } else if (mode.kind === 'warship') {
+      const ok = g.isWater(t);
+      ctx.beginPath();
+      ctx.arc(sx, sy, WARSHIP_RANGE * z, 0, Math.PI * 2);
+      ctx.fillStyle = ok ? 'rgba(168,224,255,0.1)' : 'rgba(224,83,61,0.08)';
+      ctx.fill();
+      ctx.strokeStyle = ok ? 'rgba(168,224,255,0.85)' : 'rgba(224,83,61,0.6)';
+      ctx.setLineDash([5, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (ok) { ctx.globalAlpha = 0.8; this.blitShip('warship', g.players[this.myId].color, false, sx, sy, this.shipUnit(z)); ctx.globalAlpha = 1; }
     } else if (mode.kind === 'missile') {
       const plan = this.plan;
       // The course from the silo that would fire, and where it would be shot down.
@@ -1370,6 +1443,17 @@ function drawGlyph(ctx, type, u) {
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(0.55 * u, -0.77 * u, 0.15 * u, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'warship':
+      // A grey warship's hull with a gun turret.
+      polyPath(ctx, u, [-1.05, 0.15, 1.05, 0.15, 0.78, 0.62, -0.78, 0.62]);
+      ctx.fill();
+      polyPath(ctx, u, [-0.42, 0.15, -0.42, -0.28, 0.28, -0.28, 0.28, 0.15]);
+      ctx.fill();
+      polyPath(ctx, u, [0.28, -0.16, 0.9, -0.22, 0.9, -0.1, 0.28, -0.04]);
+      ctx.fill();
+      polyPath(ctx, u, [-0.12, -0.28, -0.12, -0.85, -0.02, -0.85, -0.02, -0.28]);
       ctx.fill();
       break;
     case 'silo':
