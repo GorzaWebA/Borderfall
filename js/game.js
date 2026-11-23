@@ -8,6 +8,14 @@ const NEUTRAL_COST = 3;         // troops per plains tile of unclaimed land
 const NEUTRAL_SPEED = 0.75;     // settling is steady, so troops last instead of vanishing in a burst
 const MAX_LEVEL = 5;            // buildings stack up to this level
 const BLD_EARN = { city: 5, factory: 12.5 };  // earnings per level, before the income multiplier
+// Trade: harbors earn from every foreign harbor that trades with them, and neighbours that both
+// have a city, factory or harbor are joined by a road or railway across the border that pays
+// both. Allies pay double.
+const HARBOR_PARTNER_EARN = 0.8;   // per foreign harbor, up to 12 (and as much again for up to 8 allied ones)
+const RAIL_LINK_EARN = 1.5;        // per neighbour linked across the border, up to RAIL_LINK_MAX
+const RAIL_LINK_MAX = 6;
+const TRADE_BAN_RESENTMENT = 20;   // how much a nation's opinion of you drops when you stop trading with it
+const HARBOR_SNAP = 25;            // a harbor placed inland goes to the nearest coast within this many tiles
 const RP_PRICE = 4000;          // dollars of research budget per research point
 const TECH_KNOWN_COST = 0.065;  // each known technology raises the cost of the next by 6.5%
 const TRIBE_NAMES = ['Ash Clan', 'Bramble Folk', 'Cinder Kin', 'Dune Riders', 'Elk Clan', 'Fen Dwellers', 'Grey Wolves',
@@ -72,7 +80,7 @@ const BUILDINGS = {
   city: { name: 'City', base: 1000 * MONEY, step: 650 * MONEY, key: '1', desc: 'Houses 20K people, earns $600K/min and extends your administration.' },
   barracks: { name: 'Barracks', base: 900 * MONEY, step: 500 * MONEY, key: '2', tech: 'drill', desc: 'Recruiting +25%. 0.5% more of your people can serve.' },
   fort: { name: 'Fortress', base: 700 * MONEY, step: 350 * MONEY, key: '3', radius: 9, desc: 'Land within 9 tiles costs attackers double and falls half as fast.' },
-  harbor: { name: 'Harbor', base: 900 * MONEY, step: 450 * MONEY, key: '4', coastal: true, desc: 'Coast only. Earns trade income from the harbors of every nation that will trade with you. +2 fleets.' },
+  harbor: { name: 'Harbor', base: 900 * MONEY, step: 450 * MONEY, key: '4', coastal: true, desc: 'Goes on the nearest coast. Earns trade income from the harbors of every nation that trades with you, double from allies. +2 fleets.' },
   university: { name: 'University', base: 1100 * MONEY, step: 600 * MONEY, key: '5', tech: 'printing', desc: '+2 research per second.' },
   courthouse: { name: 'Courthouse', base: 1200 * MONEY, step: 700 * MONEY, key: '6', tech: 'bureaucracy', politics: true, desc: 'Administers 350 more tiles and brings land within 34 tiles under full control.' },
   factory: { name: 'Factory', base: 2500 * MONEY, step: 1200 * MONEY, key: '7', tech: 'steam', desc: 'Earns $1.5M/min. Recruiting +15%.' },
@@ -145,6 +153,9 @@ class Player {
     this.unrest = -1;               // the tile where unrest is worst, if a revolt is brewing
     this.taxRelief = false;
     this.tradeHarbors = 0;          // harbors of nations that trade with this one
+    this.allyHarbors = 0;           // ...of which allied
+    this.railLinks = [];            // neighbours joined to this one by road or rail across the border
+    this.tradeBan = new Set();      // nations this one has stopped trading with
     this.peer = null;              // multiplayer peer id for remote humans
     this.tribe = false;
     this.science = 0.2;            // share of income spent on research
@@ -544,40 +555,81 @@ class Game {
     return MONEY * (0.4 + 1.2 * p.focus) * (1 + p.mods.gold) * this.stabFactor(p) * (p.martial ? 0.75 : 1) *
       (p.taxRelief ? TAX_RELIEF_INCOME : 1) * (p.diffMult || 1) * (p.tribe ? TRIBE_INCOME : 1);
   }
-  // A harbor earns a little on its own and more for every foreign harbor that will trade with it.
+  // A harbor earns a little on its own and more for every foreign harbor that trades with it;
+  // allied harbors pay double.
   harborEarn(p) {
-    return (3 + 0.8 * Math.min(12, p.tradeHarbors || 0)) * (1 + p.mods.trade);
+    return (3 + HARBOR_PARTNER_EARN * (Math.min(12, p.tradeHarbors || 0) + Math.min(8, p.allyHarbors || 0))) * (1 + p.mods.trade);
   }
+  // Roads and railways across the border to trading neighbours; allies pay double.
+  railEarn(p) {
+    const links = p.railLinks || [];
+    if (!links.length) return 0;
+    const allied = links.filter((id) => this.isAllied(p.id, id)).length;
+    return RAIL_LINK_EARN * (Math.min(RAIL_LINK_MAX, links.length) + Math.min(RAIL_LINK_MAX, allied)) * (1 + p.mods.trade);
+  }
+  hasStation(p) { return p.counts.city + p.counts.factory + p.counts.harbor > 0; }
   // At war: either side has an offensive running against the other.
   atWar(a, b) {
     for (const x of this.attacks) if (!x.dead && ((x.attacker === a && x.target === b) || (x.attacker === b && x.target === a))) return true;
     return false;
   }
-  // Nations that are hostile toward you, or at war with you, close their harbors to your ships.
+  // Nations that have stopped trading with you, that are hostile toward you, or that are at war
+  // with you, refuse your trade. Allies always trade unless one of them stops it.
   refusesTrade(q, p) {
-    if (!q || !p || q === p || q.tribe || this.isAllied(q.id, p.id)) return false;
+    if (!q || !p || q === p || q.tribe) return false;
+    if (q.tradeBan && q.tradeBan.has(p.id)) return true;
+    if (this.isAllied(q.id, p.id)) return false;
     return this.getRel(q.id, p.id) <= -20 || this.atWar(q.id, p.id);
   }
-  // Once a second: which harbors each nation can trade with.
+  // Trade needs both sides willing.
+  trades(p, q) { return !this.refusesTrade(q, p) && !this.refusesTrade(p, q); }
+
+  // Stop (or resume) trading with a nation, by sea and across the border. It resents it.
+  setTradeBan(pid, to, on) {
+    const p = this.players[pid], q = this.players[to];
+    if (!q || !q.alive || q === p || q.tribe) return 'Not possible.';
+    if (on === p.tradeBan.has(to)) return '';
+    if (on) {
+      p.tradeBan.add(to);
+      this.addRel(to, pid, -TRADE_BAN_RESENTMENT);
+      if (q.human) this.log(`${p.name} stopped trading with you.`, 'bad', to, null, { alert: 'embargo', who: pid });
+    } else {
+      p.tradeBan.delete(to);
+      if (q.human) this.log(`${p.name} is trading with you again.`, 'good', to);
+    }
+    this.updateTrade();
+    return '';
+  }
+
+  // Once a second: which harbors each nation trades with, and which neighbours it is linked to
+  // across the border.
   updateTrade() {
     for (const p of this.players) {
-      if (!p || !p.alive || !p.counts.harbor) { if (p) p.tradeHarbors = 0; continue; }
-      let n = 0;
-      // Players hear when a trading partner closes its harbors to them; those already closed
-      // when they build their first harbor are noted quietly.
+      if (!p) continue;
+      p.tradeHarbors = 0; p.allyHarbors = 0; p.railLinks = [];
+      if (!p.alive || p.tribe) continue;
+      const nb = this.neighbors[p.id], station = this.hasStation(p);
+      // Players hear when a partner stops trading with them; refusals that were already there
+      // when the game began are noted quietly.
       const first = p.human && !p.embargoes;
       if (first) p.embargoes = new Set();
       for (const q of this.players) {
-        if (!q || !q.alive || q === p || !q.counts.harbor) continue;
-        const shut = this.refusesTrade(q, p);
-        if (!shut) n += q.counts.harbor;
+        if (!q || !q.alive || q === p || q.tribe) continue;
+        const ok = this.trades(p, q);
+        if (ok && p.counts.harbor && q.counts.harbor) {
+          p.tradeHarbors += q.counts.harbor;
+          if (this.isAllied(p.id, q.id)) p.allyHarbors += q.counts.harbor;
+        }
+        if (ok && station && nb && nb.has(q.id) && this.hasStation(q)) p.railLinks.push(q.id);
         if (!p.human) continue;
+        // Only their refusal is news; a ban of your own you already know about.
+        const shut = this.refusesTrade(q, p) && !(q.tradeBan && q.tradeBan.has(p.id));
         if (shut && !p.embargoes.has(q.id)) {
           p.embargoes.add(q.id);
-          if (!first) this.log(`${q.name} closed its harbors to your trade.${this.atWar(q.id, p.id) ? ' You are at war.' : ''}`, 'bad', p.id, null, { alert: 'embargo', who: q.id });
+          const partner = (p.counts.harbor && q.counts.harbor) || (nb && nb.has(q.id));
+          if (!first && partner) this.log(`${q.name} stopped trading with you.${this.atWar(q.id, p.id) ? ' You are at war.' : ''}`, 'bad', p.id, null, { alert: 'embargo', who: q.id });
         } else if (!shut) p.embargoes.delete(q.id);
       }
-      p.tradeHarbors = n;
     }
   }
   // What one building brings in, in dollars per second.
@@ -1060,7 +1112,7 @@ class Game {
         const err = this.build(pid, a.type, a.tile);
         if (err || !BUILDINGS[a.type]) return r(err);
         const lb = this.lastBuild, name = BUILDINGS[a.type].name;
-        return r('', lb.upgraded ? `Upgrading the ${name.toLowerCase()} to level ${lb.level}: ready in ${lb.seconds}s.` : `${name} under construction: ready in ${lb.seconds}s.`);
+        return r('', lb.upgraded ? `${name} upgraded to level ${lb.level}.` : `${name} under construction: ready in ${lb.seconds}s.`);
       }
       case 'demolish': {
         const err = this.demolish(pid, a.tile);
@@ -1080,6 +1132,10 @@ class Game {
       case 'unally': this.breakAlliance(pid, a.to); return r('');
       case 'troops': return r(this.sendTroops(pid, a.to, Math.floor(p.troops * (a.ratio || 0.25))));
       case 'gold': return r(this.sendGold(pid, a.to, Math.floor(p.gold * (a.ratio || 0.25))));
+      case 'trade': {
+        const q = this.players[a.to], err = this.setTradeBan(pid, a.to, !!a.stop);
+        return r(err, q ? (a.stop ? `You stopped trading with ${q.name}. They resent it.` : `You are trading with ${q.name} again.`) : '');
+      }
       case 'respond': this.respondRequest(a.id, !!a.accept, pid); return r('');
       case 'research': {
         const err = this.setResearch(pid, a.id);
@@ -1280,9 +1336,43 @@ class Game {
     return best;
   }
 
+  // Where a building clicked at t would go: a harbor placed inland goes to the nearest stretch of
+  // your own coast.
+  placeTile(p, type, t) {
+    const def = BUILDINGS[type];
+    if (!def || !def.coastal || t < 0 || t >= this.N || this.stackTarget(p, type, t)) return t;
+    const coast = this.map.coast, own = this.owner;
+    if (own[t] === p.id && coast[t] && this.spacingOk(t)) return t;
+    const W = this.W, H = this.H, x0 = t % W, y0 = (t - x0) / W, R = HARBOR_SNAP;
+    let best = -1, bd = Infinity;
+    for (let y = Math.max(0, y0 - R); y <= Math.min(H - 1, y0 + R); y++) {
+      for (let x = Math.max(0, x0 - R); x <= Math.min(W - 1, x0 + R); x++) {
+        const i = y * W + x;
+        if (own[i] !== p.id || !coast[i]) continue;
+        const d = (x - x0) * (x - x0) + (y - y0) * (y - y0);
+        if (d < bd && d <= R * R && (this.spacingOk(i) || this.stackTarget(p, type, i))) { bd = d; best = i; }
+      }
+    }
+    return best >= 0 ? best : t;
+  }
+  // No building or construction site too close.
+  spacingOk(t) {
+    const W = this.W, H = this.H, x0 = t % W, y0 = (t - x0) / W, r = BUILD_SPACING;
+    for (let y = Math.max(0, y0 - r); y <= Math.min(H - 1, y0 + r); y++) {
+      for (let x = Math.max(0, x0 - r); x <= Math.min(W - 1, x0 + r); x++) {
+        if (this.bldAt[y * W + x] >= 0) return false;
+      }
+    }
+    for (const x of this.sites) {
+      if (x.upgrade < 0 && Math.max(Math.abs(x.tile % W - x0), Math.abs(Math.floor(x.tile / W) - y0)) <= r) return false;
+    }
+    return true;
+  }
+
   canBuild(p, type, t, ignoreGold) {
     const def = BUILDINGS[type];
     if (!def || !this.buildingAvailable(type)) return 'Unknown building.';
+    t = this.placeTile(p, type, t);
     if (!this.buildingUnlocked(p, type)) return `Research ${TECH_BY_ID[def.tech].name} first.`;
     const stack = this.stackTarget(p, type, t);
     if (stack) {
@@ -1291,35 +1381,35 @@ class Game {
       if (!ignoreGold && p.gold < this.buildCost(p, type)) return `Needs ${fmtMoney(this.buildCost(p, type))}.`;
       return '';
     }
+    if (def.coastal && (t < 0 || t >= this.N || this.owner[t] !== p.id || !this.map.coast[t])) return 'No coast of yours nearby.';
     if (t < 0 || t >= this.N || this.owner[t] !== p.id) return 'Build on your own land.';
-    if (def.coastal && !this.map.coast[t]) return 'Harbors must touch the sea.';
-    const W = this.W, H = this.H, x0 = t % W, y0 = (t - x0) / W, r = BUILD_SPACING;
-    for (let y = Math.max(0, y0 - r); y <= Math.min(H - 1, y0 + r); y++) {
-      for (let x = Math.max(0, x0 - r); x <= Math.min(W - 1, x0 + r); x++) {
-        if (this.bldAt[y * W + x] >= 0) return 'Too close to another building.';
-      }
-    }
-    for (const x of this.sites) {
-      if (x.upgrade < 0 && Math.max(Math.abs(x.tile % W - x0), Math.abs(Math.floor(x.tile / W) - y0)) <= r) return 'Too close to another building.';
-    }
+    if (!this.spacingOk(t)) return 'Too close to another building.';
     if (!ignoreGold && p.gold < this.buildCost(p, type)) return `Needs ${fmtMoney(this.buildCost(p, type))}.`;
     return '';
   }
 
-  // Building starts a construction site, paid for up front; it starts working when it's finished.
+  // A new building starts a construction site, paid for up front, and starts working when it's
+  // finished. Stacking another level onto a building of yours takes effect at once.
   build(pid, type, t) {
     const p = this.players[pid];
     const err = this.canBuild(p, type, t);
     if (err) return err;
+    t = this.placeTile(p, type, t);
     const cost = this.buildCost(p, type);
     p.gold -= cost;
     const stack = this.stackTarget(p, type, t);
-    const level = stack ? stack.level + 1 : 1;
-    const total = Math.round(BUILD_SECONDS[type] * (1 + 0.25 * (level - 1)) * TPS);
-    const site = { id: this.idSeq++, owner: pid, type, tile: stack ? stack.tile : t, upgrade: stack ? stack.id : -1, level, left: total, total, cost };
+    if (stack) {
+      const site = { id: this.idSeq++, owner: pid, type, tile: stack.tile, upgrade: stack.id, level: stack.level + 1, left: 0, total: 0, cost };
+      p.pending[type]++;
+      this.finishSite(site);
+      this.lastBuild = { upgraded: true, level: site.level, seconds: 0, tile: stack.tile };
+      return '';
+    }
+    const total = Math.round(BUILD_SECONDS[type] * TPS);
+    const site = { id: this.idSeq++, owner: pid, type, tile: t, upgrade: -1, level: 1, left: total, total, cost };
     this.sites.push(site);
     p.pending[type]++;
-    this.lastBuild = { upgraded: !!stack, level, seconds: Math.round(total / TPS) };
+    this.lastBuild = { upgraded: false, level: 1, seconds: Math.round(total / TPS), tile: t };
     return '';
   }
 
@@ -2008,7 +2098,7 @@ class Game {
       // Workers pay taxes; cities, harbors and factories add their own earnings.
       const workers = Math.max(0, p.pop - p.troops - p.field);
       const inc = (3 + workers * 0.0002 + p.counts.city * BLD_EARN.city + p.counts.harbor * this.harborEarn(p) +
-        p.counts.factory * BLD_EARN.factory) * this.incomeMult(p);
+        p.counts.factory * BLD_EARN.factory + this.railEarn(p)) * this.incomeMult(p);
       // Research is funded from income; nothing is spent while there's nothing to research.
       const spend = p.research ? inc * p.science : 0;
       p.gold += (inc - spend) * dt;

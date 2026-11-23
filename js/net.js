@@ -397,7 +397,7 @@ class Net {
       p: g.players.slice(1).map((p) => [p.id, p.alive ? 1 : 0, p.spawned ? 1 : 0, Math.round(p.troops), p.tiles, Math.round(p.pop),
         Math.round(p.label.x * 10) / 10, Math.round(p.label.y * 10) / 10, Math.round(p.label.size * 10) / 10, p.label.tile, p.capital,
         [...p.allies], p.human ? 1 : 0, p.peakTiles, p.kills, p.tribe ? Math.round(p.gold) : 0, p.ideology || '',
-        p.ai && p.ai.pers ? p.ai.pers.key : '', Math.round(p.grossIncome || 0), p.techs.size, p.techs.has('railroad') ? 1 : 0]),
+        p.ai && p.ai.pers ? p.ai.pers.key : '', Math.round(p.grossIncome || 0), p.techs.size, p.techs.has('railroad') ? 1 : 0, p.railLinks || []]),
       // Nations that appeared mid-game (breakaway rebels), so guests can draw and list them.
       xp: g.players.length > this.startCount ? g.players.slice(this.startCount).map((p) => this.playerInfo(p)) : null,
       tr: g.treaty && g.treaty.open ? [g.treaty.id, g.treaty.closesAt, [...g.treaty.votes]] : null,
@@ -425,7 +425,8 @@ class Net {
           coastal: p.coastal, mods: p.mods, field: p.field, traitorUntil: p.traitorUntil,
           science: p.science, researchSpend: p.researchSpend, grossIncome: p.grossIncome,
           ideology: p.ideology, ideologyAt: p.ideologyAt, doctrines: [...p.doctrines], ideoStab: p.ideoStab,
-          pending: p.pending, taxRelief: p.taxRelief, unrest: p.unrest, tradeHarbors: p.tradeHarbors,
+          pending: p.pending, taxRelief: p.taxRelief, unrest: p.unrest, tradeHarbors: p.tradeHarbors, allyHarbors: p.allyHarbors,
+          tradeBan: [...p.tradeBan], bannedBy: g.players.filter((q) => q && q.tradeBan && q.tradeBan.has(p.id)).map((q) => q.id),
           allyLeft: [...p.allies].map((a) => [a, g.allianceLeft(p.id, a)]),
         },
       });
@@ -518,7 +519,7 @@ class Net {
     if (u.fr) for (const [id, ...tiles] of u.fr) { const a = g.attacks.find((x) => x.id === id); if (a) a.fs = tiles; }
     if (u.xp) for (const q of u.xp) if (!g.players[q.id]) this.addMirrorPlayer(g, q);
     for (const row of u.p) {
-      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, stash, ideo, pers, inc, ntech, rail] = row;
+      const [id, alive, spawned, troops, tiles, pop, lx, ly, ls, lt, cap, allies, human, peak, kills, stash, ideo, pers, inc, ntech, rail, links] = row;
       const p = g.players[id];
       if (!p) continue;
       p.alive = !!alive; p.spawned = !!spawned; p.troops = troops; p.tiles = tiles; p.pop = pop;
@@ -528,11 +529,16 @@ class Net {
       if (id !== ui.myId) p.ideology = ideo || null;
       p.persKey = pers || '';
       if (id !== ui.myId) { p.grossIncome = inc || 0; p.techCount = ntech || 0; p.railKnown = !!rail; }
+      p.railLinks = links || [];
     }
     Object.assign(me, u.me);
     // Alliance timers, rebuilt from what is left of each, so the game's helpers work here too.
     g.allyUntil = new Map((u.me.allyLeft || []).map(([a, left]) => [g.allyKey(ui.myId, a), g.tick + left * TPS]));
     me.techs = new Set(u.me.techs);
+    // Trade bans: your own, and who has stopped trading with you (for the map and tooltips).
+    me.tradeBan = new Set(u.me.tradeBan || []);
+    const banned = new Set(u.me.bannedBy || []);
+    for (const q of g.players) if (q && q !== me) q.tradeBan = banned.has(q.id) ? new Set([ui.myId]) : new Set();
     me.doctrines = new Set(u.me.doctrines || []);
     // Events sent here are all meant for this player.
     for (const [id, text, kind, at, alert, who] of u.ev) g.events.push({ id, text, kind, time: g.time, to: ui.myId, at: at === undefined ? -1 : at, alert: alert || '', who: who || 0 });
