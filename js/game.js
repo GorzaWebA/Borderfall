@@ -76,6 +76,17 @@ const RENEW_SECONDS = 120;        // an alliance can be renewed in its last two 
 const TAX_RELIEF_INCOME = 0.75;   // income while tax relief is in force
 const REVOLT_BELOW = 30;
 
+// Silos and air defenses hold one shot per level and reload them one at a time. Each level also
+// reaches further: a silo's missiles fly further, an air defense covers a wider circle.
+const SILO_RELOAD = 20 * TPS;
+const AA_RELOAD = 12 * TPS;
+const SILO_RANGE = 90, SILO_RANGE_STEP = 45;
+const AA_RADIUS = 22, AA_RADIUS_STEP = 5;
+// Space missiles: launched from a silo of level 2 or more, they reach anywhere and pass over every
+// air defense while in space; only defenses near the launch or the landing can shoot them down.
+const SPACE_SILO_LEVEL = 2;
+const SPACE_COST_MULT = 3;
+const SPACE_EXPOSED = 0.15;        // share of the flight at each end within reach of air defense
 const BUILDINGS = {
   city: { name: 'City', base: 1000 * MONEY, step: 650 * MONEY, key: '1', desc: 'Houses 20K people, earns $600K/min and extends your administration.' },
   barracks: { name: 'Barracks', base: 900 * MONEY, step: 500 * MONEY, key: '2', tech: 'drill', desc: 'Recruiting +25%. 0.5% more of your people can serve.' },
@@ -84,12 +95,10 @@ const BUILDINGS = {
   university: { name: 'University', base: 1100 * MONEY, step: 600 * MONEY, key: '5', tech: 'printing', desc: '+2 research per second.' },
   courthouse: { name: 'Courthouse', base: 1200 * MONEY, step: 700 * MONEY, key: '6', tech: 'bureaucracy', politics: true, desc: 'Administers 350 more tiles and brings land within 34 tiles under full control.' },
   factory: { name: 'Factory', base: 2500 * MONEY, step: 1200 * MONEY, key: '7', tech: 'steam', desc: 'Earns $1.5M/min. Recruiting +15%.' },
-  aa: { name: 'Air Defense', base: 2500 * MONEY, step: 1250 * MONEY, key: '8', tech: 'radar', radius: 22, desc: 'Shoots down one enemy missile aimed within 22 tiles every 12s.' },
-  silo: { name: 'Missile Silo', base: 5000 * MONEY, step: 2500 * MONEY, key: '9', tech: 'rocketry', desc: 'Launches missiles that wipe out troops and scorch land. 20s reload.' },
+  aa: { name: 'Air Defense', base: 2500 * MONEY, step: 1250 * MONEY, key: '8', tech: 'radar', radius: AA_RADIUS, desc: `Shoots down missiles flying at you or your allies within ${AA_RADIUS} tiles (+${AA_RADIUS_STEP} a level). One shot a level; reloads one every 12s.` },
+  silo: { name: 'Missile Silo', base: 5000 * MONEY, step: 2500 * MONEY, key: '9', tech: 'rocketry', desc: `Launches missiles up to ${SILO_RANGE} tiles (+${SILO_RANGE_STEP} a level) that wipe out troops and scorch land. One missile a level; reloads one every 20s. Level ${SPACE_SILO_LEVEL} and up launch space missiles.` },
 };
 const BUILD_ORDER = ['city', 'barracks', 'fort', 'harbor', 'university', 'courthouse', 'factory', 'aa', 'silo'];
-const SILO_RELOAD = 20 * TPS;
-const AA_RELOAD = 12 * TPS;
 
 class Player {
   constructor(id, name, color, human) {
@@ -627,7 +636,12 @@ class Game {
         if (shut && !p.embargoes.has(q.id)) {
           p.embargoes.add(q.id);
           const partner = (p.counts.harbor && q.counts.harbor) || (nb && nb.has(q.id));
-          if (!first && partner) this.log(`${q.name} stopped trading with you.${this.atWar(q.id, p.id) ? ' You are at war.' : ''}`, 'bad', p.id, null, { alert: 'embargo', who: q.id });
+          // The same nation's refusal is told at most once every 90 seconds, as wars start and stop.
+          const told = p.embargoTold || (p.embargoTold = new Map());
+          if (!first && partner && this.time - (told.get(q.id) ?? -1e9) > 90) {
+            told.set(q.id, this.time);
+            this.log(`${q.name} stopped trading with you.${this.atWar(q.id, p.id) ? ' You are at war.' : ''}`, 'bad', p.id, null, { alert: 'embargo', who: q.id });
+          }
         } else if (!shut) p.embargoes.delete(q.id);
       }
     }
@@ -653,10 +667,19 @@ class Game {
   landShare(p) { return p.tiles / this.map.landCount; }
   fleetCap(p) { return 3 + p.counts.harbor * 2 + p.mods.fleetCap; }
   fleetsOf(pid) { let n = 0; for (const s of this.ships) if (!s.dead && s.owner === pid) n++; return n; }
-  missileCost(p) { return nicePrice(Math.min(MISSILE_BASE_COST + p.missilesLaunched * 400 * MONEY, 9000 * MONEY)); }
+  missileCost(p, kind) {
+    const c = nicePrice(Math.min(MISSILE_BASE_COST + p.missilesLaunched * 400 * MONEY, 9000 * MONEY));
+    return kind === 'space' ? nicePrice(c * SPACE_COST_MULT) : c;
+  }
   missileRadii(p) { const m = 1 + p.mods.missile; return [Math.round(MISSILE_R_IN * m), Math.round(MISSILE_R_OUT * m)]; }
-  readySilo(p) {
-    for (const b of p.blds) if (b.type === 'silo' && b.cooldown <= 0) return b;
+  // Shots a silo or air defense holds, how far a silo reaches, and how wide an air defense covers.
+  shotsOf(b) { return b.level || 1; }
+  siloRange(b) { return SILO_RANGE + SILO_RANGE_STEP * ((b.level || 1) - 1); }
+  aaRadius(b) { return AA_RADIUS + AA_RADIUS_STEP * ((b.level || 1) - 1); }
+  hasSpaceSilo(p) { return p.blds.some((b) => b.alive && b.type === 'silo' && (b.level || 1) >= SPACE_SILO_LEVEL); }
+  // A silo with a missile loaded, if any.
+  readySilo(p, kind) {
+    for (const b of p.blds) if (b.type === 'silo' && b.ammo > 0 && (kind !== 'space' || (b.level || 1) >= SPACE_SILO_LEVEL)) return b;
     return null;
   }
   buildCost(p, type) {
@@ -798,6 +821,8 @@ class Game {
         pn.counts[b.type] += b.level || 1;
         pn.blds.push(b);
         b.cooldown = Math.max(b.cooldown, 5 * TPS);
+        // A captured silo or air defense starts empty and reloads for its new owner.
+        if (b.type === 'silo' || b.type === 'aa') { b.ammo = 0; b.cooldown = b.type === 'silo' ? SILO_RELOAD : AA_RELOAD; }
       } else {
         b.alive = false;
         this.bldAt[t] = -1;
@@ -1120,7 +1145,10 @@ class Game {
         return r(err, d ? `${d.site ? `${d.name} cancelled` : `${d.name} demolished`}. ${fmtMoney(nicePrice(d.refund))} recovered.` : '');
       }
       case 'taxrelief': return r(this.setTaxRelief(pid, !!a.on));
-      case 'missile': return r(this.launchMissile(pid, a.tile), 'Missile away.');
+      case 'missile': {
+        const kind = a.kind === 'space' ? 'space' : 'missile';
+        return r(this.launchMissile(pid, a.tile, kind), kind === 'space' ? 'Space missile away.' : 'Missile away.');
+      }
       case 'retreat': return this.retreat(a.id, pid) ? r('', 'Troops pulled back. 20% were lost in the retreat.') : r('That offensive has already ended.');
       case 'ally': return r(this.requestAlliance(pid, a.to));
       case 'treaty': {
@@ -1438,10 +1466,12 @@ class Game {
       const b = this.buildings[x.upgrade];
       b.level++;
       p.counts[type]++;
+      // The new level comes with its shot loaded.
+      if (type === 'silo' || type === 'aa') b.ammo = Math.min(this.shotsOf(b), (b.ammo || 0) + 1);
       if (this.net) this.net.bld.add(b.id);
     } else {
       const t = x.tile, cx = t % this.W, cy = (t - cx) / this.W;
-      const b = { id: this.buildings.length, type, tile: t, x: cx, y: cy, owner: p.id, cooldown: 0, alive: true, builtAt: this.tick, level: 1 };
+      const b = { id: this.buildings.length, type, tile: t, x: cx, y: cy, owner: p.id, cooldown: 0, alive: true, builtAt: this.tick, level: 1, ammo: type === 'silo' || type === 'aa' ? 1 : 0 };
       this.buildings.push(b);
       this.bldAt[t] = b.id;
       p.counts[type]++;
@@ -1503,51 +1533,120 @@ class Game {
   }
 
   // ---------- missiles ----------
-  launchMissile(aId, t) {
-    const A = this.players[aId];
-    if (!A.alive) return 'You have no nation.';
-    if (A.counts.silo === 0) return 'Build a missile silo first.';
-    const silo = this.readySilo(A);
-    if (!silo) return 'Every silo is reloading.';
-    const cost = this.missileCost(A);
-    if (A.gold < cost) return `A missile costs ${fmt(cost)} gold.`;
-    if (t < 0 || t >= this.N) return 'Out of range.';
-    const tgt = this.owner[t];
-    if (tgt && this.isFriendly(aId, tgt)) return `You can't strike ${this.players[tgt].name}: they are your ally.`;
-    A.gold -= cost;
-    A.missilesLaunched++;
-    silo.cooldown = Math.round(SILO_RELOAD / (silo.level || 1));
-    const W = this.W, tx = t % W, ty = (t - tx) / W;
-    const dist = Math.hypot(tx - silo.x, ty - silo.y);
-    const dur = Math.round(25 + dist / 3.5);
-    const [rIn, rOut] = this.missileRadii(A);
-    const m = { id: this.idSeq++, owner: aId, sx: silo.x, sy: silo.y, tx, ty, tile: t, t: 0, dur, interceptAt: -1, dead: false, rIn, rOut, power: 1 + A.mods.missile };
+  // Silos and air defenses load one shot at a time up to their level; other buildings only use
+  // the timer for the pause after they're captured.
+  stepReloads() {
+    for (const b of this.buildings) {
+      if (!b.alive) continue;
+      if (b.type !== 'silo' && b.type !== 'aa') { if (b.cooldown > 0) b.cooldown--; continue; }
+      const cap = this.shotsOf(b);
+      if ((b.ammo || 0) >= cap) { b.cooldown = 0; continue; }
+      if (b.cooldown <= 0) b.cooldown = b.type === 'silo' ? SILO_RELOAD : AA_RELOAD;
+      if (--b.cooldown <= 0) {
+        b.ammo = (b.ammo || 0) + 1;
+        b.cooldown = b.ammo < cap ? (b.type === 'silo' ? SILO_RELOAD : AA_RELOAD) : 0;
+        if (this.net) this.net.bld.add(b.id);
+      }
+    }
+  }
 
+  // Where an air defense at (ax, ay) covering r tiles first reaches a missile flying straight from
+  // (sx, sy) to (tx, ty), as a share of the flight (0 to 1), within the given windows; -1 if never.
+  aaReach(ax, ay, r, sx, sy, tx, ty, windows) {
+    const dx = tx - sx, dy = ty - sy, L2 = dx * dx + dy * dy;
+    let lo, hi;
+    if (L2 < 1e-6) {
+      if ((ax - sx) ** 2 + (ay - sy) ** 2 > r * r) return -1;
+      lo = 0; hi = 1;
+    } else {
+      const s0 = ((ax - sx) * dx + (ay - sy) * dy) / L2;
+      const px = sx + dx * s0 - ax, py = sy + dy * s0 - ay, d2 = px * px + py * py;
+      if (d2 > r * r) return -1;
+      const h = Math.sqrt((r * r - d2) / L2);
+      lo = s0 - h; hi = s0 + h;
+    }
+    let best = -1;
+    for (const [a, b] of windows) {
+      const from = Math.max(lo, a, 0), to = Math.min(hi, b, 1);
+      if (from <= to && (best < 0 || from < best)) best = from;
+    }
+    return best;
+  }
+
+  // How a missile from p to tile t would go: the silo that fires it, the nations it would hit,
+  // and the air defense (if any) that would shoot it down, and where. kind is 'missile' or
+  // 'space'. Air defense guards its owner and its owner's allies, never the attacker's side.
+  missilePlan(p, t, kind = 'missile') {
+    const space = kind === 'space';
+    if (!p.counts.silo) return { err: 'Build a missile silo first.' };
+    if (t < 0 || t >= this.N) return { err: 'Out of range.' };
+    if (space && !this.hasSpaceSilo(p)) return { err: `Space missiles need a silo of level ${SPACE_SILO_LEVEL} or more.` };
+    const W = this.W, tx = t % W, ty = (t - tx) / W;
+    let silo = null, bd = Infinity, inRange = false;
+    for (const b of p.blds) {
+      if (b.type !== 'silo' || !b.alive || (space && (b.level || 1) < SPACE_SILO_LEVEL)) continue;
+      const d = Math.hypot(tx - b.x, ty - b.y);
+      if (!space && d > this.siloRange(b)) continue;
+      inRange = true;
+      if (b.ammo > 0 && d < bd) { bd = d; silo = b; }
+    }
+    if (!silo) return { err: !inRange ? 'Out of range of your silos. Stack a silo to reach further, or use a space missile.' : 'Every silo that can reach it is reloading.' };
+    const [rIn, rOut] = this.missileRadii(p);
     const victims = new Set();
-    const R = rOut;
-    for (let dy = -R; dy <= R; dy += 2) {
-      for (let dx = -R; dx <= R; dx += 2) {
-        if (dx * dx + dy * dy > R * R) continue;
+    for (let dy = -rOut; dy <= rOut; dy += 2) {
+      for (let dx = -rOut; dx <= rOut; dx += 2) {
+        if (dx * dx + dy * dy > rOut * rOut) continue;
         const x = tx + dx, y = ty + dy;
         if (x < 0 || y < 0 || x >= W || y >= this.H) continue;
         const o = this.owner[y * W + x];
-        if (o && o !== aId) victims.add(o);
+        if (o && o !== p.id) victims.add(o);
       }
     }
+    const dist = Math.hypot(tx - silo.x, ty - silo.y);
+    const dur = space ? Math.round(60 + dist / 6) : Math.round(25 + dist / 3.5);
+    const windows = space ? [[0, SPACE_EXPOSED], [1 - SPACE_EXPOSED, 1]] : [[0, 1]];
+    let aa = null, at = 2;
     for (const b of this.buildings) {
-      if (!b.alive || b.type !== 'aa' || b.cooldown > 0 || b.owner === aId || this.isAllied(b.owner, aId)) continue;
-      const dx = b.x - tx, dy = b.y - ty, rr = BUILDINGS.aa.radius;
-      if (dx * dx + dy * dy <= rr * rr) {
-        b.cooldown = Math.round(AA_RELOAD / (b.level || 1));
-        m.interceptAt = Math.floor(dur * 0.82);
-        m.interceptedBy = b.owner;
-        break;
-      }
+      if (!b.alive || b.type !== 'aa' || !(b.ammo > 0)) continue;
+      const o = b.owner;
+      if (o === p.id || this.isAllied(o, p.id)) continue;
+      let guards = victims.has(o);
+      if (!guards) for (const v of victims) if (this.isAllied(o, v)) { guards = true; break; }
+      if (!guards) continue;
+      const f = this.aaReach(b.x, b.y, this.aaRadius(b), silo.x, silo.y, tx, ty, windows);
+      if (f >= 0 && f < at) { at = f; aa = b; }
+    }
+    return { err: '', silo, kind, tx, ty, dur, rIn, rOut, victims, aa, at: aa ? at : -1 };
+  }
+
+  launchMissile(aId, t, kind = 'missile') {
+    const A = this.players[aId];
+    if (!A.alive) return 'You have no nation.';
+    const tgt = t >= 0 && t < this.N ? this.owner[t] : 0;
+    if (tgt && this.isFriendly(aId, tgt)) return `You can't strike ${this.players[tgt].name}: they are your ally.`;
+    const plan = this.missilePlan(A, t, kind);
+    if (plan.err) return plan.err;
+    const cost = this.missileCost(A, kind);
+    if (A.gold < cost) return `A ${kind === 'space' ? 'space missile' : 'missile'} costs ${fmtMoney(cost)}.`;
+    A.gold -= cost;
+    A.missilesLaunched++;
+    const silo = plan.silo;
+    silo.ammo--;
+    if (this.net) this.net.bld.add(silo.id);
+    const { tx, ty, dur, rIn, rOut } = plan;
+    const m = { id: this.idSeq++, owner: aId, kind, sx: silo.x, sy: silo.y, tx, ty, tile: t, t: 0, dur, interceptAt: -1, dead: false, rIn, rOut, power: 1 + A.mods.missile };
+    if (plan.aa) {
+      const b = plan.aa;
+      b.ammo--;
+      if (this.net) this.net.bld.add(b.id);
+      // Shot down a moment after it comes within reach.
+      m.interceptAt = clamp(Math.round(plan.at * dur) + 3, 2, dur - 1);
+      m.interceptedBy = b.owner;
     }
     for (const q of this.players) if (q && q.id !== aId) this.addRel(q.id, aId, -6);
-    for (const v of victims) {
+    for (const v of plan.victims) {
       this.addRel(v, aId, -40);
-      if (this.players[v].human) this.log(`${A.name} launched a missile at you.`, 'bad', v, null, { alert: 'missile', at: t, who: aId });
+      if (this.players[v].human) this.log(`${A.name} launched a ${kind === 'space' ? 'space missile' : 'missile'} at you.`, 'bad', v, null, { alert: 'missile', at: t, who: aId });
     }
     this.missiles.push(m);
     if (this.net) this.net.missiles.push(m);
@@ -1564,8 +1663,9 @@ class Game {
         this.effects.push({ type: 'intercept', x: lerp(m.sx, m.tx, f), y: lerp(m.sy, m.ty, f), arc: f, m, at: this.time });
         if (this.net) this.net.fx.push({ type: 'intercept', mid: m.id, arc: f });
         const by = this.players[m.interceptedBy];
-        if (by && by.human) this.log(`Your air defense shot down a missile from ${this.players[m.owner].name}.`, 'good', by.id);
-        if (this.players[m.owner].human) this.log(`Your missile was shot down by ${by ? by.name : 'air defense'}.`, 'bad', m.owner);
+        const what = m.kind === 'space' ? 'space missile' : 'missile';
+        if (by && by.human) this.log(`Your air defense shot down a ${what} from ${this.players[m.owner].name}.`, 'good', by.id);
+        if (this.players[m.owner].human) this.log(`Your ${what} was shot down by ${by ? by.name : 'air defense'}.`, 'bad', m.owner);
         continue;
       }
       if (m.t >= m.dur) { m.dead = true; this.detonate(m); }
@@ -2418,7 +2518,7 @@ class Game {
     if (this.ships.some((s) => s.dead)) this.ships = this.ships.filter((s) => !s.dead);
     this.stepMissiles();
     if (this.missiles.some((m) => m.dead)) this.missiles = this.missiles.filter((m) => !m.dead);
-    for (const b of this.buildings) if (b.alive && b.cooldown > 0) b.cooldown--;
+    this.stepReloads();
     this.stepSites();
     this.economy();
     if (this.tick % TPS === 0) this.perSecond();

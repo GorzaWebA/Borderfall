@@ -55,7 +55,7 @@ class Renderer {
     this.insetLeft = 0;        // px hidden behind the start menu
     this.myId = 1;             // the nation this screen plays as
     this.quality = 'high';     // 'high' or 'low'
-    this.mode = null;          // { kind: 'build', type } | { kind: 'missile' } | { kind: 'spawn' }
+    this.mode = null;          // { kind: 'build', type } | { kind: 'missile', space } | { kind: 'spawn' }
     this.timeScale = 0;        // game speed this frame, 0 while paused; drives merchant ships
     this.sprites = new Map();  // cached pixel-art ship sprites
     this.marks = [];           // tutorial rings: { x, y, r, label } in tile coordinates
@@ -456,7 +456,22 @@ class Renderer {
       const size = (low ? Math.min(base, 16) : base) * (1 + 0.06 * (lvl - 1));
       const sx = ox + (b.x + 0.5) * z, sy = oy + (b.y + 0.5) * z;
       if (!this.visible(sx, sy, size)) continue;
-      drawBuildingIcon(ctx, b.type, sx, sy, size, g.players[b.owner].color, b.cooldown > 0 && (b.type === 'silo' || b.type === 'aa'), lvl, low);
+      const armed = b.type === 'silo' || b.type === 'aa';
+      drawBuildingIcon(ctx, b.type, sx, sy, size, g.players[b.owner].color, armed && !(b.ammo > 0), lvl, low);
+      // Shots loaded, as pips under the token.
+      if (armed && !low && z >= 1.6) {
+        const cap = lvl, r = Math.max(1.6, size * 0.07), gap = r * 2.8, y = sy + size * 0.62;
+        for (let k = 0; k < cap; k++) {
+          const x = sx + (k - (cap - 1) / 2) * gap;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fillStyle = k < (b.ammo || 0) ? (b.type === 'silo' ? '#ffb347' : '#a8e0ff') : 'rgba(30,24,18,0.75)';
+          ctx.fill();
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = 'rgba(20,14,10,0.9)';
+          ctx.stroke();
+        }
+      }
     }
   }
 
@@ -906,10 +921,12 @@ class Renderer {
     ctx.globalAlpha = 1;
   }
 
+  // A missile's position on its arc; a space missile climbs far higher, out of the atmosphere.
   missilePoint(m, f) {
     const x = lerp(m.sx, m.tx, f) + 0.5, y = lerp(m.sy, m.ty, f) + 0.5;
     const d = Math.hypot(m.tx - m.sx, m.ty - m.sy);
-    return [x, y - Math.sin(Math.PI * f) * Math.min(60, d * 0.3)];
+    const lift = m.kind === 'space' ? Math.min(150, 30 + d * 0.45) : Math.min(60, d * 0.3);
+    return [x, y - Math.sin(Math.PI * f) * lift];
   }
 
   drawMissiles(ox, oy, z, alpha) {
@@ -927,6 +944,21 @@ class Renderer {
       ctx.stroke();
       ctx.setLineDash([]);
       const f = Math.min(1, (m.t + alpha) / m.dur);
+      const space = m.kind === 'space', inSpace = space && f > SPACE_EXPOSED && f < 1 - SPACE_EXPOSED;
+      // A space missile's whole course shows faintly, so its landing is easy to read.
+      if (space) {
+        ctx.beginPath();
+        for (let s = 0; s <= 40; s++) {
+          const [wx, wy] = this.missilePoint(m, s / 40);
+          const px = ox + wx * z, py = oy + wy * z;
+          if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.strokeStyle = 'rgba(78,60,170,0.6)';
+        ctx.setLineDash([3, 6]);
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
       ctx.beginPath();
       const steps = 14;
       for (let s = 0; s <= steps; s++) {
@@ -935,17 +967,18 @@ class Renderer {
         const px = ox + wx * z, py = oy + wy * z;
         if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
-      ctx.strokeStyle = 'rgba(255,214,150,0.75)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = space ? `rgba(110,90,225,${inSpace ? 0.7 : 0.95})` : 'rgba(255,214,150,0.75)';
+      ctx.lineWidth = space ? 2.5 : 2;
       ctx.stroke();
       const [hx, hy] = this.missilePoint(m, f);
       const px = ox + hx * z, py = oy + hy * z;
       ctx.beginPath();
-      ctx.arc(px, py, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = '#fff4d6';
-      if (this.quality !== 'low') { ctx.shadowColor = '#ffb347'; ctx.shadowBlur = 12; }
+      ctx.arc(px, py, space ? 4 : 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = space ? '#f3f0ff' : '#fff4d6';
+      if (this.quality !== 'low') { ctx.shadowColor = space ? '#9d8cff' : '#ffb347'; ctx.shadowBlur = 12; }
       ctx.fill();
       ctx.shadowBlur = 0;
+      if (space) { ctx.lineWidth = 1.5; ctx.strokeStyle = '#3b2f86'; ctx.stroke(); }
     }
   }
 
@@ -1071,8 +1104,60 @@ class Renderer {
     }
   }
 
+  // Air defense coverage, while placing a silo or aiming a missile: red circles for defenses that
+  // would shoot your missiles down (others'), blue for yours and your allies', which guard you.
+  // Empty ones are drawn faintly; the one that would intercept the aimed missile stands out.
+  drawAirDefense(ox, oy, z, hot) {
+    const ctx = this.ctx, g = this.game, my = this.myId;
+    for (const b of g.buildings) {
+      if (!b.alive || b.type !== 'aa') continue;
+      const r = g.aaRadius(b) * z, cx = ox + (b.x + 0.5) * z, cy = oy + (b.y + 0.5) * z;
+      if (!this.visible(cx, cy, r)) continue;
+      const ours = b.owner === my || g.isAllied(b.owner, my), live = b.ammo > 0, isHot = hot && b.id === hot.id;
+      const rgb = ours ? '110,170,235' : '224,83,61';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${rgb},${isHot ? 0.2 : live ? 0.09 : 0.04})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${rgb},${isHot ? 1 : live ? 0.7 : 0.3})`;
+      ctx.lineWidth = isHot ? 2.5 : 1.5;
+      ctx.setLineDash(live ? [] : [5, 5]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // The plan for a missile aimed at tile t, worked out once per tile and tick.
+  missilePreview(t) {
+    const g = this.game, kind = this.mode && this.mode.space ? 'space' : 'missile';
+    const key = `${t}|${g.tick}|${kind}`;
+    if (this.planKey !== key) { this.planKey = key; this.plan = g.missilePlan(g.players[this.myId], t, kind); }
+    return this.plan && this.plan.aa;
+  }
+
+  // How far your silos reach with ordinary missiles.
+  drawSiloRanges(ox, oy, z) {
+    const ctx = this.ctx, g = this.game, me = g.players[this.myId];
+    for (const b of me.blds) {
+      if (!b.alive || b.type !== 'silo') continue;
+      const r = g.siloRange(b) * z, cx = ox + (b.x + 0.5) * z, cy = oy + (b.y + 0.5) * z;
+      if (!this.visible(cx, cy, r)) continue;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = b.ammo > 0 ? 'rgba(241,213,138,0.75)' : 'rgba(241,213,138,0.3)';
+      ctx.setLineDash([8, 6]);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
   drawMode(ox, oy, z) {
     const ctx = this.ctx, g = this.game, mode = this.mode, t = this.hoverTile;
+    if (mode && (mode.kind === 'missile' || (mode.kind === 'build' && mode.type === 'silo'))) {
+      this.drawAirDefense(ox, oy, z, mode.kind === 'missile' && t >= 0 ? this.missilePreview(t) : null);
+      if (mode.kind === 'missile' && !mode.space) this.drawSiloRanges(ox, oy, z);
+    }
     if (!mode || t < 0) return;
     const W = this.map.W, x = t % W, y = (t - x) / W;
     const sx = ox + (x + 0.5) * z, sy = oy + (y + 0.5) * z;
@@ -1118,10 +1203,46 @@ class Renderer {
         ctx.stroke();
         ctx.setLineDash([]);
       }
+      // A new silo's reach (or a stacked one's, a level up).
+      if (mode.type === 'silo') {
+        const up = g.stackTarget(me, 'silo', t);
+        const rr = g.siloRange({ level: up ? up.level + 1 : 1 }) * z;
+        const cx = up ? ox + (up.x + 0.5) * z : sx, cy = up ? oy + (up.y + 0.5) * z : sy;
+        ctx.beginPath();
+        ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+        ctx.strokeStyle = err ? 'rgba(224,83,61,0.6)' : 'rgba(241,213,138,0.85)';
+        ctx.setLineDash([8, 6]);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
       ctx.globalAlpha = 0.85;
       drawBuildingIcon(ctx, mode.type, sx, sy, clamp(z * 3, 14, 120), err ? [150, 60, 50] : me.color, false, 1, false);
       ctx.globalAlpha = 1;
     } else if (mode.kind === 'missile') {
+      const plan = this.plan;
+      // The course from the silo that would fire, and where it would be shot down.
+      if (plan && plan.silo) {
+        const ax = ox + (plan.silo.x + 0.5) * z, ay = oy + (plan.silo.y + 0.5) * z;
+        const cut = plan.at >= 0 ? plan.at : 1;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(lerp(ax, sx, cut), lerp(ay, sy, cut));
+        ctx.strokeStyle = mode.space ? 'rgba(110,90,225,0.95)' : 'rgba(255,214,150,0.9)';
+        ctx.setLineDash(mode.space ? [3, 5] : [7, 5]);
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (plan.at >= 0) {
+          const ix = lerp(ax, sx, cut), iy = lerp(ay, sy, cut);
+          ctx.beginPath();
+          ctx.moveTo(ix - 7, iy - 7); ctx.lineTo(ix + 7, iy + 7);
+          ctx.moveTo(ix + 7, iy - 7); ctx.lineTo(ix - 7, iy + 7);
+          ctx.strokeStyle = '#a8e0ff';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+      }
       const [rIn, rOut] = g.missileRadii(g.players[this.myId]);
       ctx.beginPath();
       ctx.arc(sx, sy, rOut * z, 0, Math.PI * 2);
@@ -1253,7 +1374,19 @@ function drawGlyph(ctx, type, u) {
       break;
     case 'silo':
     case 'missile':
-      if (type === 'missile') ctx.rotate(Math.PI / 4);
+    case 'space':
+      // A space missile is a smaller missile inside an orbit.
+      if (type === 'space') {
+        ctx.save();
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = Math.max(1.2, u * 0.16);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, u * 1.02, u * 0.42, -Math.PI / 6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        ctx.scale(0.72, 0.72);
+      }
+      if (type !== 'silo') ctx.rotate(Math.PI / 4);
       polyPath(ctx, u, [0, -1.02, 0.32, -0.52, 0.32, 0.42, 0.62, 0.86, -0.62, 0.86, -0.32, 0.42, -0.32, -0.52]);
       ctx.fill();
       break;

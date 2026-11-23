@@ -694,6 +694,8 @@ body:not(.cloud-on) .cloud-only { display: none; }
 .bbtn.locked .cost { color: var(--sepia); font-family: var(--font-book); font-style: italic; font-weight: 400; }
 .bbtn.missile .cost { color: var(--vermilion-hi); }
 .bbtn.missile.on { border-color: var(--vermilion); background: rgba(214, 90, 60, 0.18); }
+.bbtn.missile.space .cost { color: #b9aaff; }
+.bbtn.missile.space.on { border-color: #8d7be0; background: rgba(126, 104, 214, 0.2); }
 .builds .divider { width: 1px; background: var(--rule); margin: 4px 4px; }
 
 #notice {
