@@ -496,7 +496,9 @@ class Renderer {
   // ---------- roads and railways ----------
   // Each nation's capital, cities, factories and harbors are joined by the shortest network
   // that links them all, laid over its own land: roads at first, railway track once it knows
-  // Railroads. Networks are rebuilt now and then as borders and buildings change, one per frame.
+  // Railroads. A line also runs across the border to each neighbour it trades with, from the
+  // closest pair of their stations. Networks are rebuilt now and then as borders and buildings
+  // change, one per frame.
   drawRails(ox, oy, z) {
     const ctx = this.ctx, g = this.game;
     if (z < 1.1 || (this.quality === 'low' && z < 2)) return;
@@ -545,7 +547,7 @@ class Renderer {
 
   railNet(p) {
     const g = this.game;
-    let key = `${p.capital}|${Math.floor(g.tick / (8 * TPS))}`;
+    let key = `${p.capital}|${Math.floor(g.tick / (8 * TPS))}|${(p.railLinks || []).join(',')}`;
     for (const b of p.blds) if (RAIL_TYPES.has(b.type)) key += `,${b.tile}`;
     const R = this.rails.get(p.id);
     if (R && R.key === key) return R;
@@ -562,7 +564,7 @@ class Renderer {
     if (p.capital >= 0 && own[p.capital] === p.id) nodes.push(p.capital);
     for (const b of p.blds) if (b.alive && RAIL_TYPES.has(b.type) && !nodes.includes(b.tile)) nodes.push(b.tile);
     const n = nodes.length;
-    if (n < 2) return [];
+    if (n < 2 && !(p.railLinks && p.railLinks.length)) return [];
     // Prim's spanning tree over straight-line distances.
     const inT = new Uint8Array(n), best = new Float64Array(n).fill(Infinity), from = new Int32Array(n).fill(-1);
     best[0] = 0;
@@ -584,12 +586,29 @@ class Renderer {
       const path = this.landPath(p.id, a, b);
       if (path) lines.push(simplifyPath(path, 0.8));
     }
+    // Across the border, drawn once per pair (by the nation with the lower id).
+    for (const qid of p.railLinks || []) {
+      const q = g.players[qid];
+      if (qid < p.id || !q || !q.alive) continue;
+      let a = -1, b = -1, bd = Infinity;
+      for (const s of nodes) {
+        const sx = s % W, sy = (s - sx) / W;
+        for (const qb of q.blds) {
+          if (!qb.alive || !RAIL_TYPES.has(qb.type)) continue;
+          const d = (qb.tile % W - sx) ** 2 + (Math.floor(qb.tile / W) - sy) ** 2;
+          if (d < bd) { bd = d; a = s; b = qb.tile; }
+        }
+      }
+      const path = a >= 0 ? this.landPath(p.id, a, b, qid) : null;
+      if (path) lines.push(simplifyPath(path, 0.8));
+    }
     return lines;
   }
 
-  // Shortest path over a nation's own land between two tiles, moving in eight directions but
-  // never cutting a corner, searched within a box around the two ends. Tile centres, flat.
-  landPath(pid, a, b) {
+  // Shortest path over a nation's own land (or two nations' land, for a line across their
+  // border) between two tiles, moving in eight directions but never cutting a corner, searched
+  // within a box around the two ends. Tile centres, flat.
+  landPath(pid, a, b, pid2 = pid) {
     const g = this.game, W = g.W, H = g.H, own = g.owner;
     const ax = a % W, ay = (a - ax) / W, bx = b % W, by = (b - bx) / W;
     if (Math.hypot(ax - bx, ay - by) > 180) return null;
@@ -600,7 +619,7 @@ class Renderer {
     if (!this._lp || this._lp.length < N) { this._lp = new Int32Array(N); this._lq = new Int32Array(N); }
     const prev = this._lp, Q = this._lq;
     prev.fill(-2, 0, N);
-    const ok = (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1 && own[y * W + x] === pid && !g.isWater(y * W + x);
+    const ok = (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1 && (own[y * W + x] === pid || own[y * W + x] === pid2) && !g.isWater(y * W + x);
     const start = (ay - y0) * bw + (ax - x0), goal = (by - y0) * bw + (bx - x0);
     let qh = 0, qt = 0;
     Q[qt++] = start; prev[start] = -1;
@@ -1070,6 +1089,23 @@ class Renderer {
       const me = g.players[this.myId];
       const err = g.canBuild(me, mode.type, t);
       const def = BUILDINGS[mode.type];
+      // A harbor goes to the nearest coast: show where, joined to the pointer.
+      const at = err ? t : g.placeTile(me, mode.type, t);
+      if (at !== t) {
+        const axx = at % W, ayy = (at - axx) / W, ax = ox + (axx + 0.5) * z, ay = oy + (ayy + 0.5) * z;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ax, ay);
+        ctx.strokeStyle = 'rgba(241,213,138,0.85)';
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 0.85;
+        drawBuildingIcon(ctx, mode.type, ax, ay, clamp(z * 3, 14, 120), me.color, false, 1, false);
+        ctx.globalAlpha = 1;
+        return;
+      }
       if (def.radius) {
         const rad = def.radius + (mode.type === 'fort' ? me.mods.fortRadius : 0);
         ctx.beginPath();
@@ -1337,7 +1373,7 @@ const RAIL_TYPES = new Set(['city', 'factory', 'harbor']);
 const STANCE_ICON = {
   ally: { label: 'Ally', ink: '#1f6b52', css: 'ally', path: 'M2 8A3.6 3.6 0 1 0 9.2 8A3.6 3.6 0 1 0 2 8ZM6.8 8A3.6 3.6 0 1 0 14 8A3.6 3.6 0 1 0 6.8 8Z' },
   hostile: { label: 'Hostile toward you', ink: '#a8321c', css: 'hostile', path: 'M8 1.5C8.6 4.5 12.5 6.2 12.5 10.2A4.5 4.5 0 0 1 3.5 10.2C3.5 7.6 5.4 6.6 6 4.6C6.9 6 7.6 6.3 8 1.5Z' },
-  notrade: { label: 'Refuses to trade with you', ink: '#5a4630', css: 'notrade', path: 'M8 2.5A1.4 1.4 0 1 0 8 5.3A1.4 1.4 0 1 0 8 2.5ZM8 5.3V13.5M5.2 7.6H10.8M3.6 10.2C4.2 12.6 6 13.6 8 13.6C10 13.6 11.8 12.6 12.4 10.2M2 14L14 2' },
+  notrade: { label: 'No trade with you', ink: '#5a4630', css: 'notrade', path: 'M8 2.5A1.4 1.4 0 1 0 8 5.3A1.4 1.4 0 1 0 8 2.5ZM8 5.3V13.5M5.2 7.6H10.8M3.6 10.2C4.2 12.6 6 13.6 8 13.6C10 13.6 11.8 12.6 12.4 10.2M2 14L14 2' },
 };
 function stanceOf(g, myId, p) {
   const out = [];
@@ -1345,7 +1381,7 @@ function stanceOf(g, myId, p) {
   const me = g.players[myId];
   if (g.isAllied(myId, p.id)) { out.push('ally'); return out; }
   if (g.getRel(p.id, myId) <= -40 || g.attacks.some((a) => !a.dead && a.attacker === p.id && a.target === myId)) out.push('hostile');
-  if (me && g.refusesTrade(p, me)) out.push('notrade');
+  if (me && !g.trades(me, p)) out.push('notrade');
   return out;
 }
 

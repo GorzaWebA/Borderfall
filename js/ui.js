@@ -1351,6 +1351,12 @@ class UI {
         const gold = Math.floor(me.gold * 0.25);
         items.push({ label: `Send ${fmtMoney(gold)}`, title: 'Gifts improve how they feel about you.', disabled: gold < 1,
           act: () => this.cmd('gold', { to: o, ratio: 0.25 }) });
+        if (!p.tribe) {
+          const banned = me.tradeBan.has(o);
+          items.push(banned
+            ? { label: 'Resume trading', title: 'Trade by sea and across the border again.', act: () => this.cmd('trade', { to: o, stop: false }) }
+            : { label: 'Stop trading', danger: true, title: 'Cuts trade by sea and across the border, both ways. They will resent it.', act: () => this.cmd('trade', { to: o, stop: true }) });
+        }
         if (p.human) sub += ', a player';
         else {
           const [rl] = relLabel(g.getRel(o, my));
@@ -1533,7 +1539,7 @@ class UI {
           const [lbl, cls] = relLabel(v);
           rows.push(['Toward you', `<span class="${cls}">${lbl}</span>`]);
         }
-        if (!p.tribe && g.refusesTrade(p, this.me)) rows.push(['Trade', '<span class="rel-bad">Refuses to trade with you</span>']);
+        if (!p.tribe) { const tr = this.tradeText(p); if (tr) rows.push(['Trade', tr]); }
       }
     } else {
       head = g.fallout[tile] ? 'Scorched land' : 'Unclaimed land';
@@ -1846,7 +1852,9 @@ class UI {
     }
     const dip = e.target.closest('[data-dip]');
     if (dip && me.alive) {
-      const res = this.cmd(dip.dataset.dip, dip.dataset.to ? { to: Number(dip.dataset.to) } : {}, true);
+      const args = dip.dataset.to ? { to: Number(dip.dataset.to) } : {};
+      if (dip.dataset.stop !== undefined) args.stop = dip.dataset.stop === '1';
+      const res = this.cmd(dip.dataset.dip, args, true);
       this.nationMsg = res ? (res.msg || 'Done.') : 'Order sent.';
       this.nationMsgBad = !!(res && res.bad);
       this.renderNation();
@@ -2043,6 +2051,19 @@ class UI {
   // Diplomacy as a leaderboard: every nation ranked, with its land, army, people, income,
   // buildings and research, how it stands toward you, and alliances. Columns sort on click;
   // fitDiplomacy sets how many rows fit, and the rest are on further pages.
+  // How you trade with a nation, for tooltips: stopped, refused, or by sea and across the border.
+  tradeText(p) {
+    const g = this.game, me = this.me;
+    if (me.tradeBan.has(p.id)) return '<span class="rel-bad">You stopped trading with them</span>';
+    if (g.refusesTrade(p, me)) return '<span class="rel-bad">Refuses to trade with you</span>';
+    if (g.refusesTrade(me, p)) return '<span class="rel-bad">You refuse their trade</span>';
+    const ways = [];
+    if (me.counts.harbor && p.counts.harbor) ways.push('by sea');
+    if ((me.railLinks || []).includes(p.id)) ways.push('across the border');
+    if (!ways.length) return '';
+    return `Trading ${ways.join(' and ')}${g.isAllied(me.id, p.id) ? ', double as allies' : ''}`;
+  }
+
   diplHtml() {
     const g = this.game, my = this.myId, me = this.me;
     const all = g.players.filter((p) => p && p.alive && p.spawned && !p.tribe);
@@ -2078,6 +2099,11 @@ class UI {
         feel = g.atWar(p.id, my) ? '<span class="st-war">At war</span>' : `<span class="${cls}">${lbl}</span>`;
         acts = `<button type="button" class="ghost" data-dip="ally" data-to="${p.id}">Propose alliance</button>`;
       }
+      if (!mine) {
+        acts += me.tradeBan.has(p.id)
+          ? `<button type="button" class="ghost" data-dip="trade" data-to="${p.id}" data-stop="0" title="Trade by sea and across the border again.">Resume trade</button>`
+          : `<button type="button" class="ghost" data-dip="trade" data-to="${p.id}" data-stop="1" title="Cuts trade by sea and across the border, both ways. They will resent it.">Stop trade</button>`;
+      }
       const ideo = p.ideology ? IDEOLOGY_BY_ID[p.ideology].name : '<span class="st-neutral">None</span>';
       const inc = p.grossIncome ? fmtMoney(nicePrice(p.grossIncome * 60)) : '—';
       return `<tr class="${mine ? 'me' : ''}"><td class="rk">${rankOf.get(p.id)}</td>
@@ -2101,8 +2127,9 @@ class UI {
         <span>Page ${page + 1} of ${pages}</span>
         <button type="button" class="ghost" data-dpage="1"${page === pages - 1 ? ' disabled' : ''}>Next</button>
       </div>` : '';
-    const refusing = all.filter((p) => p.id !== my && g.refusesTrade(p, me)).length;
-    const lede = `${all.length - 1} other ${all.length === 2 ? 'nation remains' : 'nations remain'}${allies ? `, ${allies} allied with you` : ''}${refusing ? `, ${refusing} refusing to trade with you` : ''}. Alliances last five minutes and can be renewed in their last two. Nations that dislike you, or are at war with you, close their harbors to your trade. Click a column to sort.`;
+    const refusing = all.filter((p) => p.id !== my && g.refusesTrade(p, me) && !me.tradeBan.has(p.id)).length;
+    const stopped = me.tradeBan.size;
+    const lede = `${all.length - 1} other ${all.length === 2 ? 'nation remains' : 'nations remain'}${allies ? `, ${allies} allied with you` : ''}${refusing ? `, ${refusing} refusing to trade with you` : ''}${stopped ? `, ${stopped} you stopped trading with` : ''}. Alliances last five minutes and can be renewed in their last two. Nations that dislike you, or are at war with you, refuse your trade; allies pay double. Click a column to sort.`;
     return `<p class="dipl-progress">${esc(lede)}</p><div class="dipl-cols"><table class="dipl-table board-table">${thead}<tbody>${slice.map(row).join('')}</tbody></table></div>${pager}`;
   }
 
