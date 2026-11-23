@@ -426,6 +426,7 @@ body:not(.cloud-on) .cloud-only { display: none; }
   max-width: calc(100% - 32px);
 }
 .banner p { margin: 0; font-weight: 500; }
+.banner button { flex: none; white-space: nowrap; }
 
 /* ---------- HUD ---------- */
 #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
@@ -1553,7 +1554,9 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
   .menu-panel { padding: calc(26px + var(--sa-t)) 20px calc(24px + var(--sa-b)); background: rgba(36, 30, 25, 0.96); gap: 18px; }
   .wordmark { font-size: 50px; }
   .tagline { font-size: 16px; }
-  .banner { flex-direction: column; align-items: stretch; text-align: center; }
+  .banner { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: center; }
+  .banner p { grid-column: 1 / -1; }
+  .banner:has(#btn-place-go[hidden]) #btn-random-spawn { grid-column: 1 / -1; }
   .mp-row { grid-template-columns: 1fr; }
   #modal { padding: calc(6px + var(--sa-t)) 6px calc(6px + var(--sa-b)); }
   .modal-card { padding: 20px 16px 16px; max-height: calc(100vh - 12px); }
