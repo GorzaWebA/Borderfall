@@ -34,15 +34,28 @@ No install, no account. Works on desktop and mobile browsers, in portrait and la
 
 ## Shop
 
-Give your nation's land a pattern: 13 heraldic designs, from Barry (bands) and Chequy (checks) to Lozengy, Masoned brickwork, Tartan, Semé of stars and Ermine. They are drawn into the map tile by tile, and other players see yours in multiplayer. Patterns cost crowns, which you earn by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning. You start with 100, and the two tutorials pay 50 and 100 the first time. Open the shop from the link under the start button, or from Your nation. Crowns are saved in your browser; no real money is involved.
+Give your nation's land a pattern: 13 heraldic designs, from Barry (bands) and Chequy (checks) to Lozengy, Masoned brickwork, Tartan, Semé of stars and Ermine. They are drawn into the map tile by tile, and other players see yours in multiplayer. Patterns cost crowns, which you earn by playing: one for each 1% of the world you held at your peak, three for each nation or tribe you destroy, up to ten for time played, and a bonus for winning. You start with 100, and the two tutorials pay 50 and 100 the first time. Open the shop from the link under the start button, or from Your nation. Crowns are saved in your browser, and to your account when online services are set up (see below); no real money is involved.
 
 ## Multiplayer
 
 - **Create lobby** gives you a 5-letter code and an invite link to share. Friends join with the code or by opening the link.
 - **Quick match** joins an open public game in the same mode, or opens one that starts automatically 40 seconds after someone joins.
+- **Open games** (with online services) lists public matches and lobbies whose host ticked *Show in open games*, with their mode, map and player count. Join one with a click.
 - Up to 8 people per match, with computer nations filling the world. The host picks the mode, map, rivals and difficulty, and everyone sees the changes live.
 
-Players connect directly to each other (WebRTC), using public Nostr relays to find each other, so there is no game server to run. The host's browser runs the match: if the host leaves, the match ends; if anyone else drops out, the computer takes over their nation. Some strict networks (certain office, school or mobile networks) block direct connections; if joining fails, try another network.
+Players connect directly to each other (WebRTC), so there is no game server to run. To find each other they use the game's Firebase Realtime Database when online services are set up (joining takes under a second), or public Nostr relays otherwise. The host's browser runs the match: if the host leaves, the match ends; if anyone else drops out, the computer takes over their nation. Some strict networks (certain office, school or mobile networks) block direct connections; if joining fails, try another network.
+
+## Accounts and leaderboard
+
+With online services set up (see [Setting up Firebase](#setting-up-firebase)), the start screen has an **Account** row:
+
+- Everyone starts as a **guest**. Crowns, patterns, tutorial progress and results are saved online for that browser.
+- **Sign in with Google** to keep them on every device. A guest's progress joins the account; if the account already has a save from another device, the two are merged so nothing is lost or counted twice.
+- **Sign out** leaves everything with the account and turns the browser back into a new guest.
+
+Every finished game, and any game left after three minutes, earns **leaderboard points**: one for each 1% of the world you held at your peak, four for each nation or tribe you destroy, and 100 for a win. Points are halved on Easy and raised by half on Hard; worlds with fewer than 20 rivals count for less, and you get a quarter more when other players are in the match. Tutorials don't count. The **Leaderboard** ranks players by best game, total points and wins, under the name and colour of the nation they last played.
+
+Without online services, all of this is hidden and progress stays in the browser, as before.
 
 ## What you do
 
@@ -119,6 +132,26 @@ The game is plain HTML, CSS and JavaScript with no build step, so GitHub Pages s
 3. Under **Build and deployment**, set **Source** to **Deploy from a branch**, pick **`main`** and **`/ (root)`**, then **Save**.
 4. After a minute or two the game is live at https://gorzaweba.github.io/Borderfall/. Every push to `main` updates it.
 
+## Setting up Firebase
+
+Accounts, cloud saves, the leaderboard, the open games list and faster multiplayer connections use a Google Firebase project (the free Spark plan is enough to start). In the [Firebase console](https://console.firebase.google.com/):
+
+1. **Create a project**, or open yours.
+2. **Build → Realtime Database → Create Database.** Pick a location, and start in *locked mode*.
+3. On the database's **Rules** tab, replace everything with the contents of [`database.rules.json`](database.rules.json) and **Publish**. (With the Firebase CLI: `firebase deploy --only database --project <your-project-id>`.)
+4. **Build → Authentication → Get started.** Under **Sign-in method**, enable **Anonymous** and **Google**.
+5. Under **Authentication → Settings → Authorized domains**, add `gorzaweba.github.io` (and any other domain the game is served from; `localhost` is there already).
+6. **Project settings → Your apps → Add app → Web.** Register it (no Firebase Hosting needed), then copy the `firebaseConfig` object.
+7. Paste it into [`js/firebase-config.js`](js/firebase-config.js) as `const FIREBASE_CONFIG = { ... };` and push. Make sure it includes `databaseURL`; if not, the database was created after the app, so copy the config again.
+
+The config isn't a secret: every visitor's browser receives it. What players may read and write is decided by the rules: everyone can read the leaderboard; players can read and write only their own save and leaderboard row, with values checked; open lobbies can be changed only by their host.
+
+Things to know:
+
+- The Spark plan allows 100 players connected to the database at once (and 1 GB stored, 10 GB downloaded a month). The game drops its connection during single-player matches to save room. The pay-as-you-go Blaze plan raises the limit to 200,000.
+- Results are reported by players' own browsers. The rules stop impossible values, but a determined cheater could still edit their own numbers; stopping that would need a server (Cloud Functions) to verify each game.
+- Leaderboard names are nation names the players choose; there is no filter.
+
 ## Run it locally
 
 Serve the folder and open it in a browser (multiplayer needs a web server; single player also works from `index.html` directly):
@@ -129,6 +162,13 @@ python3 -m http.server 8000
 ```
 
 To try multiplayer on one computer without the internet, open two tabs at `http://localhost:8000/?net=local`; they connect through the browser instead of the relays.
+
+To try the online services without a Firebase project, run the Firebase emulators from this folder (needs Node.js and Java) and add `?fb=emu` to the address. Google sign-in then shows the emulator's test accounts. `?fb=off` switches online services off, and `?net=nostr` uses the public relays even when Firebase is set up.
+
+```sh
+npx firebase-tools emulators:start --project demo-borderfall
+# then visit http://localhost:8000/?fb=emu
+```
 
 ## Project layout
 
@@ -144,10 +184,16 @@ js/ai.js        AI nations
 js/render.js    canvas map renderer
 js/ui.js        menus, HUD, input, tooltips
 js/net.js       multiplayer: lobbies, quick match, host-run games
+js/cloud.js     online services through Firebase: accounts, cloud saves, leaderboard,
+                open lobbies, multiplayer signaling
+js/firebase-config.js   your Firebase project's web config (null switches online services off)
 js/tutorial.js  controls lesson and guided game
 js/shop.js      land patterns, crowns and the shop
 js/main.js      game loop
-vendor/         bundled Trystero peer-to-peer library (MIT)
+vendor/         bundled Trystero peer-to-peer library (MIT), and the Firebase JS SDK with
+                Trystero's Firebase signaling (Apache-2.0 and MIT), loaded only when set up
+database.rules.json   Realtime Database security rules to publish to the project
+firebase.json   Firebase CLI settings: the rules file and the local emulators
 maps/*.js       real-world maps, one character per tile, loaded only when picked
 manifest.webmanifest, icons/   install to a phone's home screen (opens full screen)
 ```

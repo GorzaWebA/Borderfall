@@ -144,7 +144,7 @@ button { cursor: pointer; }
   #setup { gap: 13px; }
   #mode-desc { display: none; }
 }
-@media (max-height: 660px) and (min-width: 761px) {
+@media (max-height: 720px) and (min-width: 761px) {
   .tagline { display: none; }
 }
 
@@ -343,6 +343,69 @@ input[type=range]::-moz-range-thumb {
 #lobby-players { list-style: none; margin: 10px 0 4px; padding: 0; display: grid; gap: 4px; }
 #lobby-players li { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 #lobby-players .dot { width: 10px; height: 12px; clip-path: polygon(0 0, 100% 0, 100% 58%, 50% 100%, 0 58%); }
+.check { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font-size: 14px; color: var(--paper-2); cursor: pointer; }
+.check input { width: 16px; height: 16px; accent-color: var(--brass); margin: 0; }
+
+/* Open games from the Firebase lobby list, under the join row. */
+.mp-games h3 { margin: 4px 0 6px; font-size: 14px; font-weight: 600; color: var(--sepia); }
+#mp-games-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+#mp-games-list li { display: grid; grid-template-columns: 1fr auto; column-gap: 10px; align-items: center; padding: 7px 0 7px; border-top: 1px solid var(--rule); }
+#mp-games-list .og-main { font-size: 14.5px; color: var(--paper); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#mp-games-list .og-sub { grid-column: 1; font-size: 13px; color: var(--sepia); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#mp-games-list button { grid-column: 2; grid-row: 1 / span 2; padding: 6px 14px; }
+#mp-games-list .og-empty { display: block; font-size: 13.5px; color: var(--sepia); font-style: italic; font-family: var(--font-book); }
+
+/* Account card. The sign-in button follows Google's dark button style. */
+#account-summary { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+.google-btn {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 40px; padding: 0 14px;
+  background: #131314; color: #e3e3e3; border: 1px solid #8e918f; border-radius: 20px;
+  font-family: 'Roboto', 'Alegreya Sans', system-ui, sans-serif; font-weight: 500; font-size: 14.5px; letter-spacing: 0.01em;
+  cursor: pointer;
+}
+.google-btn:hover:not(:disabled) { background: #1f1f20; border-color: #c4c7c5; }
+.google-btn:disabled { opacity: 0.6; cursor: default; }
+.google-btn svg { width: 18px; height: 18px; flex: none; }
+.acct-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0 10px; margin: 0; }
+.acct-stats div { border-top: 1px solid var(--rule-strong); padding-top: 6px; }
+.acct-stats dt { font-family: var(--font-book); font-style: italic; font-size: 13px; color: var(--sepia); }
+.acct-stats dd { margin: 0; font-size: 20px; font-weight: 800; font-variant-numeric: lining-nums tabular-nums; }
+#side-account .fine { margin-top: 0 !important; }
+
+/* Leaderboard */
+.board-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px 20px; flex-wrap: wrap; }
+.board-top h2 { margin-bottom: 0; }
+.board-body { margin-top: 12px; min-height: 120px; }
+.board { list-style: none; margin: 0; padding: 0; }
+.board li {
+  display: grid; grid-template-columns: 28px 12px minmax(0, 1fr) auto auto; align-items: center; gap: 10px;
+  padding: 5px 6px; border-top: 1px solid var(--rule); font-variant-numeric: lining-nums tabular-nums;
+}
+.board li:first-child { border-top-color: var(--rule-strong); }
+.board .rk { color: var(--sepia); font-weight: 700; text-align: right; }
+.board .dot { width: 10px; height: 12px; clip-path: polygon(0 0, 100% 0, 100% 58%, 50% 100%, 0 58%); }
+.board .nm { font-weight: 700; color: var(--paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board .nm em { font-style: normal; font-weight: 600; font-size: 12.5px; color: var(--brass-hi); margin-left: 4px; }
+.board .sub { font-size: 13px; color: var(--sepia); }
+.board .v { font-weight: 800; font-size: 16px; text-align: right; min-width: 92px; }
+.board .v small { font-weight: 500; font-size: 12.5px; color: var(--sepia); }
+.board li.you { background: rgba(201, 162, 79, 0.12); }
+.board.below { margin-top: 6px; border-top: 1px dashed var(--rule-strong); padding-top: 6px; }
+body:not(.cloud-on) .cloud-only { display: none; }
+.board-how { margin-top: 10px; font-size: 13.5px; color: var(--sepia); }
+.board-how summary { cursor: pointer; width: max-content; text-decoration: underline; text-decoration-color: var(--rule-strong); text-underline-offset: 3px; }
+.board-how summary:hover { color: var(--paper); }
+.board-how p { margin: 6px 0 0; max-width: 70ch; }
+.score-line { margin: 4px 0 0; color: var(--paper-2); }
+.score-line b { color: var(--brass-hi); }
+@media (max-width: 640px) {
+  .board .sub { display: none; }
+  .board li { grid-template-columns: 24px 12px minmax(0, 1fr) auto; }
+  .board .v { min-width: 0; }
+  .acct-stats dd { font-size: 18px; }
+}
+.board li[hidden] { display: none; }
 #lobby-players em { font-family: var(--font-book); font-size: 13px; color: var(--brass-hi); }
 .lobby .text-btn { padding: 4px 0 0; }
 
@@ -1501,4 +1564,12 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
   .tut-target, #flash.warn, #flash.boom, #log li, .toast, #treaty { animation: none; }
+}
+/* Short laptop screens: the leaderboard stays one click away in the Account card, and the rows
+   tighten so the panel still doesn't scroll. */
+@media (max-height: 800px) and (min-width: 761px) {
+  #btn-board-link { display: none; }
+}
+@media (max-height: 720px) and (min-width: 761px) {
+  .menu-row { min-height: 40px; padding-top: 5px; padding-bottom: 5px; }
 }

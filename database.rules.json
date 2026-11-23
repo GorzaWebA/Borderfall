@@ -1,0 +1,70 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "crowns": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000" },
+        "owned": { "$i": { ".validate": "newData.isString() && newData.val().length <= 40" } },
+        "claimed": { "$i": { ".validate": "newData.isString() && newData.val().length <= 40" } },
+        "equipped": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "equippedAt": { ".validate": "newData.isNumber()" },
+        "tut": { ".validate": "newData.isBoolean()" },
+        "stats": {
+          "games": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "wins": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "points": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "best": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 999" },
+          "kills": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "$other": { ".validate": false }
+        },
+        "profile": {
+          "name": { ".validate": "newData.isString() && newData.val().length <= 16" },
+          "color": { ".validate": "newData.isString() && newData.val().matches(/^#[0-9a-fA-F]{6}$/)" },
+          "at": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        },
+        "$other": { ".validate": false }
+      }
+    },
+    "scores": {
+      ".read": true,
+      ".indexOn": ["best", "points", "wins"],
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['name', 'color', 'best', 'points', 'wins', 'games', 'at'])",
+        "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 16" },
+        "color": { ".validate": "newData.isString() && newData.val().matches(/^#[0-9a-fA-F]{6}$/)" },
+        "best": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 999" },
+        "points": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000" },
+        "games": { ".validate": "newData.isNumber() && newData.val() >= 1" },
+        "wins": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= newData.parent().child('games').val()" },
+        "at": { ".validate": "newData.val() === now" },
+        "$other": { ".validate": false }
+      }
+    },
+    "lobbies": {
+      ".read": "auth != null",
+      ".indexOn": ["at"],
+      "$code": {
+        ".write": "auth != null && (!data.exists() || data.child('host').val() === auth.uid)",
+        ".validate": "$code.matches(/^[A-Z]{5}$/) && newData.hasChildren(['host', 'name', 'mode', 'map', 'players', 'max', 'auto', 'at'])",
+        "host": { ".validate": "newData.val() === auth.uid" },
+        "name": { ".validate": "newData.isString() && newData.val().length <= 16" },
+        "mode": { ".validate": "newData.val() === 'blitz' || newData.val() === 'realistic'" },
+        "map": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "players": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 8" },
+        "max": { ".validate": "newData.isNumber() && newData.val() >= 2 && newData.val() <= 8" },
+        "auto": { ".validate": "newData.isBoolean()" },
+        "at": { ".validate": "newData.val() === now || newData.val() === data.val()" },
+        "$other": { ".validate": false }
+      }
+    },
+    "__trystero__": {
+      "$room": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}

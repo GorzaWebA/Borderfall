@@ -1,9 +1,10 @@
 'use strict';
 // Multiplayer: peer-to-peer lobbies, quick matches and host-run games.
 //
-// Players' browsers connect directly over WebRTC. Public Nostr relays only help them find
-// each other (via the bundled Trystero library). The host simulates the whole game and
-// streams compact updates; everyone else mirrors that state and sends orders back.
+// Players' browsers connect directly over WebRTC (via the bundled Trystero library). To find
+// each other they signal through the game's Firebase Realtime Database when one is set up (see
+// cloud.js), or else through public Nostr relays. The host simulates the whole game and streams
+// compact updates; everyone else mirrors that state and sends orders back.
 
 const NET_APP_ID = 'borderfall-2026';
 const MM_ROOM = 'matchmaking-v1';
@@ -12,6 +13,7 @@ const SPAWN_PHASE_SECONDS = 25;
 const AUTO_START_SECONDS = 40;
 const NET_SEND_MS = 200;
 const NET_LOCAL = /[?&]net=local\b/.test(location.search);
+const NET_NOSTR = /[?&]net=nostr\b/.test(location.search);   // public relays even when Firebase is set up
 
 // ---------- encoding helpers ----------
 function u8ToB64(u8) {
@@ -64,15 +66,24 @@ function genLobbyCode() {
 }
 
 // ---------- transports ----------
-// Internet rooms through Trystero (WebRTC, discovered via public Nostr relays).
+// Internet rooms through Trystero: WebRTC, discovered via the game's Firebase database when
+// cloud is given, or via public Nostr relays.
 let trysteroPromise = null;
 class TrysteroRoom {
-  constructor(id) { this.id = id; this.handlers = {}; this.joinFns = []; this.leaveFns = []; }
+  constructor(id, cloud) { this.id = id; this.cloud = cloud || null; this.handlers = {}; this.joinFns = []; this.leaveFns = []; }
   async join() {
+    if (this.cloud) {
+      const F = this.cloud.fb;
+      this.attach(F.selfId, F.joinRoom({ appId: NET_APP_ID, relayConfig: { firebaseApp: this.cloud.app } }, this.id));
+      return;
+    }
     if (!trysteroPromise) trysteroPromise = import(new URL('vendor/trystero.mjs', document.baseURI).href);
     const T = await trysteroPromise;
-    this.selfId = T.selfId;
-    this.room = T.joinRoom({ appId: NET_APP_ID }, this.id);
+    this.attach(T.selfId, T.joinRoom({ appId: NET_APP_ID }, this.id));
+  }
+  attach(selfId, room) {
+    this.selfId = selfId;
+    this.room = room;
     this.act = this.room.makeAction('m');
     this.act.onMessage = (msg, ctx) => this.dispatch(msg, ctx.peerId);
     this.room.onPeerJoin = (id) => this.joinFns.forEach((f) => f(id));
@@ -115,7 +126,7 @@ class LocalRoom {
   leave() { try { this.raw('__bye', null, null); this.ch.close(); } catch (e) { /* closed */ } }
 }
 
-function makeRoom(id) { return NET_LOCAL ? new LocalRoom(id) : new TrysteroRoom(id); }
+function makeRoom(id, cloud) { return NET_LOCAL ? new LocalRoom(id) : new TrysteroRoom(id, cloud); }
 
 // ---------- lobbies and matches ----------
 class Net {
@@ -128,14 +139,26 @@ class Net {
     this.ads = new Map();
     this.cmdSeq = 0;
     this.lastSend = 0;
+    this.cloud = null;         // the Firebase service when rooms and lobby lists go through it
+    this.listed = false;       // does this hosted lobby show in the open games list?
+  }
+
+  // Firebase when it is set up and this player may use the database; public relays otherwise.
+  async pickTransport() {
+    const c = this.ui.cloud;
+    this.cloud = null;
+    if (NET_LOCAL || NET_NOSTR || !c || !c.enabled) return;
+    await c.ready();
+    if (c.netOk && c.user) { this.cloud = c; c.online(); }
   }
 
   me() { return { name: this.ui.playerName(), color: this.ui.color, skin: this.ui.shop.equipped }; }
 
   // ----- hosting -----
   async host(isPublic, settings) {
+    await this.pickTransport();
     this.role = 'host';
-    this.room = makeRoom('L-' + (this.code = genLobbyCode()));
+    this.room = makeRoom('L-' + (this.code = genLobbyCode()), this.cloud);
     await this.room.join();
     this.lobby = { code: this.code, hostId: this.room.selfId, isPublic, settings, startAt: null, started: false,
       players: [{ id: this.room.selfId, ...this.me() }] };
@@ -144,9 +167,19 @@ class Net {
     this.room.onJoin(() => this.broadcastLobby());
     this.room.onLeave((id) => this.onPeerGone(id));
     this.lobbyTimer = setInterval(() => this.hostLobbyTick(), 1000);
-    if (isPublic) await this.advertise();
+    // Public matches are listed for anyone; private lobbies only if the host chooses.
+    this.listed = isPublic;
+    if (this.cloud) this.cloud.listLobby(this.lobby, this.listed);
+    else if (isPublic) await this.advertise();
     this.ui.showLobby(this.lobby, true);
     this.broadcastLobby();
+  }
+
+  setListed(on) {
+    if (this.role !== 'host' || !this.lobby || !this.cloud) return;
+    this.listed = !!on;
+    this.cloud.listLobby(this.lobby, this.listed);
+    this.ui.showLobby(this.lobby, true);
   }
 
   onHello(d, from) {
@@ -187,6 +220,7 @@ class Net {
       if (L.startAt && (Date.now() >= L.startAt || L.players.length >= NET_MAX_PLAYERS)) { this.ui.startGame(); return; }
       this.sendAd();
     }
+    if (this.cloud) this.cloud.listLobby(L, this.listed);
     this.broadcastLobby();
   }
 
@@ -208,9 +242,10 @@ class Net {
   async join(code) {
     code = String(code || '').trim().toUpperCase();
     if (!/^[A-Z]{5}$/.test(code)) throw new Error('Lobby codes are 5 letters.');
+    await this.pickTransport();
     this.role = 'client';
     this.code = code;
-    this.room = makeRoom('L-' + code);
+    this.room = makeRoom('L-' + code, this.cloud);
     await this.room.join();
     const gotLobby = new Promise((resolve, reject) => {
       this.room.on('lobby', (d, from) => {
@@ -237,6 +272,18 @@ class Net {
   // Find an open public lobby in this mode, or open one and wait for others.
   async quickMatch(settings) {
     this.ui.mpStatus('Looking for an open match…');
+    await this.pickTransport();
+    if (this.cloud) {
+      // The database lists open lobbies, so there is nothing to wait for.
+      const open = (await this.cloud.openLobbies()).filter((a) => a.auto && a.players < a.max && a.mode === settings.mode)
+        .sort((a, b) => b.players - a.players);
+      for (const a of open) {
+        try { await this.join(a.code); return; } catch (e) { this.leave(); }
+      }
+      this.ui.mpStatus('No open match found, so you are hosting one. It starts automatically once someone joins.');
+      await this.host(true, settings);
+      return;
+    }
     const mm = makeRoom(MM_ROOM);
     await mm.join();
     mm.on('ad', (d) => { if (d && d.code) this.ads.set(d.code, d); });
@@ -257,6 +304,7 @@ class Net {
     const L = this.lobby;
     L.started = true;
     this.sendAd();
+    if (this.cloud) this.cloud.listLobby(L, false);
     clearInterval(this.lobbyTimer);
     this.game = game;
     this.startCount = game.players.length;   // players created after this are sent as they appear
@@ -527,6 +575,7 @@ class Net {
 
   leave() {
     clearInterval(this.lobbyTimer);
+    if (this.cloud && this.lobby && this.role === 'host') this.cloud.listLobby(this.lobby, false);
     if (this.room) this.room.leave();
     if (this.mm) this.mm.leave();
     this.room = null; this.mm = null; this.lobby = null; this.game = null; this.role = null;

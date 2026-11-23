@@ -129,6 +129,9 @@ class UI {
     this.prefs = loadPrefs();
     this.alertSeen = new Map();     // alert key -> when it last showed, to hold back repeats
     this.shop = loadShop();
+    this.stats = loadStats();
+    this.profile = loadProfile();
+    this.cloud = new Cloud(this);
     this.color = PLAYER_COLORS.some((c) => c.hex === this.prefs.color) ? this.prefs.color : PLAYER_COLORS[0].hex;
     this.genTimer = 0;
     this.myId = 1;
@@ -138,6 +141,8 @@ class UI {
     this.initMenu();
     this.initHud();
     this.initInput();
+    this.initAccount();
+    this.cloud.start();
   }
 
   isPaused() {
@@ -272,12 +277,157 @@ class UI {
   // The start screen's side cards: your nation, world settings and online play.
   // One card at a time, except that a lobby keeps its card open beside the world settings.
   setSide(name, open) {
-    const ids = { nation: 'side-nation', world: 'world-settings', online: 'side-online' };
+    const ids = { nation: 'side-nation', world: 'world-settings', online: 'side-online', account: 'side-account' };
     for (const k of Object.keys(ids)) {
       const keep = k === name ? open : open && !(this.net && (k === 'online' || name === 'online')) ? false : !$(ids[k]).hidden;
       $(ids[k]).hidden = !keep;
       document.querySelector(`.menu-row[data-side="${k}"]`).setAttribute('aria-expanded', String(keep));
     }
+    this.updateGamesWatch();
+  }
+
+  // ---------- account, leaderboard and open games (Firebase) ----------
+  initAccount() {
+    $('acct-google').addEventListener('click', async () => {
+      if (this.acctBusy) return;
+      this.acctBusy = 'Signing in…';
+      this.acctMsg = '';
+      this.renderAccount();
+      const msg = await this.cloud.signInGoogle().catch(() => 'Sign-in failed. Try again.');
+      this.acctBusy = false;
+      this.acctMsg = msg === 'cancelled' ? '' : msg;
+      this.renderAccount();
+    });
+    $('acct-out').addEventListener('click', () => this.confirmSignOut());
+    $('acct-board').addEventListener('click', () => this.showLeaderboard());
+    $('btn-board-link').addEventListener('click', () => this.showLeaderboard());
+    this.renderAccount();
+  }
+
+  renderAccount() {
+    const C = this.cloud, on = C.enabled;
+    $('row-account').hidden = !on;
+    $('btn-board-link').hidden = !on;
+    document.body.classList.toggle('cloud-on', on);
+    this.updateGamesWatch();
+    if (!on) return;
+    const s = C.state, st = this.stats, u = C.user;
+    $('account-summary').textContent = {
+      connecting: 'Connecting…', offline: 'Offline', signedout: 'Not signed in', guest: 'Guest. Sign in to keep your progress',
+      google: u ? u.label : 'Signed in',
+    }[s] || '';
+    let text = {
+      connecting: 'Connecting to Borderfall online…',
+      offline: "Couldn't reach Borderfall online. Your progress is kept on this device; reload the page to try again.",
+      signedout: 'Sign in with Google to save your crowns, patterns and results online and to join the leaderboard.',
+      guest: 'You are playing as a guest. Your crowns, patterns and results are saved online for this browser. Sign in with Google to keep them on every device.',
+      google: `Signed in as ${u ? u.label : 'your Google account'}. Your crowns, patterns and results are saved to your account and follow you to any device.`,
+    }[s] || '';
+    if (C.syncFailed && (s === 'guest' || s === 'google')) text += " Couldn't save just now; it will try again.";
+    if (this.acctBusy) text = this.acctBusy;
+    $('acct-status').textContent = this.acctMsg || text;
+    $('acct-status').classList.toggle('bad', !!this.acctMsg);
+    $('acct-google').hidden = !(s === 'guest' || s === 'signedout');
+    $('acct-google').disabled = !!this.acctBusy;
+    $('acct-out').hidden = s !== 'google';
+    $('acct-board').disabled = s === 'offline';
+    $('acct-stats').hidden = !st.games;
+    $('acct-stats').innerHTML = `<div><dt>Games</dt><dd>${st.games}</dd></div><div><dt>Wins</dt><dd>${st.wins}</dd></div>`
+      + `<div><dt>Best game</dt><dd>${st.best}</dd></div><div><dt>Total points</dt><dd>${fmt(st.points)}</dd></div>`;
+  }
+
+  // A save arrived from the account (or this device went back to a fresh guest).
+  onSaveApplied() {
+    this.renderPatternRow();
+    let tutDone = false;
+    try { tutDone = localStorage.getItem(TUT_DONE_KEY) === '1'; } catch (e) { /* storage unavailable */ }
+    const tb = $('btn-tutorial');
+    if (tutDone && tb.classList.contains('nudge')) { tb.classList.remove('nudge'); tb.textContent = 'Tutorials'; }
+    this.renderAccount();
+  }
+
+  confirmSignOut() {
+    this.openModal(`<h2 id="modal-title">Sign out?</h2>
+      <p class="result-lede">Your crowns, patterns and results stay with your Google account. This browser starts again as a new guest.</p>
+      <div class="modal-actions"><button type="button" class="ghost" data-close>Stay signed in</button><button type="button" class="primary" data-act="out">Sign out</button></div>`, {
+      onClick: async (e) => {
+        if (!e.target.closest('[data-act="out"]') || this.acctBusy) return;
+        this.closeModal();
+        this.acctBusy = 'Signing out…';
+        this.renderAccount();
+        this.acctMsg = await this.cloud.signOut().catch(() => 'Sign-out failed. Try again.');
+        this.acctBusy = false;
+        this.renderAccount();
+      },
+    });
+  }
+
+  // The open games list follows the database while the Online card is open on the start screen.
+  updateGamesWatch() {
+    const C = this.cloud;
+    const want = !!(C && C.netOk && !this.game && !this.net && !$('side-online').hidden);
+    $('mp-games').hidden = !(C && C.netOk) || !!this.net;
+    if (want && !this.gamesUnsub) this.gamesUnsub = C.watchLobbies((list) => this.renderOpenGames(list));
+    else if (!want && this.gamesUnsub) { this.gamesUnsub(); this.gamesUnsub = null; }
+  }
+
+  renderOpenGames(list) {
+    const rows = list.filter((x) => x.players < x.max).sort((a, b) => (b.players - a.players) || ((b.at || 0) - (a.at || 0))).slice(0, 4);
+    $('mp-games-list').innerHTML = rows.length
+      ? rows.map((x) => `<li><span class="og-main"><b>${esc(MODES[x.mode] ? MODES[x.mode].label : x.mode)}</b> · ${esc(x.map)}</span>`
+        + `<span class="og-sub">${esc(x.name)} · ${x.auto ? 'starts by itself' : 'host starts'} · ${x.players}/${x.max} players</span>`
+        + `<button type="button" class="ghost" data-join="${esc(x.code)}">Join</button></li>`).join('')
+      : '<li class="og-empty">No open games right now. Quick match opens one that others can join.</li>';
+  }
+
+  showLeaderboard(tab = 'best') {
+    if (!this.cloud.enabled) return;
+    const tabs = Object.entries(BOARD_TABS).map(([k, t]) => `<button type="button" role="tab" data-tab="${k}" aria-selected="${k === tab}">${t.label}</button>`).join('');
+    this.openModal(`<div class="board-top"><h2 id="modal-title">Leaderboard</h2><div class="tabs" role="tablist">${tabs}</div></div>
+      <div id="board-body" class="board-body" aria-live="polite"></div>
+      <details class="board-how"><summary>How points are counted</summary><p>A game gives one point for each 1% of the world you held at your peak, four for each nation or tribe you destroy, and 100 for a win. Points are halved on Easy and raised by half on Hard. Worlds with fewer than 20 rivals count for less, and you get a quarter more when other players are in the match. Your name here is the name of the nation you last played.</p></details>
+      <div class="modal-actions"><button type="button" class="primary" data-close>Close</button></div>`, {
+      onClick: (e) => {
+        const b = e.target.closest('[data-tab]');
+        if (!b) return;
+        for (const x of $('modal-body').querySelectorAll('[data-tab]')) x.setAttribute('aria-selected', String(x === b));
+        this.loadBoard(b.dataset.tab);
+      },
+    });
+    this.loadBoard(tab);
+  }
+
+  async loadBoard(tab) {
+    const C = this.cloud, field = BOARD_TABS[tab].field, unit = BOARD_TABS[tab].unit;
+    this.boardTab = tab;
+    const body = () => (this.boardTab === tab ? $('board-body') : null);
+    if (body()) body().innerHTML = '<p class="field-note">Loading…</p>';
+    await C.ready();
+    let rows;
+    try {
+      if (!C.fb || C.state === 'offline') throw new Error('offline');
+      rows = await C.leaderboard(tab);
+    } catch (e) {
+      if (body()) body().innerHTML = '<p class="field-note bad">Couldn\'t load the leaderboard. Check your connection and try again.</p>';
+      return;
+    }
+    if (!body()) return;
+    const me = C.user && C.user.uid, SHOW = 12;
+    const row = (r, i) => `<li class="${r.uid === me ? 'you' : ''}"><span class="rk">${i + 1}</span>`
+      + `<span class="dot" style="background:${/^#[0-9a-f]{6}$/i.test(r.color) ? r.color : '#888888'}"></span>`
+      + `<span class="nm">${esc(r.name)}${r.uid === me ? ' <em>you</em>' : ''}</span>`
+      + `<span class="sub">${r.wins} ${r.wins === 1 ? 'win' : 'wins'} in ${r.games} ${r.games === 1 ? 'game' : 'games'}</span>`
+      + `<span class="v">${fmt(r[field])} <small>${r[field] === 1 && unit === 'wins' ? 'win' : unit}</small></span></li>`;
+    if (!rows.length) { body().innerHTML = '<p class="field-note">No results yet. Finish a game to be the first on the board.</p>'; return; }
+    const mine = rows.findIndex((r) => r.uid === me);
+    let html = `<ol class="board">${rows.slice(0, SHOW).map(row).join('')}</ol>`;
+    if (mine >= SHOW) html += `<ol class="board below">${row(rows[mine], mine)}</ol>`;
+    else if (mine < 0) html += `<p class="field-note">${this.stats.games ? `You aren't in the top ${BOARD_FETCH} yet.` : 'Finish a game to join the board.'}</p>`;
+    body().innerHTML = html;
+    // As many rows as the screen holds without scrolling, but always the top three and your own.
+    const card = $('modal').querySelector('.modal-card');
+    const shown = [...body().querySelectorAll('.board:not(.below) li')];
+    for (let k = shown.length - 1; k >= 3 && card.scrollHeight > card.clientHeight + 1; k--) shown[k].hidden = true;
   }
 
   // ---------- shop ----------
@@ -296,12 +446,14 @@ class UI {
     const g = this.game;
     if (!g || g.crownsAwarded || !this.me) return 0;
     g.crownsAwarded = true;
+    g.scoreResult = this.cloud.recordGame(g, this.me);
     return this.addCrowns(crownsForGame(g, this.me));
   }
   addCrowns(n) {
     if (!(n > 0)) return 0;
     this.shop.crowns += n;
     saveShop(this.shop);
+    this.cloud.dirty();
     const note = $('crowns-note');
     note.textContent = `You earned ${n} crowns last game. Spend them in the shop.`;
     note.hidden = false;
@@ -310,6 +462,8 @@ class UI {
   }
   // One-off rewards, such as finishing a tutorial for the first time.
   claimReward(id, n) {
+    // The account saves the tutorial as done even when the reward was paid before.
+    this.cloud.dirty();
     if (this.shop.claimed.includes(id)) return 0;
     this.shop.claimed.push(id);
     return this.addCrowns(n);
@@ -346,7 +500,9 @@ class UI {
         } else if (equip && S.owned.includes(equip.dataset.equip)) {
           S.equipped = equip.dataset.equip;
         } else return;
+        S.equippedAt = Date.now();
         saveShop(S);
+        this.cloud.dirty();
         this.renderPatternRow();
         const scroll = $('modal').querySelector('.modal-card').scrollTop;
         this.showShop();
@@ -465,6 +621,11 @@ class UI {
   enterGame(game, myId) {
     this.game = game;
     this.myId = myId;
+    // For leaderboard points: how many rivals and players the world started with.
+    game.scoreRivals = game.players.filter((p) => p && !p.tribe && p.id !== myId).length;
+    game.scoreHumans = game.players.filter((p) => p && p.human).length;
+    this.updateGamesWatch();
+    if (!game.multiplayer) this.cloud.rest();
     this.r.myId = myId;
     this.lastEvent = 0;
     this.overShown = false;
@@ -566,6 +727,9 @@ class UI {
     $('menu').hidden = false;
     $('tooltip').hidden = true;
     this.generatePreview();
+    this.cloud.online();
+    this.updateGamesWatch();
+    this.renderAccount();
   }
 
   // ---------- HUD ----------
@@ -2145,6 +2309,11 @@ class UI {
     $('mp-create').addEventListener('click', () => run(() => fresh().host(false, this.lobbySettings())));
     $('mp-join').addEventListener('click', () => run(() => fresh().join($('mp-code').value)));
     $('mp-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('mp-join').click(); } });
+    $('mp-games-list').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-join]');
+      if (b) { $('mp-code').value = b.dataset.join; $('mp-join').click(); }
+    });
+    $('mp-list').addEventListener('change', () => { if (this.net) this.net.setListed($('mp-list').checked); });
     $('mp-leave').addEventListener('click', () => { if (this.net) this.net.leave(); this.net = null; this.leaveLobby(); });
     $('mp-copy').addEventListener('click', async () => {
       const url = `${location.origin}${location.pathname}?join=${this.net && this.net.code}`;
@@ -2195,6 +2364,10 @@ class UI {
       this.applyLobbySettings(L.settings);
     }
     $('lobby-status').textContent = status;
+    // Firebase lists lobbies: public matches always, a private lobby if its host wants.
+    const canList = isHost && !L.isPublic && !!(this.net && this.net.cloud);
+    $('mp-list-row').hidden = !canList;
+    if (canList) $('mp-list').checked = this.net.listed;
     for (const el of $('setup').querySelectorAll('input, select')) {
       if (el.closest('#lobby') || el.name === 'gfx') continue;
       el.disabled = !isHost || el.id === 'opt-name';
@@ -2203,6 +2376,7 @@ class UI {
     $('btn-rename').disabled = true;
     $('online-summary').textContent = `Lobby ${L.code}, ${L.players.length} ${L.players.length === 1 ? 'player' : 'players'}`;
     if (!this.lobbyShown) { this.lobbyShown = true; this.setSide('online', true); this.setSide('world', true); }
+    this.updateGamesWatch();
   }
 
   applyLobbySettings(st) {
@@ -2236,7 +2410,9 @@ class UI {
     $('btn-rename').disabled = false;
     $('btn-start').textContent = 'Choose your homeland';
     $('btn-start').disabled = !!this.genTimer;
+    $('mp-list-row').hidden = true;
     if (!silent) this.mpStatus('');
+    this.updateGamesWatch();
   }
 
   spawnCountdown(left) {
@@ -2276,9 +2452,11 @@ class UI {
     else if (me.alive && leader) lede = `${leader.name} ends the age as the largest nation, with ${Math.round(g.landShare(leader) * 100)}% of the land. You hold ${Math.round(g.landShare(me) * 100)}%.`;
     else lede = 'Your last province was taken. You can keep watching how the war ends, or start again.';
     const crowns = this.awardGame();
+    const sc = this.cloud.enabled && g.scoreResult;
     this.openModal(`<h2 id="modal-title">${title}</h2>
       <p class="result-lede">${lede}</p>
       ${crowns ? `<p class="crowns-earned">You earned <b>${crowns} crowns</b>. Spend them on patterns in the shop on the main menu.</p>` : ''}
+      ${sc ? `<p class="score-line"><b>${sc.pts}</b> leaderboard points${sc.best ? ', your best game yet' : ''}. <button type="button" class="text-btn" data-act="board">See the leaderboard</button></p>` : ''}
       <div class="result-stats">
         <div><span>Year</span><b>${o.year}</b></div>
         <div><span>Time</span><b>${fmtTime(o.time)}</b></div>
@@ -2293,6 +2471,7 @@ class UI {
       onClick: (e) => {
         const b = e.target.closest('button[data-act]');
         if (b && b.dataset.act === 'menu') this.backToMenu();
+        if (b && b.dataset.act === 'board') this.showLeaderboard();
       },
     });
   }
