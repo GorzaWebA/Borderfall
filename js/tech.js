@@ -106,10 +106,11 @@ const TECHS = [
   // Atomic
   { id: 'rocketry', name: 'Rocketry', year: 1944, cost: 5500, req: ['radar'], kind: 'mil', unlock: ['silo'], desc: 'Unlocks Missile Silo.', openFx: { missile: 0.25 }, openDesc: 'Missiles strike 25% wider and harder.' },
   { id: 'fission', name: 'Nuclear Fission', year: 1950, cost: 7000, req: ['rocketry'], kind: 'mil', fx: { missile: 0.5 }, desc: 'Missiles strike 50% wider and harder.' },
+  { id: 'spaceflight', name: 'Spaceflight', year: 1957, cost: 7300, req: ['rocketry'], kind: 'mil', desc: 'Unlocks space missiles: launched from a silo of level 2 or more, they reach anywhere and pass over air defense while in space.' },
   { id: 'jets', name: 'Jet Engines', year: 1952, cost: 7200, req: ['aviation'], kind: 'mil', fx: { speed: 0.2, attrition: -0.2 }, desc: 'Fronts advance 20% faster. Offensives lose 20% fewer troops to supply.' },
   { id: 'computers', name: 'Computers', year: 1960, cost: 7500, req: ['electricity'], kind: 'sci', fx: { research: 0.25, admin: 0.25 }, desc: 'Research +25%. Administration +25%.' },
   { id: 'greenrev', name: 'Green Revolution', year: 1965, cost: 7800, req: ['antibiotics', 'assembly'], kind: 'eco', fx: { popCap: 0.25 }, desc: 'Land feeds 25% more people.' },
-  { id: 'satellites', name: 'Satellites', year: 1970, cost: 8500, req: ['rocketry', 'computers'], kind: 'sci', fx: { research: 0.15, missile: 0.25 }, desc: 'Research +15%. Missiles strike 25% wider and harder.' },
+  { id: 'satellites', name: 'Satellites', year: 1970, cost: 8500, req: ['spaceflight', 'computers'], kind: 'sci', fx: { research: 0.15, missile: 0.25 }, desc: 'Research +15%. Missiles strike 25% wider and harder.' },
   { id: 'internet', name: 'Internet', year: 1985, cost: 9500, req: ['computers'], kind: 'sci', fx: { research: 0.2, gold: 0.15 }, desc: 'Research +20%. Income +15%.' },
 ];
 for (const t of TECHS) t.cost = Math.round(t.cost * TECH_COST_SCALE / 10) * 10;

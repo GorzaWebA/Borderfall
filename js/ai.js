@@ -379,7 +379,7 @@ class AIController {
     // The best target that can be reached: one of its cities, factories or silos, or its heart.
     // An ordinary missile if it would get through; a space missile if that would and there's
     // money for it; otherwise now and then fire anyway, to use up the defenders' shots.
-    const spaceOk = g.hasSpaceSilo(p) && p.gold >= g.missileCost(p, 'space') + 300 * MONEY;
+    const spaceOk = g.canSpace(p) && p.gold >= g.missileCost(p, 'space') + 300 * MONEY;
     let fallback = -1;
     for (const [, q] of cands.slice(0, 4)) {
       const tiles = g.rng.shuffle(q.blds.filter((b) => b.alive && (b.type === 'city' || b.type === 'factory' || b.type === 'silo')).map((b) => b.tile)).slice(0, 5);
